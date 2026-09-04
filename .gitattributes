@@ -1,0 +1,20 @@
+# Normalise line endings. Without this, a file written on Windows and one written
+# in CI or WSL differ on every line, which turns a one-line change into a
+# whole-file diff and makes review useless.
+* text=auto eol=lf
+
+# Binary — never touch these.
+*.png binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+
+# Generated from the live schema by `npm run db:types`; don't diff it by hand.
+src/types/database.ts linguist-generated=true
+
+# Lockfiles are generated too — collapse them in review.
+package-lock.json linguist-generated=true
+supabase/functions/deno.lock linguist-generated=true

@@ -1,0 +1,48 @@
+# The checkpoint gate, enforced.
+#
+# `npm run check` runs locally before every commit and is deliberately fast and
+# partial (ADR 0002). This is the other half of that trade: the full suite has to
+# run *somewhere* automatically, or "we'll catch it at the checkpoint" quietly
+# becomes "nobody ran it".
+#
+# Deployment is not here. Vercel builds from its own GitHub integration; this
+# workflow only verifies.
+
+name: verify
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+# A force-push or a quick second push should cancel the older run rather than
+# queue behind it. Never cancel on main — those runs are the record.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # Runs typecheck, repo-wide lint, both test groups, and the production
+      # build. The test split is sequential on purpose — see ADR 0002.
+      - run: npm run verify
+
+      # The Edge Function is Deno, so tsc and eslint both skip it by config.
+      # Without this step nothing typechecks it at all.
+      - name: typecheck edge function
+        run: npx --yes deno@2 check supabase/functions/generate-cards/index.ts
