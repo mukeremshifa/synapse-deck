@@ -2,6 +2,10 @@
 
 Read this before doing anything in this repo.
 
+Then read [docs/AGENTS.md](docs/AGENTS.md) — this file is the hard constraints, that one
+is how to work here efficiently. Architectural decisions and their reasoning are in
+[docs/adr/](docs/adr/).
+
 ## Git — hard constraints
 
 **Work on `dev`. Commit to `dev`. Nothing else.**
@@ -21,6 +25,11 @@ every session in this project. If a task seems to need a merge or a push, **stop
 so** rather than doing it. Commit the work to `dev` and describe what remains.
 
 Do not offer to merge or push. Do not ask "shall I merge this?". The owner does that.
+
+Topic branches off `dev` are yours to create when the work warrants one — speculative work
+(`spike/`), work spanning several sessions, or when another agent is on `dev`. Anything
+smaller goes straight to `dev`. The shape of this, and when a branch is worth its
+overhead, is in [ADR 0003](docs/adr/0003-branching-model.md).
 
 **`supabase db push` is not a git push and is not covered by any of the above.** See below.
 
@@ -84,4 +93,33 @@ phase's plan, not into the current commit — even when it would take five minut
   blocked by an ESLint rule — do not disable it.
 - One Zod definition per concept, in `src/lib/schemas.ts`, shared by client and Edge
   Function. Do not redefine a card shape anywhere else.
-- Before saying work is done: `npm run typecheck && npm run lint && npm test && npm run build`.
+## Verification — two gates
+
+Measured on this machine, the old single ritual (`typecheck && lint && test && build`)
+costs ~170s. That is the right price at a merge and the wrong price at every commit, so
+it is now split. Full reasoning in [ADR 0002](docs/adr/0002-two-tier-verification.md).
+
+| Command          | Cost  | When                                                            |
+| ---------------- | ----- | --------------------------------------------------------------- |
+| `npm run check`  | ~15s  | **Before every commit.** Typecheck + eslint on changed files.   |
+| `npm run verify` | ~130s | **At a checkpoint, and before a merge.** Everything, plus build. |
+
+**Never commit with a failing `check`.** If it fails and you cannot fix it, leave the work
+uncommitted and say so.
+
+`verify` is what CI runs on every push to `main` and `dev`. A green `check` means the code
+you wrote typechecks and lints; it does not mean the app works. Do not report work as done
+on the strength of `check` alone at a phase boundary — run `verify`.
+
+### Tests, while iterating
+
+**Do not write new tests until a checkpoint**, then write them for the whole phase in one
+pass. This is a deliberate trade of test latency for iteration speed and it is only sound
+because `verify` gates the merge.
+
+Three exceptions, always written immediately:
+
+1. **A migration** — `npm test` runs migrations against PGlite, and an untested migration
+   reaching the live database is the one mistake here with no cheap undo.
+2. **A security boundary** — new RLS policy, anything touching key handling.
+3. **A bug just fixed** — write the regression test while the failure is still understood.

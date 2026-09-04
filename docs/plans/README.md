@@ -49,10 +49,18 @@ authored against the codebase it will actually run in.
 | P6 — Surface     | [P6-surface.md](P6-surface.md)         | ✅ Complete — 2026-08-13                                        |
 | P7 — Landing     | [P7-landing.md](P7-landing.md)         | ✅ Complete — 2026-08-13                                        |
 | Post-v1          | [POST-V1.md](POST-V1.md)               | 📋 Backlog, not a phase                                         |
+| AWS-native       | [AWS-MIGRATION.md](AWS-MIGRATION.md)   | 🧭 Direction agreed 2026-09-05 — no plan, no code yet           |
 
-**P7 was the last phase, and the board is closed.** SPEC §11 lists nothing between P7 and
-Post-v1, so there is no P8 plan file and this is not an omission: writing one would mean
-inventing a phase to fill a row. Everything that remains is either in
+**P7 was the last phase of v1, and the v1 board is closed.** SPEC §11 lists nothing between
+P7 and Post-v1, so there is no P8 plan file and this is not an omission: writing one would
+mean inventing a phase to fill a row.
+
+**Reopened 2026-09-05, one row only.** The owner set a new direction — AWS-native, with the
+AI and full-stack work carrying equal weight — and [AWS-MIGRATION.md](AWS-MIGRATION.md)
+records its shape. That file is deliberately *not* a phase plan: it is the level above one,
+and it changes no code. The convention below still holds, so the first executable step
+(the async document pipeline) gets a real plan file when it is actually started, written
+against the codebase it will run in. Until then the board stays closed in practice. Everything that remains is either in
 [POST-V1.md](POST-V1.md), each entry with the condition that should start it, or on the
 owner's list below — and the owner's list is not work a session can plan its way out of.
 
