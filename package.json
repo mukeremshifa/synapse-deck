@@ -19,7 +19,8 @@
     "fn:deploy": "npx supabase functions deploy generate-cards --use-api",
     "fn:check": "npx deno@2 check supabase/functions/generate-cards/index.ts",
     "demo:seed": "node --experimental-strip-types scripts/seed-demo.mjs",
-    "brand:assets": "node scripts/build-brand-assets.mjs"
+    "brand:assets": "node scripts/build-brand-assets.mjs",
+    "hero:images": "node scripts/build-hero-images.mjs"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
