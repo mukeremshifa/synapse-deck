@@ -94,10 +94,13 @@ describe('the route table', () => {
     renderAt('/');
 
     expect(
-      await screen.findByRole('heading', {
-        level: 1,
-        name: 'Forgetting is the schedule.',
-      }),
+      await screen.findByRole(
+        'heading',
+        { level: 1, name: 'Forgetting is the schedule.' },
+        // Waits on the landing route's lazy chunk; see the note in
+        // landing-requests.test.tsx. 1s is a timer racing a dynamic import.
+        { timeout: 5000 },
+      ),
     ).toBeInTheDocument();
     // Not the login form: that bounce is the exact failure P7 exists to remove.
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
@@ -113,7 +116,9 @@ describe('the route table', () => {
 
     renderAt('/');
 
-    expect(await screen.findByText('Dashboard stand-in')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Dashboard stand-in', undefined, { timeout: 5000 }),
+    ).toBeInTheDocument();
     expect(screen.queryByText('Forgetting is the schedule.')).not.toBeInTheDocument();
   });
 

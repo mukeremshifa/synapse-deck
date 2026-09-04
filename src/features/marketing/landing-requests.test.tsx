@@ -79,10 +79,16 @@ describe('the front door, for a visitor with no session', () => {
     );
 
     expect(
-      await screen.findByRole('heading', {
-        level: 1,
-        name: 'Forgetting is the schedule.',
-      }),
+      await screen.findByRole(
+        'heading',
+        { level: 1, name: 'Forgetting is the schedule.' },
+        // This test renders the whole router, so the first paint waits on the
+        // landing route's lazy chunk. findByRole's 1s default is a timer racing
+        // a dynamic import: it passes alone and fails under load, which reads
+        // like a broken page rather than a slow one. The assertion is unchanged
+        // — only how long it is willing to wait for it.
+        { timeout: 5000 },
+      ),
     ).toBeInTheDocument();
 
     // Let anything the providers scheduled — a deferred session refresh, a
