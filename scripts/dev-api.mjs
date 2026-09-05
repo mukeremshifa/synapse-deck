@@ -52,6 +52,18 @@ process.env['PGDATABASE'] ??= 'synapsedeck';
 process.env['PGUSER'] ??= 'synapsedeck_app';
 process.env['CORS_ORIGIN'] ??= 'http://localhost:5173';
 
+/*
+ * The password comes from .env.local as LOCAL_PGPASSWORD rather than
+ * PGPASSWORD, so that loading that file does not silently repoint every
+ * other psql and pg tool in the shell at this one database. Bridged here
+ * because this is where the rest of the local connection defaults live, and
+ * because `pg` only reads the standard name.
+ *
+ * A PGPASSWORD already in the environment wins, which is what makes pointing
+ * this server at a different database a matter of exporting one variable.
+ */
+if (process.env['LOCAL_PGPASSWORD']) process.env['PGPASSWORD'] ??= process.env['LOCAL_PGPASSWORD'];
+
 const USER_POOL_ID = process.env['VITE_COGNITO_USER_POOL_ID'];
 const CLIENT_ID = process.env['VITE_COGNITO_CLIENT_ID'];
 const REGION = USER_POOL_ID?.split('_')[0] ?? 'us-east-1';
