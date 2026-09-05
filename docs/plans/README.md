@@ -37,18 +37,18 @@ authored against the codebase it will actually run in.
 
 ## Board
 
-| Phase            | Plan                                   | Status                                                          |
-| ---------------- | -------------------------------------- | --------------------------------------------------------------- |
-| P0 — Reset       | _(executed inline, no plan file)_      | ✅ Complete — 2026-08-12                                        |
-| P0b — Cloud link | [P0b-cloud-link.md](P0b-cloud-link.md) | ✅ Complete — 2026-08-12                                        |
-| P1 — Core loop   | [P1-core-loop.md](P1-core-loop.md)     | ✅ Complete — 2026-08-12                                        |
-| P2 — Generation  | [P2-generation.md](P2-generation.md)   | ✅ Complete — 2026-08-12                                        |
-| P3 — Progress    | [P3-progress.md](P3-progress.md)       | ✅ Complete — 2026-08-12                                        |
-| P4 — Ship        | [P4-ship.md](P4-ship.md)               | 🟡 Code complete — 2026-08-13; the deploy itself is the owner's |
-| P5 — Identity    | [P5-identity.md](P5-identity.md)       | ✅ Complete — 2026-08-13                                        |
-| P6 — Surface     | [P6-surface.md](P6-surface.md)         | ✅ Complete — 2026-08-13                                        |
-| P7 — Landing     | [P7-landing.md](P7-landing.md)         | ✅ Complete — 2026-08-13                                        |
-| Post-v1          | [POST-V1.md](POST-V1.md)               | 📋 Backlog, not a phase                                         |
+| Phase            | Plan                                       | Status                                                               |
+| ---------------- | ------------------------------------------ | -------------------------------------------------------------------- |
+| P0 — Reset       | _(executed inline, no plan file)_          | ✅ Complete — 2026-08-12                                             |
+| P0b — Cloud link | [P0b-cloud-link.md](P0b-cloud-link.md)     | ✅ Complete — 2026-08-12                                             |
+| P1 — Core loop   | [P1-core-loop.md](P1-core-loop.md)         | ✅ Complete — 2026-08-12                                             |
+| P2 — Generation  | [P2-generation.md](P2-generation.md)       | ✅ Complete — 2026-08-12                                             |
+| P3 — Progress    | [P3-progress.md](P3-progress.md)           | ✅ Complete — 2026-08-12                                             |
+| P4 — Ship        | [P4-ship.md](P4-ship.md)                   | 🟡 Code complete — 2026-08-13; the deploy itself is the owner's      |
+| P5 — Identity    | [P5-identity.md](P5-identity.md)           | ✅ Complete — 2026-08-13                                             |
+| P6 — Surface     | [P6-surface.md](P6-surface.md)             | ✅ Complete — 2026-08-13                                             |
+| P7 — Landing     | [P7-landing.md](P7-landing.md)             | ✅ Complete — 2026-08-13                                             |
+| Post-v1          | [POST-V1.md](POST-V1.md)                   | 📋 Backlog, not a phase                                              |
 | AWS-native + v2  | [AWS-NATIVE-BRIEF.md](AWS-NATIVE-BRIEF.md) | 🧭 Decisions made 2026-09-05 — 8 phases scoped, no plan, no code yet |
 
 **P7 was the last phase of v1, and the v1 board is closed.** SPEC §11 lists nothing between
@@ -57,7 +57,7 @@ mean inventing a phase to fill a row.
 
 **Reopened 2026-09-05, one row only.** The owner set a new direction — AWS-native — and
 [AWS-NATIVE-BRIEF.md](AWS-NATIVE-BRIEF.md) records the decisions. That file is deliberately
-*not* a phase plan: it is the level above one, and it changes no code. It is a **brief**,
+_not_ a phase plan: it is the level above one, and it changes no code. It is a **brief**,
 meant to be handed to a planning session whose first output is `P8-aws-foundation.md`.
 
 `AWS-MIGRATION.md` was the first attempt at that document and is **superseded**. It

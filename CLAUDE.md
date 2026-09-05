@@ -65,6 +65,7 @@ phase's plan, not into the current commit — even when it would take five minut
   Two things to do first, every time: `npx supabase db push --linked --dry-run` and read
   what it lists — if it names a migration you did not write, stop and ask. And never push a
   migration whose tests have not run.
+
 - Destructive database operations are **not** covered by that. `supabase db reset`, dropping
   a table, deleting rows in the live project: ask first, every time.
 - `npm test` runs those migrations against PGlite (Postgres in WASM), so schema and RLS
@@ -93,15 +94,16 @@ phase's plan, not into the current commit — even when it would take five minut
   blocked by an ESLint rule — do not disable it.
 - One Zod definition per concept, in `src/lib/schemas.ts`, shared by client and Edge
   Function. Do not redefine a card shape anywhere else.
+
 ## Verification — two gates
 
 Measured on this machine, the old single ritual (`typecheck && lint && test && build`)
 costs ~170s. That is the right price at a merge and the wrong price at every commit, so
 it is now split. Full reasoning in [ADR 0002](docs/adr/0002-two-tier-verification.md).
 
-| Command          | Cost  | When                                                            |
-| ---------------- | ----- | --------------------------------------------------------------- |
-| `npm run check`  | ~15s  | **Before every commit.** Typecheck + eslint on changed files.   |
+| Command          | Cost  | When                                                             |
+| ---------------- | ----- | ---------------------------------------------------------------- |
+| `npm run check`  | ~15s  | **Before every commit.** Typecheck + eslint on changed files.    |
 | `npm run verify` | ~130s | **At a checkpoint, and before a merge.** Everything, plus build. |
 
 **Never commit with a failing `check`.** If it fails and you cannot fix it, leave the work
