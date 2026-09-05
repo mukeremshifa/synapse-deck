@@ -169,13 +169,25 @@ Then in **GitHub → Settings → Secrets and variables → Actions:**
   a credential and is useless without the trust relationship above.
 - **Secret** `ALERT_EMAIL` — the budget and alarm address.
 
-### 4. Activate cost-allocation tags — owner, once
+### 4. Activate cost-allocation tags — owner, once ⏳ **still outstanding**
 
 **Billing → Cost allocation tags** → activate `project`, `env`, `owner`.
 
 Easy to miss, and until it is done the tags are present on every resource and useless for
-reporting, which is a confusing state to debug. Activation can take up to 24 hours to show
-up in Cost Explorer.
+reporting, which is a confusing state to debug.
+
+**Attempted on 2026-09-06 and it is not yet possible.** Both the CLI
+(`aws ce update-cost-allocation-tags-status`) and the console reject keys AWS has not yet
+observed in a completed billing cycle:
+
+```
+ValidationException: Failed to update Cost Allocation Tag: Tag keys not found: owner,project,env
+```
+
+That is expected rather than broken — the tags exist on the resources (verified with
+`aws lambda list-tags`), and AWS simply has not ingested them into billing yet. **Retry
+from 2026-09-07.** Until then Cost Explorer cannot group by them, so the first cost figure
+has to be read at the account level.
 
 ### 5. Confirm the SNS subscription — owner
 
@@ -185,6 +197,18 @@ alerting system. This is why the plan's acceptance criteria force an alarm to ac
 rather than accepting that it was configured.
 
 ---
+
+## Deploying from a long-lived branch: pin the SHA
+
+```bash
+npm run infra:deploy -- -c alertEmail=… -c gitSha=$(git rev-parse aws-native)
+```
+
+**`aws-native`, not `HEAD`.** Learned the hard way on the first deploy: another session
+switched the checkout mid-command and `git rev-parse HEAD` resolved to a different
+branch's commit, which would have stamped the version endpoint with unrelated work. The
+whole value of the endpoint is that its answer is trustworthy, so the ref it reports must
+be named explicitly. This applies to every later phase that deploys.
 
 ## Verifying a deploy
 
