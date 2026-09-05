@@ -6,6 +6,9 @@ import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider } from '@/features/auth/AuthProvider';
 import { ThemeProvider } from './theme';
 
+vi.stubEnv('VITE_SUPABASE_URL', 'https://example-project.supabase.co');
+vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'sb_publishable_notarealkey0000000000');
+
 // The route table as text, so the specifiers under test are the ones that ship.
 import routesSource from './routes.tsx?raw';
 
