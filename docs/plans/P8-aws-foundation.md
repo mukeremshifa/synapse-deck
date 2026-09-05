@@ -357,7 +357,7 @@ already settled:
 A third ADR for D11's schema is listed as conditional in the brief; **defer it to Phase B**,
 where the schema is actually written and the contention (if any) is visible.
 
-### 11. Documentation — the parts that would otherwise drift
+### ✅ 11. Documentation — the parts that would otherwise drift
 
 - **`docs/plans/README.md`** — add the P8 row to the board and mark the AWS row as started.
   The board is the first thing a fresh session reads.
@@ -380,7 +380,7 @@ where the schema is actually written and the contention (if any) is visible.
 - **`SPEC.md` is not touched.** §8 constraint 9 ties the §1 rewrite to the commit that first
   implements the new product loop; this phase implements none of it.
 
-### 12. Write the next plan — `docs/plans/P9-aws-slice.md`
+### ✅ 12. Write the next plan — `docs/plans/P9-aws-slice.md`
 
 Per the convention, the last task of every plan writes the next. Phase A is the brief's
 biggest and riskiest phase (5–8 sessions, D12's vertical slice), and it must be planned

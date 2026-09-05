@@ -55,7 +55,8 @@ authored against the codebase it will actually run in.
 | P7 — Landing     | [P7-landing.md](P7-landing.md)             | ✅ Complete — 2026-08-13                                             |
 | Post-v1          | [POST-V1.md](POST-V1.md)                   | 📋 Backlog, not a phase                                              |
 | AWS-native + v2  | [AWS-NATIVE-BRIEF.md](AWS-NATIVE-BRIEF.md) | 🧭 Decisions made 2026-09-05 — 8 phases scoped                        |
-| P8 — AWS founda. | [P8-aws-foundation.md](P8-aws-foundation.md) | 🟡 In progress — CDK synthesises and is gated; nothing deployed yet |
+| P8 — AWS founda. | [P8-aws-foundation.md](P8-aws-foundation.md) | ✅ Complete — 2026-09-06; dev stack live in `us-east-1`             |
+| P9 — AWS slice   | [P9-aws-slice.md](P9-aws-slice.md)           | 📋 Planned 2026-09-06 — **retires RLS**; not started                |
 
 **P7 was the last phase of v1, and the v1 board is closed.** SPEC §11 lists nothing between
 P7 and Post-v1, so for two days there was deliberately no P8 file: writing one would have
@@ -83,6 +84,17 @@ with a blueprint generator, a timed exam runner, and a diagnostic that turns exa
 scheduled cards. Eight phases are scoped in the brief's §5, roughly 25–35 sessions.
 `SPEC.md` §1 carries a pointer to that direction but **still describes v1**, deliberately:
 it is rewritten by the phase that first implements the new loop, not in advance.
+
+**RLS is retired for good — decided by the owner on 2026-09-06.** It is executed by
+[P9](P9-aws-slice.md), which is written under that decision rather than around it. The
+consequence is worth stating on the board because it changes what every later phase must
+be careful about: today a query that forgets `where user_id = …` returns nothing, because
+Postgres refuses; after P9 it returns every user's rows. P9 replaces the guarantee with
+four structural mechanisms — a required `userId` first parameter, no SQL in handlers,
+`user_id` filters pushed into the ported RPCs, and a `verify`-time lint — and says
+plainly that a discipline with a linter behind it is weaker than a database that refuses.
+`CLAUDE.md`'s "RLS is the entire security boundary" rule is rewritten by the same commit
+that makes it false, per the brief's §8 constraint 5.
 
 **Two ADRs landed ahead of the code they justify**, as the brief's §8 constraint 6
 requires: [0006](../adr/0006-rds-dynamodb-split.md) on the RDS/DynamoDB split and
