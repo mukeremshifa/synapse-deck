@@ -27,8 +27,18 @@ Commit the work in progress. This is the everyday path — fast gate, then commi
    saying what changed, and a body only where the *why* is not obvious. Match the
    existing history; see `docs/adr/0003-branching-model.md`.
 
-4. **Stop there.** Do not push. Do not merge. Do not offer to. Say what was committed and
-   what remains.
+4. **Push it.**
+
+   ```bash
+   git push origin HEAD
+   ```
+
+   No permission needed on `dev` or a topic branch off it, and no need to offer — push it
+   and say you did. CI runs `verify` on the push. If you are on a topic branch that is
+   finished, merge it into `dev` and delete it.
+
+   **Never push to `main`.** It is frozen production (ADR 0004). If the work seems to need
+   `main` to move, say so and stop.
 
 If the work finishes a phase or a significant chunk, say so and suggest `/checkpoint`
 rather than running it unprompted.

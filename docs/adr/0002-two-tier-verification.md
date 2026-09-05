@@ -1,6 +1,13 @@
 # 2. Two-tier verification: a fast gate per commit, a full gate per checkpoint
 
-**Status:** Accepted · **Date:** 2026-09-05
+**Status:** Accepted, amended by [ADR 0005](0005-no-test-suite.md) · **Date:** 2026-09-05
+
+> **Amended the same day.** The two-gate shape below still holds — `check` per commit,
+> `verify` at a checkpoint — but **the test suite it was built around no longer exists.**
+> It was deleted on 2026-09-05; `verify` now runs typecheck, repo-wide lint, a production
+> build and a Deno check of the Edge Function, and no tests. Everything below about test
+> timings, the PGlite/jsdom split, and deferring tests to checkpoints is kept as the record
+> of why the split was shaped this way, not as a description of what runs today.
 
 ## Context
 

@@ -6,44 +6,45 @@ nothing here overrides it.
 
 ---
 
-## 1. Two gates, and why
+## 1. The gate
 
-There are exactly two commands you need, and knowing which to run is most of the skill.
+There are exactly two commands you need, and one of them is the everyday one.
 
-| Command          | Cost  | When                                                             |
-| ---------------- | ----- | ---------------------------------------------------------------- |
-| `npm run check`  | ~15s  | **Before every commit.** Always. No exceptions.                  |
-| `npm run verify` | ~130s | At a **checkpoint** — end of a phase, before you ask for a merge |
+| Command          | Cost | When                                                          |
+| ---------------- | ---- | -------------------------------------------------------------- |
+| `npm run check`  | ~15s | **Before every commit.** Always. No exceptions.               |
+| `npm run verify` | ~45s | At a **checkpoint**, and in CI on every push.                  |
 
 `check` is typecheck plus eslint on the files you actually changed. It is scoped on
 purpose: repo-wide eslint costs ~39s while eslint on four files costs ~3s, and the
 typecheck is what catches the errors that break a build anyway.
 
-`verify` is everything: typecheck, repo-wide lint, all 359 tests, production build.
+`verify` adds repo-wide lint, a production build, and a Deno typecheck of the Edge
+Function — the one part of the codebase tsc and eslint both skip.
 
-**Why the split.** The v1 phases were built with a test-first discipline and it paid —
-31 suites, RLS verified against real Postgres. But running 87 seconds of tests after
-every small edit buys nothing when the edit was a copy change, and the tokens spent
-reading that output are tokens not spent on the work. So: the fast gate runs constantly,
-the full suite runs at boundaries where it can actually catch regression.
+### There are no tests
 
-**This is a trade, and it has a cost.** Between checkpoints, a regression in an untested
-path can survive several commits. That is acceptable while iterating and is not
-acceptable at a merge, which is exactly why `verify` gates the merge.
+The suite (31 suites, 359 tests) was **deleted on 2026-09-05** at the owner's instruction,
+to keep development fast and token-cheap through the AWS-native build. See
+[ADR 0005](adr/0005-no-test-suite.md).
 
-### Tests, during the fast phase
+**Do not write tests, and do not add a runner.** `vitest`, `jsdom`, `@testing-library/*`
+and `@electric-sql/pglite` were removed from `package.json` on purpose; reaching for one
+out of habit reintroduces what was deliberately taken out. A suite gets written in one
+pass at a checkpoint, when the owner asks for it.
 
-The standing instruction is: **do not write new tests until a checkpoint.** When you
-reach one, write the suite for everything the phase added, in one pass.
+**Be honest about what this means.** Both gates prove the code compiles, lints and builds.
+Neither proves it works. Say "typechecks and builds" — not "tested", "verified" or
+"works". If a change is risky and you cannot prove it is right, say that plainly instead
+of implying a gate covered it.
 
-Three exceptions, because they cost minutes and save hours:
+Three things are now completely unguarded and deserve extra care:
 
-1. **A migration.** `npm test` runs migrations against PGlite. An untested migration
-   that reaches the live database is the one mistake here with no cheap undo.
-2. **A security boundary.** New RLS policy, anything touching key handling. `CLAUDE.md`
-   is explicit that RLS is the entire security boundary.
-3. **A bug you just fixed.** Write the test that would have caught it, then and there —
-   that is the one moment the failure is fully understood.
+1. **Migrations** — PGlite used to run every one before it reached the live database.
+   Nothing does now. Dry-run, and re-read your own SQL.
+2. **RLS** — still the entire security boundary, with nothing proving it holds.
+3. **Key handling** — `src/lib/env-schema.ts` still refuses to boot on a secret key; the
+   test proving that refusal is gone. Do not weaken it.
 
 ---
 
@@ -99,11 +100,10 @@ logic applies to everything else you do:
 ## 5. Where things are
 
 ```
-src/lib/          pure logic — fsrs, schemas, queue, quota. Tests are cheap here.
+src/lib/          pure logic — fsrs, schemas, queue, quota
 src/features/     one directory per product area; screens live with their logic
 src/app/          shell — routing, providers, theme, error boundary
 src/components/   shadcn primitives in ui/, shared bits above it
-src/test/         PGlite-backed db tests (migrations, RLS, RPCs)
 supabase/         migrations (plain SQL, filename order) + Deno edge functions
 docs/SPEC.md      what and why. The source of truth for scope.
 docs/plans/       one plan per phase; README.md is the board
@@ -140,13 +140,30 @@ The AWS work ahead is exactly the kind of thing this exists for.
 - **Never edit a pushed migration.** Add a new one.
 - **`dangerouslySetInnerHTML` is blocked by eslint** because card content is untrusted
   LLM output. Do not disable the rule. `check` catches this.
-- **Postgres majors must match** between PGlite and production — `npm run db:pg-version`.
+- **Postgres major** is recorded in `supabase/pg-version.json`; `npm run db:pg-version`
+  compares it against the live project. The test that enforced this is gone — run it by
+  hand when the environment changes.
 - **`sb_secret_…` must never reach client env.** `src/lib/env-schema.ts` refuses to boot
-  if it finds one, and that refusal is tested. Do not weaken it.
+  if it finds one. The test that proved the refusal is gone, so the file itself is now the
+  only thing standing there — do not weaken it.
 
 ---
 
-## 8. What is the owner's alone
+## 8. `dev` is yours; `main` is not
 
-Merging, pushing, PRs, anything touching `main` or a remote. Do not offer. Do not ask
-"shall I merge this?". Commit to `dev`, then say what remains.
+**On `dev`: act.** Commit, push, merge your topic branches, delete them when merged. Do
+not ask and do not offer — just do it and say what you did. CI runs `verify` on every
+push, and that is what makes it safe.
+
+**On `main`: nothing.** It is frozen at the v1 + AWS-brief state and it is production. No
+merge, no push, no offer, no question. If work seems to need `main` to move, say so and
+stop — that is the owner's decision, not a task.
+
+PRs are the owner's too. An agent opening and merging its own PR is a review trail with no
+review in it; merge into `dev` directly instead.
+
+Rewriting history on `dev` (force-push, rebase) is owner-only — it can destroy another
+session's work and is not recoverable from the remote. A topic branch you created
+yourself is exempt.
+
+See [ADR 0004](adr/0004-dev-autonomy-main-frozen.md) for why this changed.

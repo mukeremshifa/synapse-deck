@@ -8,28 +8,44 @@ is how to work here efficiently. Architectural decisions and their reasoning are
 
 ## Git — hard constraints
 
-**Work on `dev`. Commit to `dev`. Nothing else.**
+**`dev` is yours. `main` is not. That is the whole rule.**
 
-| Action                                      | Who               |
-| ------------------------------------------- | ----------------- |
-| Commit to `dev`                             | ✅ Claude         |
-| Create a topic branch off `dev` when asked  | ✅ Claude         |
-| `git merge` (any direction)                 | ❌ **Owner only** |
-| `git push` (any remote, any branch)         | ❌ **Owner only** |
-| Anything touching `main`                    | ❌ **Owner only** |
-| `git rebase`, force-push, history rewriting | ❌ **Owner only** |
-| Opening PRs                                 | ❌ **Owner only** |
+Revised 2026-09-05. The previous version required the owner for every push and merge,
+which made sense when one person typed every commit and became pure friction once agents
+did the work. The constraint that actually matters was never "ask before pushing" — it is
+**production must not move without a human deciding it should**. So the freedom is now
+wide on `dev` and absolute on `main`.
 
-This is not a preference to weigh against convenience — it is a standing constraint for
-every session in this project. If a task seems to need a merge or a push, **stop and say
-so** rather than doing it. Commit the work to `dev` and describe what remains.
+| Action                                              | Who               |
+| --------------------------------------------------- | ----------------- |
+| Commit / push / merge on `dev`                      | ✅ Claude         |
+| Create, push, merge, delete topic branches off `dev` | ✅ Claude         |
+| Force-push a **topic branch you created**           | ✅ Claude         |
+| **Anything at all touching `main`**                 | ❌ **Owner only** |
+| Opening PRs                                         | ❌ **Owner only** |
+| Force-push or rewrite history on `dev`              | ❌ **Owner only** |
+| Deleting or rewriting anything on the remote        | ❌ **Owner only** |
 
-Do not offer to merge or push. Do not ask "shall I merge this?". The owner does that.
+**On `dev`, act.** Commit, push, merge your topic branches, delete them when merged. Do
+not ask permission and do not offer to push — just do it and say what you did. CI runs
+`verify` on every push, which is the safety net that makes this safe.
 
-Topic branches off `dev` are yours to create when the work warrants one — speculative work
+**On `main`, stop.** It is frozen at `0bdc858`, the v1 + AWS-brief state, and it is
+production. It moves only when the owner moves it, only at a checkpoint. Do not merge into
+it, do not push to it, do not offer to, do not ask. If work seems to need `main` to move,
+**say so and stop** — that is a decision, not a task.
+
+`main` is also protected server-side: required status checks, one approving review, and
+admin enforcement. A push from a session will be rejected by GitHub, which is intended
+rather than an obstacle to route around.
+
+**PRs stay with the owner.** They are a human review surface; an agent opening and merging
+its own PR is ceremony that reviews nothing. Merge into `dev` directly.
+
+Topic branches off `dev` are yours whenever the work warrants one — speculative work
 (`spike/`), work spanning several sessions, or when another agent is on `dev`. Anything
-smaller goes straight to `dev`. The shape of this, and when a branch is worth its
-overhead, is in [ADR 0003](docs/adr/0003-branching-model.md).
+smaller goes straight to `dev`. See [ADR 0003](docs/adr/0003-branching-model.md), and
+[ADR 0004](docs/adr/0004-dev-autonomy-main-frozen.md) for why this changed.
 
 **`supabase db push` is not a git push and is not covered by any of the above.** See below.
 
@@ -58,23 +74,27 @@ phase's plan, not into the current commit — even when it would take five minut
   null is generated as non-null — cast at the call site and say why, rather than inventing a
   value. Run `npm run db:pg-version` afterwards if anything about the environment changed.
 
-  What is still the owner's alone: `git push`, `git merge`, PRs, anything touching `main` or
-  a remote. Those are about the shared repository. The database is this project's own
-  schema, and `npm test` has already verified the migration against PGlite before it goes.
+  Still the owner's alone: PRs and anything touching `main`. Those are about the shared
+  repository; the database is this project's own schema.
 
-  Two things to do first, every time: `npx supabase db push --linked --dry-run` and read
-  what it lists — if it names a migration you did not write, stop and ask. And never push a
-  migration whose tests have not run.
+  **The safety net that used to precede this is gone.** PGlite ran every migration before
+  it reached the live database; the suite was deleted on 2026-09-05 (ADR 0005), so nothing
+  now checks a migration except you reading it. Treat `db:push` as the sharp tool it has
+  become:
+
+  1. `npx supabase db push --linked --dry-run` first, every time. Read what it lists — if
+     it names a migration you did not write, stop and ask.
+  2. Read your own SQL again before pushing. There is no second opinion.
+  3. If the migration is destructive or you are unsure, **ask the owner** rather than
+     pushing and finding out.
 
 - Destructive database operations are **not** covered by that. `supabase db reset`, dropping
   a table, deleting rows in the live project: ask first, every time.
-- `npm test` runs those migrations against PGlite (Postgres in WASM), so schema and RLS
-  changes are verifiable with no Docker and no cloud round-trip.
-- **Postgres majors must match between tests and production.** `supabase/pg-version.json`
-  records the expected major; `src/test/pg-version.test.ts` enforces it, and
-  `npm run db:pg-version` compares it against the live project. PGlite 0.4.x ships PG 17,
-  0.5.x ships PG 18 — bumping across that line silently breaks the guarantee that a
-  passing test means a working migration.
+- Migrations are **no longer verified anywhere before they reach the live database.** The
+  PGlite harness that did that was deleted with the suite (ADR 0005). `supabase/pg-version.json`
+  still records the expected Postgres major and `npm run db:pg-version` still compares it
+  against the live project, but the test that enforced it is gone — run it by hand when
+  anything about the environment changes.
 - RLS is the entire security boundary. Every table gets an owner-only policy set plus
   `force row level security`. A new table without RLS is a bug, not a TODO.
 
@@ -84,7 +104,8 @@ phase's plan, not into the current commit — even when it would take five minut
   The legacy `anon` / `service_role` JWTs are not used.
 - The secret key maps to `service_role` (`BYPASSRLS`) and must never appear in client env,
   the repo, or a build. `src/lib/env-schema.ts` refuses to boot if it finds one; that
-  refusal is tested. Do not weaken it.
+  refusal was tested until the suite was deleted (ADR 0005), so that file is now the only
+  thing enforcing it. Do not weaken it.
 - Provider API keys (e.g. Groq) live only as Edge Function secrets.
 
 ## Code
@@ -95,33 +116,37 @@ phase's plan, not into the current commit — even when it would take five minut
 - One Zod definition per concept, in `src/lib/schemas.ts`, shared by client and Edge
   Function. Do not redefine a card shape anywhere else.
 
-## Verification — two gates
+## Verification — `check` is the gate
 
-Measured on this machine, the old single ritual (`typecheck && lint && test && build`)
-costs ~170s. That is the right price at a merge and the wrong price at every commit, so
-it is now split. Full reasoning in [ADR 0002](docs/adr/0002-two-tier-verification.md).
-
-| Command          | Cost  | When                                                             |
-| ---------------- | ----- | ---------------------------------------------------------------- |
-| `npm run check`  | ~15s  | **Before every commit.** Typecheck + eslint on changed files.    |
-| `npm run verify` | ~130s | **At a checkpoint, and before a merge.** Everything, plus build. |
+| Command          | Cost | When                                                          |
+| ---------------- | ---- | -------------------------------------------------------------- |
+| `npm run check`  | ~15s | **Before every commit.** Typecheck + eslint on changed files.  |
+| `npm run verify` | ~45s | At a checkpoint and in CI. Whole-repo lint, typecheck, build.  |
 
 **Never commit with a failing `check`.** If it fails and you cannot fix it, leave the work
 uncommitted and say so.
 
-`verify` is what CI runs on every push to `main` and `dev`. A green `check` means the code
-you wrote typechecks and lints; it does not mean the app works. Do not report work as done
-on the strength of `check` alone at a phase boundary — run `verify`.
+### There are no tests
 
-### Tests, while iterating
+**The suite — 31 suites, 359 tests — was deleted on 2026-09-05** at the owner's
+instruction, to prioritise fast, token-cheap development through the AWS-native build.
+See [ADR 0005](docs/adr/0005-no-test-suite.md).
 
-**Do not write new tests until a checkpoint**, then write them for the whole phase in one
-pass. This is a deliberate trade of test latency for iteration speed and it is only sound
-because `verify` gates the merge.
+Do not write tests. Do not add a test runner, and do not reintroduce one incidentally by
+reaching for `vitest` out of habit — `vitest`, `jsdom`, `@testing-library/*` and
+`@electric-sql/pglite` were all removed from `package.json` deliberately. A new suite gets
+written in one deliberate pass at a checkpoint, when the owner says so.
 
-Three exceptions, always written immediately:
+**Know what this costs, and say so honestly.** Nothing verifies behaviour now. `check` and
+`verify` prove the code compiles, lints and builds; they cannot tell you an FSRS interval
+is right, an RLS policy still isolates users, or a migration does what it claims. When
+reporting work, say "typechecks and builds" — never "tested", "verified" or "works".
 
-1. **A migration** — `npm test` runs migrations against PGlite, and an untested migration
-   reaching the live database is the one mistake here with no cheap undo.
-2. **A security boundary** — new RLS policy, anything touching key handling.
-3. **A bug just fixed** — write the regression test while the failure is still understood.
+This raises the stakes on three things in particular, all of which are now unguarded:
+
+1. **Migrations** — `npm test` used to run them against PGlite before they reached the
+   live database. That check is gone. Read the SQL yourself, and use
+   `npx supabase db push --linked --dry-run` before every push.
+2. **RLS** — still the entire security boundary, now with nothing proving it holds.
+3. **Key handling** — `src/lib/env-schema.ts` still refuses to boot on a secret key, but
+   the test that proved the refusal is gone. Do not weaken that file.

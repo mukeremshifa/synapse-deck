@@ -35,9 +35,11 @@
     "paths": {
       "@/*": ["./src/*"]
     },
-    // "node" is here for the test harness only (it reads migration files from
-    // disk); nothing under src/ outside src/test/ should import node: builtins.
-    "types": ["vitest/globals", "@testing-library/jest-dom", "node"]
+    /* The test harness was the only thing under src/ that needed "node" (it
+       read migration files from disk) and the only consumer of the vitest and
+       jest-dom globals. The suite is gone, so app code now typechecks against
+       the browser lib alone — which is what it actually runs on. */
+    "types": []
   },
   "include": ["src"],
   "exclude": ["supabase/functions"]

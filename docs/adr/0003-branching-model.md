@@ -1,6 +1,12 @@
 # 3. Branching model: `dev` integrates, `main` releases, topic branches for risk
 
-**Status:** Accepted · **Date:** 2026-09-05
+**Status:** Accepted, amended by [ADR 0004](0004-dev-autonomy-main-frozen.md) · **Date:** 2026-09-05
+
+> **Amended the same day.** The branch *shape* below still holds — `dev` integrates,
+> `main` releases, topic branches by exception. What changed is **who may write**: agents
+> now push and merge on `dev` without asking, and `main` is frozen and owner-only. Where
+> this file says merging and pushing are the owner's alone on every branch, ADR 0004 is
+> correct.
 
 ## Context
 

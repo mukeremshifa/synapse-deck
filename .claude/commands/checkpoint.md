@@ -1,49 +1,51 @@
 ---
-description: Full verification, write the deferred tests, and update the docs
+description: Full verification and doc updates at a phase boundary
 ---
 
-A checkpoint is where the deferred work comes due. Between checkpoints the fast gate
-trades test latency for speed (ADR 0002); this is where that debt is paid.
+A checkpoint is the boundary where the whole repo gets checked, not just what you touched.
 
-Work through these in order.
-
-### 1. Write the tests that were deferred
-
-Look at what has landed since the last checkpoint:
-
-```bash
-git log --oneline $(git describe --tags --abbrev=0 2>/dev/null || echo "HEAD~15")..HEAD
-```
-
-For each meaningful behaviour added, write the test that would catch its regression.
-Prioritise, in this order:
-
-- anything touching a **migration, RLS policy, or key handling** — non-negotiable
-- **pure logic** in `src/lib/` — cheapest tests in the repo, highest value
-- **component behaviour** that encodes a product rule, not markup shape
-
-Do not chase coverage. A test that asserts a `div` has a class is a liability; a test
-that asserts an FSRS interval is correct is why this suite exists.
-
-### 2. Run the full gate
+### 1. Run the full gate
 
 ```bash
 npm run verify
 ```
 
-Everything must be green: typecheck, repo-wide lint, all suites, production build.
+Typecheck, repo-wide lint, production build, and the Deno check of the Edge Function.
+Everything must be green.
+
+**It runs no tests** — there are none (ADR 0005). A green `verify` means the code
+compiles, lints and builds. It does not mean the app works, so do not report it as though
+it does.
+
+### 2. Sanity-check the app by hand
+
+Since nothing verifies behaviour automatically, the checkpoint is where a human-visible
+check earns its keep. If the phase touched a user-facing path, run `npm run dev` and
+actually exercise it — or, if you cannot, say plainly which paths went unverified so the
+owner knows what to look at.
 
 ### 3. Update the docs
 
 - `docs/SPEC.md` — if a product decision changed. Code and spec must not drift.
 - `docs/plans/README.md` — the board.
-- `docs/adr/` — an ADR for any architectural decision made since the last checkpoint
-  that is expensive to reverse.
+- `docs/adr/` — an ADR for any architectural decision made since the last checkpoint that
+  is expensive to reverse.
 
-### 4. Commit, and stop
+### 4. Commit and push
 
-Commit the tests and doc updates. Then report: what was verified, what tests were added,
-what changed in the docs, and what remains.
+Commit the work and doc updates, then push to `dev`. No permission needed (ADR 0004).
 
-**Do not merge. Do not push. Do not offer to.** That is the owner's, always. If the work
-is ready for `main`, say so and leave it.
+### 5. Stop at `main`
+
+Promoting a checkpoint to production is the owner's decision, and `main` is frozen until
+they make it. Do not merge into `main`, do not push to it, do not offer. If this
+checkpoint looks ready, say so plainly and leave it.
+
+Then report: what was verified, what was **not** verified, what changed in the docs, and
+what remains.
+
+### If the owner asks for tests
+
+The suite was deleted deliberately and comes back in one deliberate pass, not by
+accretion. If asked to rebuild it, start with what is riskiest and least visible: RLS
+policies, FSRS scheduling, and the migration harness — in that order.
