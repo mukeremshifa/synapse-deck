@@ -16,9 +16,14 @@ name: verify
 
 on:
   push:
-    branches: [main, dev]
+    # aws-native is the long-lived AWS migration branch (ADR 0003 clause 2). It
+    # is listed because it changes shared files — the root tsconfig, the eslint
+    # config, package.json — and a branch that runs for 25+ sessions without the
+    # whole-repo gate is exactly how "we'll catch it at the checkpoint" becomes
+    # "nobody ran it".
+    branches: [main, dev, aws-native]
   pull_request:
-    branches: [main, dev]
+    branches: [main, dev, aws-native]
   workflow_dispatch:
 
 # A force-push or a quick second push should cancel the older run rather than
