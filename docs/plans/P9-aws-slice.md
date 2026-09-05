@@ -502,11 +502,45 @@ not discovered by the session that starts Phase C.
 
 1. A new user signs up through the app's own screens, receives a Cognito account, and
    signs in.
+
+   **✅ Done 2026-09-06.** Pool `us-east-1_8byyB8D2H`, deployed and free (50k MAU). Signup
+   through the app's own `signUp`, email confirmed, then SRP sign-in returning a real
+   access token: `token_use=access`, 60-minute expiry, `custom:displayName` carried.
+
+   **The email sends a six-digit code, not a link**, and the signup screen said "open the
+   link" — carried over unexamined from Supabase. A user following it would have been stuck
+   with a valid account they could not confirm. Fixed in the same session: the screen now
+   takes the code, with a resend. This is the class of bug that only a real signup finds.
 2. `npm run demo:seed` builds the demo account against the new API, and its decks are
    visible when signed in as that account — proving the write path end to end through
    something larger than one hand-made deck.
 3. Creating a deck, adding cards, practising, and reviewing all work end to end through
    API Gateway → Lambda → RDS.
+
+   **🟡 Proven except for API Gateway and RDS themselves**, which are the two pieces the
+   deferred deploy removes. Run 2026-09-06 with a real Cognito token against
+   `scripts/dev-api.mjs` — the real handlers, over HTTP, against local Postgres:
+
+   ```
+   GET    /profile        200   profile.id === token sub  ✓   tz seeded Asia/Dubai
+   PATCH  /profile        200
+   POST   /decks          201
+   POST   /decks/{id}/cards 201  (basic + cloze)
+   GET    /decks          200    GET /queue 200  (due 0, fresh 2, limit 15)
+   POST   /reviews        200    new -> learning, reps 1
+   POST   /reviews        409    (replayed token: stale-card detection)
+   POST   /reviews/undo   200    learning -> new, reps 0
+   GET    /summary        200    DELETE /decks/{id} 200
+   ```
+
+   The token is verified against the pool's live JWKS for signature, issuer, audience,
+   expiry and `token_use` — the same checks the JWT authorizer performs. Three attacks
+   were refused with 401: **a forged `sub` re-signed into a valid token**, an id token
+   used in place of an access token, and a token with its signature stripped. The forged
+   `sub` is the one that matters, since `sub` becomes `where user_id = $1`.
+
+   What remains unproven is API Gateway's own route matching and authorizer, and RDS in
+   place of local Postgres. Both move with the deferred Data stack.
 4. `npm run verify` is green, including the new data-access lint.
 5. **The manual cross-tenant check**, run once by hand and recorded here with its output —
    see "What went unverified". Two accounts; account B calls `GET /decks/{a-deck-id}` with
@@ -548,6 +582,24 @@ not discovered by the session that starts Phase C.
 9. Lambda-in-VPC cold start is measured and the number is written into task 2.
 10. **No NAT Gateway exists in the account.** `aws ec2 describe-nat-gateways` returns
     empty.
+
+**State after session 3 (2026-09-06):** criteria **1, 4, 5, 6, 7, 8 and 10 are met**;
+criterion 3 is met except for API Gateway and RDS themselves. Only criterion 9 (cold start)
+is fully open, and criterion 2 is dropped.
+
+**The hybrid this session ran under, and why.** RDS is the only billable line in P9 (~$14/mo)
+and the owner's AWS credits are reserved for Phase B's Bedrock work. `SynapseDeck-Api-dev`
+cannot be deployed on its own — its Lambdas join the VPC and take the database by
+reference, so `cdk deploy` on it creates `AWS::RDS::DBInstance` too, which the diff shows
+plainly. So:
+
+- **Deployed:** the Auth stack. Cognito is free at this scale, permanently.
+- **Local:** Postgres 18 for the database, and `scripts/dev-api.mjs` for the API — the
+  real handlers behind real token verification, never deployed.
+
+This finished the phase's *verification* without spending the AI budget on an idle
+database. The Data and Api stacks stay written, synthesising, and undeployed until Phase B
+needs a database, at which point criterion 9 and the rest of criterion 3 close together.
 
 **State after session 2:** criteria 4, 6, 7 and 8 are met. Criterion 10 holds at the
 template level — zero `AWS::EC2::NatGateway` and zero `AWS::EC2::EIP` across every

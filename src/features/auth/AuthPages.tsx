@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { signIn, signUp } from '@/lib/cognito';
+import { confirmSignUp, resendConfirmationCode, signIn, signUp } from '@/lib/cognito';
 import { useAuth } from './AuthProvider';
 import { Credentials, SignupInput } from '@/lib/schemas';
 
@@ -163,11 +163,40 @@ export function SignupPage() {
   const navigate = useNavigate();
   const [serverError, setServerError] = useState<string | null>(null);
   const [confirmationSent, setConfirmationSent] = useState(false);
+  const [code, setCode] = useState('');
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   const form = useForm<SignupInput>({
     resolver: zodResolver(SignupInput),
     defaultValues: { email: '', password: '', display_name: '' },
   });
+
+  /**
+   * Confirmation is a second step with its own state rather than another field
+   * on the signup form: the account already exists by this point, so a failure
+   * here must not read as "signup failed" and must not re-submit the signup.
+   */
+  const onConfirm = async (event: FormEvent) => {
+    event.preventDefault();
+    setConfirmError(null);
+    setConfirming(true);
+    try {
+      await confirmSignUp(form.getValues('email'), code);
+      // Confirming does not sign the user in — Cognito's ConfirmSignUp
+      // establishes no session, and this screen does not hold the password any
+      // more. So they go to /login, with the reason stated rather than being
+      // dropped on a form with no explanation.
+      navigate('/login', {
+        replace: true,
+        state: { authMessage: 'Your account is confirmed. Sign in to get started.' },
+      });
+    } catch (error) {
+      setConfirmError(error instanceof Error ? error.message : 'That code was not accepted.');
+    } finally {
+      setConfirming(false);
+    }
+  };
 
   const onSubmit = form.handleSubmit(async values => {
     setServerError(null);
@@ -200,20 +229,77 @@ export function SignupPage() {
     navigate('/login', { replace: true });
   });
 
+  /**
+   * Cognito's built-in email sends a six-digit **code**, not a link.
+   *
+   * This screen originally said "open the link", which was written against
+   * Supabase's confirmation email and carried over unexamined. It was wrong the
+   * first time a real account was created against the real pool (2026-09-06):
+   * the email contained `982640` and nothing to click, so a user following the
+   * instruction would have been stuck with a valid account they could not
+   * confirm.
+   *
+   * Sending a link instead is possible — it needs a custom email template and a
+   * hosted verification endpoint — and is deliberately not done: it would mean
+   * an Amazon-branded page or another Lambda, and ADR 0007 chose Cognito
+   * precisely on the basis that the app keeps its own screens. A code the user
+   * pastes here is the smaller, more honest surface.
+   */
   if (confirmationSent) {
     return (
       <AuthShell
         title="Check your inbox"
-        description={`We sent a confirmation link to ${form.getValues('email')}.`}
+        description={`We sent a six-digit code to ${form.getValues('email')}.`}
         footer={
           <Link to="/login" className="text-foreground underline underline-offset-4">
             Back to sign in
           </Link>
         }
       >
-        <p className="text-muted-foreground text-sm">
-          Open the link to finish creating your account. You can close this tab.
-        </p>
+        <form onSubmit={onConfirm} className="space-y-4" noValidate>
+          <div className="space-y-2">
+            <Label htmlFor="code">Confirmation code</Label>
+            <Input
+              id="code"
+              // `inputMode` and `autoComplete` together are what let a phone
+              // offer the code from the notification instead of making someone
+              // switch apps to read it.
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]*"
+              maxLength={6}
+              autoFocus
+              value={code}
+              onChange={event => setCode(event.target.value.replace(/\D/g, ''))}
+              aria-invalid={Boolean(confirmError)}
+            />
+            <FormError message={confirmError ?? undefined} />
+          </div>
+
+          <Button type="submit" className="w-full" disabled={confirming || code.length < 6}>
+            {confirming ? 'Confirming…' : 'Confirm account'}
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            disabled={confirming}
+            onClick={async () => {
+              setConfirmError(null);
+              try {
+                await resendConfirmationCode(form.getValues('email'));
+                setConfirmError('A new code is on its way.');
+              } catch (error) {
+                setConfirmError(
+                  error instanceof Error ? error.message : 'Could not resend the code.',
+                );
+              }
+            }}
+          >
+            Send a new code
+          </Button>
+        </form>
       </AuthShell>
     );
   }

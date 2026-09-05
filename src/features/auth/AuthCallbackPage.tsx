@@ -14,20 +14,22 @@ import { getSession } from '@/lib/cognito';
  * fragment that supabase-js had already consumed, and a PKCE `?code=` that had
  * to be exchanged. **Cognito does neither.**
  *
- * Cognito's built-in confirmation email carries a *code*, and the account is
- * confirmed by calling `ConfirmSignUp` with it — not by an OAuth exchange, and
- * not by a redirect that establishes a session. There is no hosted UI and no
- * OAuth flow at all on this pool (ADR 0007; `disableOAuth` in
- * `infra/lib/auth-stack.ts`), so a `?code=` here is a confirmation code rather
- * than an authorization code, and confirming does **not** sign the user in.
+ * Cognito's built-in confirmation email carries a **six-digit code and no
+ * link at all** — verified against the real pool on 2026-09-06, where the email
+ * contained `982640` and nothing to click. The account is confirmed by calling
+ * `ConfirmSignUp` with that code, not by an OAuth exchange and not by a
+ * redirect that establishes a session. There is no hosted UI and no OAuth flow
+ * on this pool (ADR 0007; `disableOAuth` in `infra/lib/auth-stack.ts`).
  *
- * So the flow is: confirm the account, then send them to /login to sign in.
- * That is one extra step compared to Supabase, and it is stated rather than
- * papered over — signing them in here would mean holding the password, which
- * this page does not have and should not.
+ * **So the normal path does not come through here at all.** The code is entered
+ * on the signup screen itself (`AuthPages.tsx`), which is where the user
+ * already is when the email arrives. This page handles only the case where a
+ * confirmation URL is constructed anyway — a custom email template, or a link
+ * someone builds by hand — and it is kept for that reason rather than because
+ * the default flow needs it.
  *
- * The route is kept rather than deleted for two reasons: links already sent
- * point at it, and Cognito's email template is configured to.
+ * Confirming never signs the user in: `ConfirmSignUp` establishes no session
+ * and this page holds no password. It confirms, then sends them to /login.
  *
  * Not wrapped in `PublicOnlyRoute`: an unauthenticated visitor is exactly who
  * arrives here, and nobody stays.
