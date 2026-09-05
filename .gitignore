@@ -40,5 +40,10 @@ dist-ssr/
 # TypeScript incremental build info
 *.tsbuildinfo
 
-# CDK synth output
+# CDK synth output. Both paths, because both get written: `npm run infra:synth`
+# runs in the workspace and produces infra/cdk.out/, but invoking cdk from the
+# repo root produces a second tree at ./cdk.out/. Ignoring only the first leaves
+# the second untracked and one `git add -A` away from committing a synthesised
+# template — the same accident 4b15fbc had to undo for the stripcheck probes.
 infra/cdk.out/
+cdk.out/

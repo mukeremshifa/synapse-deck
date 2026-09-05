@@ -273,3 +273,128 @@ export const GradeSchema = z.union([
   z.literal(3),
   z.literal(4),
 ]);
+
+// ---------------------------------------------------------------------------
+// Exam questions, configuration and attempts
+// ---------------------------------------------------------------------------
+
+/**
+ * **A question is not a card, and this is the seam that keeps it that way.**
+ *
+ * The brief's §2 lists `cards` fusing content with scheduling state as one of
+ * exactly three things that block the exam loop: `cards_state_consistency`
+ * requires any non-`new` card to carry `stability` and `difficulty`, and a
+ * question answered once under time is not on an FSRS schedule at all. Forcing
+ * questions into `cards` would mean nullable scheduling columns and a weakened
+ * constraint — compromising the flashcard model to accommodate a different one.
+ * D11 gives questions their own table; these are its client-side shapes.
+ *
+ * **Phase C owns the real definitions.** What is here is the shape the runner
+ * needs to render and grade a question in the browser, written now because the
+ * runner chrome is being built ahead of the backend. When Phase C writes the
+ * schema, this is the definition it extends — not a second one it competes with.
+ */
+
+/** Free-text is deliberately absent: it needs a model and a rubric (§7 q8). */
+export const QuestionPayload = z.discriminatedUnion('kind', [McqPayload]);
+export type QuestionPayload = z.infer<typeof QuestionPayload>;
+export type QuestionKind = QuestionPayload['kind'];
+
+export const ExamQuestion = z.object({
+  id: z.string().min(1),
+  payload: QuestionPayload,
+  /**
+   * The topic this question tests. Optional because topics are Phase B (D11)
+   * and the runner must work before they exist — not because a question without
+   * one is fine. The diagnostic in Phase D is meaningless without it.
+   */
+  topicId: z.string().min(1).optional(),
+  topicName: z.string().min(1).optional(),
+});
+export type ExamQuestion = z.infer<typeof ExamQuestion>;
+
+/**
+ * Exam length is capped, and the cap is a schema rule rather than a note.
+ *
+ * The brief's §6 lists three Bedrock cost controls and §8 constraint 10 requires
+ * they be implemented rather than noted. This is the first: an uncapped
+ * "generate a 200-question exam" is a ~$1 single request. Enforcing it here
+ * means the client cannot ask for one, and Phase C's generation path shares this
+ * definition rather than re-deriving the limit.
+ */
+export const EXAM_LIMITS = {
+  minQuestions: 1,
+  maxQuestions: 50,
+  minMinutes: 1,
+  maxMinutes: 240,
+} as const;
+
+export const ExamConfig = z.object({
+  questionCount: z
+    .number()
+    .int()
+    .min(EXAM_LIMITS.minQuestions)
+    .max(
+      EXAM_LIMITS.maxQuestions,
+      `At most ${EXAM_LIMITS.maxQuestions} questions per exam`,
+    ),
+  /** Null means untimed. A timer is the point of exam mode, but not mandatory. */
+  durationMinutes: z
+    .number()
+    .int()
+    .min(EXAM_LIMITS.minMinutes)
+    .max(EXAM_LIMITS.maxMinutes)
+    .nullable(),
+  /** Randomised question order — realism, and it makes a shared link less gameable. */
+  shuffleQuestions: z.boolean(),
+  /** Randomised option order within each question. */
+  shuffleOptions: z.boolean(),
+  /**
+   * Focus mode: full-screen, locked navigation, auto-submit on expiry.
+   *
+   * **Never called anti-cheat, and the naming is deliberate** (brief §2, #5).
+   * Browser-based lockdown is trivially defeated — alt-tab, a second device, a
+   * phone camera — and real anti-cheat means proctoring. Claiming otherwise in a
+   * portfolio piece invites a reviewer to poke it and win. This makes an exam
+   * *feel* like an exam, which is worth building; it does not prevent anything.
+   */
+  focusMode: z.boolean(),
+});
+export type ExamConfig = z.infer<typeof ExamConfig>;
+
+export const DEFAULT_EXAM_CONFIG: ExamConfig = {
+  questionCount: 10,
+  durationMinutes: 20,
+  shuffleQuestions: true,
+  shuffleOptions: true,
+  focusMode: true,
+};
+
+export const Exam = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(1).max(200),
+  config: ExamConfig,
+  questions: z.array(ExamQuestion),
+});
+export type Exam = z.infer<typeof Exam>;
+
+/**
+ * One answer, as the runner holds it in memory.
+ *
+ * `selectedOption` indexes into the *presented* option order, which is why
+ * shuffling is resolved once when the attempt starts rather than at render time
+ * — an index into an order that changes on re-render grades the wrong option.
+ */
+export const ExamAnswer = z.object({
+  questionId: z.string().min(1),
+  selectedOption: z.number().int().min(0).nullable(),
+  /** Flagged for review. Real exams have this and candidates rely on it. */
+  flagged: z.boolean(),
+  /** Wall-clock ms spent with this question on screen, summed across visits. */
+  elapsedMs: z.number().int().min(0),
+});
+export type ExamAnswer = z.infer<typeof ExamAnswer>;
+
+/** Why an attempt ended. `expired` is the timer; `abandoned` is Phase C's problem (§7 q9). */
+export const AttemptOutcome = z.enum(['submitted', 'expired', 'abandoned']);
+export type AttemptOutcome = z.infer<typeof AttemptOutcome>;

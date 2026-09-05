@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import {
   BarChart3Icon,
+  ClipboardCheckIcon,
   LayersIcon,
   LayoutDashboardIcon,
   PlayIcon,
@@ -13,14 +14,21 @@ import { AccountMenu } from './AccountMenu';
 import { RouteErrorBoundary } from './ErrorBoundary';
 
 /**
- * The shell: identity on the left, the five places you go in the middle, and
- * the account on the right.
+ * The shell: identity on the left, the places you go in the middle, and the
+ * account on the right.
  *
- * Settings is deliberately not the sixth item. Through P1–P5 the nav was six
- * peer links and a theme button in a wrapping row, which gave equal weight to
- * "practise" and "change your timezone" and left no shape for the eye to
- * follow. The five that remain are the product's actual loop, in the order it
- * is lived: see what is due, find a deck, make cards, practise, look back.
+ * Settings is deliberately not one of them. Through P1–P5 the nav was six peer
+ * links and a theme button in a wrapping row, which gave equal weight to
+ * "practise" and "change your timezone" and left no shape for the eye to follow.
+ * What remains is the product's actual loop, in the order it is lived.
+ *
+ * **Exam is the sixth, and it is a peer rather than a child of Practice**
+ * (AWS-native brief section 2). The positioning is that neither half is
+ * subordinate: flashcards are not a feature of the exam tool and the exam is not
+ * a feature of the flashcard tool. Nesting it under Practice would say the
+ * opposite in the one place a user actually reads the product's shape. It sits
+ * after Practice because that is the order the loop is lived in — study, then
+ * sit the thing you were studying for, then look back.
  */
 
 const NAV = [
@@ -28,6 +36,7 @@ const NAV = [
   { to: '/decks', label: 'Decks', icon: LayersIcon },
   { to: '/create/text', label: 'Create', icon: SparklesIcon },
   { to: '/practice', label: 'Practice', icon: PlayIcon },
+  { to: '/exam', label: 'Exam', icon: ClipboardCheckIcon },
   { to: '/progress', label: 'Progress', icon: BarChart3Icon },
 ] as const;
 
