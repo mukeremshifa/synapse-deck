@@ -176,13 +176,13 @@ showing a chart that no longer matches the deck list.
 | 9. `CLAUDE.md` | ✅ | Rewritten; [ADR 0008](../adr/0008-application-level-tenancy.md) records the decision |
 | 10. `/progress` notice | ✅ | One sentence on `/progress`; the dashboard streak's staleness noted in code |
 | 11. Enforcement lint | ✅ | `scripts/check-data-access.mjs`, in `verify`. **Now has real code to check** |
-| 12. Write P10 | ⬜ | |
+| 12. Write P10 | ✅ | [P10-ingestion.md](P10-ingestion.md). Starts by deploying P9 and debugging it |
 
 **Session 1 (2026-09-06) did 1, 2, 3, 6, 9 and 11.** Owner scoped it to
 infrastructure-as-code with no deploy, so nothing bills yet and the acceptance criteria
 that need a running system are all still open.
 
-**Session 2 (2026-09-06) did 5, 7, 8, 10, and resolved 4.** Owner scoped it the same way:
+**Session 2 (2026-09-06) did 5, 7, 8, 10, 12, and resolved 4.** Owner scoped it the same way:
 build everything, deploy nothing. `npm run verify` is green and all eight stacks
 synthesise, dev and prod. **Nothing in this session has ever run** — not a query, not a
 handler, not a sign-in. Every acceptance criterion that needs a running system is still
