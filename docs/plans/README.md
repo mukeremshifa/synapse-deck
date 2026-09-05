@@ -201,20 +201,26 @@ note: the three files carry the real origin now.
 level with local `dev`, so the remote now carries P1 through the test-suite deletion.
 Connecting Vercel would deploy the product rather than the scaffold.
 
-**Deployment is deferred to a checkpoint, by the owner's decision on 2026-09-06.** Vercel
-has never been connected and will not be connected on a phase's schedule; production
-deployment happens when the owner decides it does, not because a plan wants an artifact.
+**This ships as a new product on AWS, not as a migration — owner's decision, 2026-09-06.**
+Two things follow, and both make the work smaller:
 
-**What that does not defer** is narrow and worth keeping straight: P9 task 4 migrates
-identities, and after it the pre-migration app cannot be run against real data again. So
-the "before" has to be *captured* first — a local screen recording of the working loop and
-a `pre-aws-migration` tag are enough, and cost minutes. That is not a deployment and
-commits to nothing. The brief's §9 carries the amendment; P9's preconditions carry the
-detail.
+- **There is no "before" to preserve.** The brief's §9 wanted the current app deployed to
+  Vercel so a case study had a first half; there is no such half, so that requirement is
+  **dropped rather than deferred** and nothing blocks Phase A. Production deployment
+  happens at a checkpoint the owner chooses, not on a plan's schedule.
+- **P9 migrates no users and no data.** Cognito starts empty, the demo account is
+  re-seeded by `npm run demo:seed`, and existing Supabase rows stay where they are until
+  Phase F. This removed what had been the second-largest unverified risk in the phase.
 
-The trade, stated once: without a live "before", the case study's first half is a
-recording rather than something a reviewer can click. Weaker, not broken — and recoverable
-at any later checkpoint, since the pre-migration code is tagged and `dev` still runs it.
+What is kept from the pre-AWS product is **the commits** — seven phases, ADRs, a recorded
+reason for every choice. That is engineering provenance and it already lives in git. The
+`pre-aws-migration` tag at `45af283` marks where the Supabase era ends; it is a bookmark
+for reading history, not a deliverable.
+
+**This also voided half of D1's reasoning**, which the brief now records at the decision
+rather than leaving to be noticed: "a migration is a case study" no longer applies, and
+reusing this repo stands on the argument that was always stronger — the surviving code is
+the expensive code.
 
 Fourth, new since P5: the visual system is `src/styles/globals.css` and nothing else — no
 component hardcodes a colour. A test enforced three invariants about that file (theme

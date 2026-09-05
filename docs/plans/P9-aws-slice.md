@@ -73,33 +73,20 @@ npx cdk diff SynapseDeck-Foundation-dev   # empty
 - **Two P8 items may still be open** and neither blocks this phase: cost-allocation tag
   activation and the first cost figure, both waiting on AWS's billing lag. Chase them; do
   not wait on them.
-- **§8 constraint 7 — the "before" state.** The brief asks for the current app deployed to
-  Vercel before Phase A, "not to keep it — to have a 'before' that exists."
+- **§8 constraint 7 is retired. There is no "before" to capture.**
 
-  **The owner has deferred production deployment to a real checkpoint (2026-09-06), and
-  that is respected here.** What actually expires is narrow, so this precondition is
-  narrow too:
+  **Decided by the owner on 2026-09-06: this ships as a new product built on AWS, not as a
+  migration with a before-and-after.** The brief's §9 asked for the current app deployed to
+  Vercel so the case study had a first half; there is no such half now, so the requirement
+  is dropped rather than deferred. **Nothing blocks task 4.**
 
-  > **Before task 4, capture the pre-migration app.** Task 4 migrates identities and is
-  > the first irreversible step; after it, the pre-migration app cannot be run again
-  > against real data.
+  What survives from the pre-AWS product is **the commits** — seven phases, ADRs, a
+  recorded reason for every choice. That is engineering provenance and it is already in
+  git; it needs no deployment, no recording and no screenshots.
 
-  A deploy is *one* way to satisfy that and is no longer required. Cheaper options that
-  close the same window, in ascending order of effort:
-
-  1. **A local capture** — run `npm run dev` against the current Supabase project and
-     record a short screen capture of the working loop (sign in → deck → practise →
-     progress), plus screenshots. Costs ten minutes and no infrastructure.
-  2. ✅ **A tagged commit** — **done 2026-09-06.** `pre-aws-migration` points at `45af283`,
-     the last purely Supabase + Vercel commit: RLS forced on five tables, Supabase Auth,
-     the Deno Edge Function, no `infra/`. Pushed. Run it with
-     `git switch --detach pre-aws-migration && npm ci && npm run dev`.
-  3. **A Vercel deploy**, if and when the owner wants a live before/after at a checkpoint.
-     Still available *after* the migration — the tag is what keeps it possible.
-
-  **Option 1 is the one still outstanding, and it is minutes of work.** Do it before task
-  4. It is the difference between a case study that shows the migration and one that
-  describes it. It is not a production deployment and commits to nothing.
+  `pre-aws-migration` (tag, at `45af283`) was created before this decision. **Keep it** —
+  it costs nothing, and it marks where the Supabase-era code ends, which is genuinely
+  useful when reading history. It is a bookmark, not a deliverable.
 - **The parallel sessions are finished and their work is merged.** Resolved 2026-09-06:
   `feat/exam-runner-shell` is merged into `aws-native` and deleted, local and remote.
   `git status` is clean, `npm run verify` is green, and everything lives on one branch.
@@ -176,8 +163,7 @@ showing a chart that no longer matches the deck list.
 
 ## Tasks
 
-Ordered so the app runs after every one, and so nothing irreversible happens before the
-"before" state exists.
+Ordered so the app runs after every one.
 
 ### 1. Cognito user pool — `infra/lib/auth-stack.ts`
 
@@ -229,20 +215,31 @@ The five tables, ported from `supabase/migrations/` — **without the RLS polici
   plain SQL runner in a Lambda invoked by CDK is the boring answer; **do not reach for a
   migration framework** for five files.
 
-### 4. Cognito ↔ existing identities — the cutover
+### 4. Accounts — start clean, migrate nothing
 
-**Capture the "before" first** (see preconditions) — a local recording and a
-`pre-aws-migration` tag, or a deploy if the owner has chosen one by then. This is the
-first irreversible step in the phase, and the last moment the pre-migration app can be run
-against real data.
+**Decided by the owner on 2026-09-06: no user or data migration.** This ships as a new
+product, and the only accounts in Supabase are the owner's and a seeded demo one. Importing
+them would be real work — `sub` preservation, a remap-table fallback, a partial-migration
+failure mode — spent to carry two accounts across.
 
-- Export existing Supabase users. Import into Cognito **preserving `sub`**, so every
-  `user_id` in the ported data still joins.
-- If `sub` cannot be preserved for some users, the fallback is a `user_id` remap table
-  applied during the data copy — **decide which before writing the import**, because
-  discovering it halfway means a partial migration.
-- Passwords do not migrate. Users reset. **Say this in the app**, do not let it be
-  discovered at a failed sign-in.
+So this task is small, and the risk it used to carry is gone rather than managed:
+
+- **Cognito starts empty.** The owner signs up through the app's own screens, which is also
+  the first end-to-end test of task 1.
+- **The demo account is re-seeded, not moved.** `npm run demo:seed` already builds a
+  plausible account from nothing (`scripts/seed-demo.mjs`); point it at the new API and
+  run it. It drives the real pipeline rather than inserting rows directly, which is why it
+  survives the backend change at all.
+- **Existing Supabase rows are not ported.** They stay where they are until Phase F
+  deletes the project. Nothing reads them after this phase.
+- **`user_id` is a Cognito `sub` from the first row written.** No remapping, no legacy ids,
+  no dual-format column to reason about later.
+
+**One consequence to accept deliberately:** the owner's existing decks and FSRS review
+history do not come along, so the new environment starts with no real scheduling data.
+`demo:seed` produces a plausible substitute. If real review history turns out to matter
+for demoing FSRS, exporting it is a self-contained job that can be done any time before
+Phase F — the data is not going anywhere.
 
 ### 5. The data-access layer — `services/api/src/data/`
 
@@ -390,8 +387,9 @@ not discovered by the session that starts Phase C.
 
 1. A new user signs up through the app's own screens, receives a Cognito account, and
    signs in.
-2. An existing user signs in with the same `sub`, and their pre-migration decks are
-   visible — proving the identity migration preserved the join.
+2. `npm run demo:seed` builds the demo account against the new API, and its decks are
+   visible when signed in as that account — proving the write path end to end through
+   something larger than one hand-made deck.
 3. Creating a deck, adding cards, practising, and reviewing all work end to end through
    API Gateway → Lambda → RDS.
 4. `npm run verify` is green, including the new data-access lint.
@@ -423,9 +421,10 @@ Larger than usual, and this section is the honest core of the phase.
   `userId` and ignores it passes every gate in this repository.
 - **The ported RPCs.** `review_card`'s new `user_id` filters are the difference between a
   correct review and reviewing a stranger's card, and nothing exercises them.
-- **The identity migration.** If `sub` is not preserved for some subset of users, the
-  symptom is an empty deck list for exactly those users, and there is nothing that would
-  catch it before they report it.
+- ~~**The identity migration.**~~ **Removed** — task 4 migrates nothing, so this whole
+  failure mode no longer exists. Worth recording as a deletion rather than silently
+  dropping it: it was the second-largest unverified risk in the phase, and the owner's
+  decision to start clean is what removed it.
 - **Migrations.** Already unguarded since ADR 0005; now also running against a database
   with no policy layer to refuse a mistake.
 - **Cold-start latency on interactive paths**, until task 2's measurement exists.

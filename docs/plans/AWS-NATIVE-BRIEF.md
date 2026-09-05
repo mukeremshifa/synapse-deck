@@ -199,6 +199,26 @@ constraint. Reviewers see hundreds of the other kind.
 The git history — seven phases, ADRs, a recorded reason for every choice — is evidence
 that cannot be fabricated afterwards. Starting fresh discards it.
 
+> **Amended 2026-09-06: half of this reasoning no longer applies, and the decision stands
+> anyway.** The owner decided the work ships as an **entirely new product on AWS**, not as
+> a migration with a before and after. So the second argument above — "a from-scratch AWS
+> project is a tutorial; a migration is a case study" — is void: nothing is being presented
+> as a migration, and no reviewer will be shown a before state.
+>
+> **D1's conclusion does not change, but its load-bearing reason does.** Reusing this repo
+> is still right because **the surviving code is the expensive code** — `fsrs.ts`,
+> `progress.ts`, the schemas, the design system, seven phases of scheduler logic, none of
+> it coupled to Supabase. That was the first argument and it was always the stronger one.
+> It is now the only one.
+>
+> The git history is still worth keeping, for the reason the owner gave: it is engineering
+> provenance. It is no longer part of a narrative about migrating under constraint.
+>
+> **What this actually changes downstream is small but real.** Anything scoped to *tell the
+> migration story* rather than to build the product should be re-examined against §1 — the
+> before/after framing was a portfolio argument, and portfolio arguments are exactly what
+> §1 exists to discipline.
+
 **Repo layout is restructured** (`infra/`, `services/`, `web/`). That is a reorganisation,
 not a rewrite, and it is what makes the repository read as a cloud project rather than a
 React app with a folder of Lambdas.
@@ -556,8 +576,10 @@ Decisions above are closed. These are genuinely open and each belongs in a speci
    its cross-tenant tests and the `CLAUDE.md` rewrite. Not deferred.
 6. **Two ADRs before the code they justify:** the D3 data-store split, and D4 auth. A third
    for D11 if the planning session finds the schema contentious.
-7. **`npm run verify` is green and there is a known-good deployed state** before Phase A
-   begins — see §9.
+7. **`npm run verify` is green** before Phase A begins. ~~and there is a known-good
+   deployed state~~ — **the deployed-state half is dropped, 2026-09-06**: the work ships as
+   a new product rather than a migration, so there is no before state to hold onto. See the
+   amendment in §9. `verify` being green still holds and is checked in P9's preconditions.
 8. **The two-backend split (D12) is written down and has an owner phase that ends it.**
    Phase F is not optional and no feature is built twice.
 9. **`SPEC.md` §1 is rewritten in the same commit that first implements §2's product.**
@@ -586,20 +608,20 @@ Per `CLAUDE.md` this is the owner's alone: no session pushes, merges, or opens a
 > frontend — so this is no longer a blocker on starting, but it remains one on **Phase A**,
 > which is where a missing "before" stops being cosmetic.
 
-> **Amended 2026-09-06: the owner has deferred production deployment to a real
-> checkpoint.** That is a legitimate call and this section overstated what the deploy is
-> for. What genuinely expires is not "a deployment" but **the ability to run the
-> pre-migration app against real data**, and P9 task 4 is what ends it.
+> **Superseded 2026-09-06. This section is void.** The owner decided the work ships as an
+> **entirely new product built on AWS**, not as a migration presented with a before and
+> after. There is therefore no "before" to preserve, and this section's requirement — a
+> Vercel deploy before Phase A — is **dropped, not deferred**. Nothing blocks Phase A.
 >
-> So the requirement is now the narrower one: **capture the "before" before P9 task 4** —
-> a local screen recording of the working loop and a `pre-aws-migration` git tag are
-> enough, and cost minutes. A Vercel deploy remains the strongest version of the artifact
-> and is available at any checkpoint the owner chooses, including after the migration.
+> What is kept from the pre-AWS product is **the commits**: seven phases, ADRs, and a
+> recorded reason for every choice. That is engineering provenance, it already lives in
+> git, and it needs no deployment. The `pre-aws-migration` tag at `45af283` marks where the
+> Supabase era ends — a bookmark for reading history, not a deliverable.
 >
-> The cost of deferring, stated so it is a choice rather than a discovery: without a live
-> "before", the case study's first half is a recording rather than something a reviewer
-> can click. That is a weaker artifact, not a broken one. See
-> [P9's preconditions](P9-aws-slice.md).
+> **This also changes an argument in D1**, and the change is recorded there rather than
+> left to be noticed. Two smaller consequences: P9 task 4 migrates no users or data (the
+> owner chose a clean start on the same day), and the existing Supabase rows simply stay
+> where they are until Phase F.
 
 ---
 
