@@ -5,7 +5,11 @@
     { "path": "./tsconfig.node.json" },
     /* CDK. A reference rather than a separate gate, so one `npm run check`
        covers infra/ too — see infra/tsconfig.json. */
-    { "path": "./infra" }
+    { "path": "./infra" },
+    /* The API: handlers and the data-access layer that replaced RLS. A
+       reference for the same reason infra/ is one, and with more at stake:
+       see services/api/tsconfig.json. */
+    { "path": "./services/api" }
   ],
   /* Duplicated from tsconfig.app.json purely so tooling that reads only the root
      config (the shadcn CLI, some editor plugins) can resolve the @/* alias.

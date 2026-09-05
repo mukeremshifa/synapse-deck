@@ -69,6 +69,25 @@ export function ProgressPage() {
         <p className="text-muted-foreground mt-1 max-w-prose text-sm">
           Everything here is counted from your review log. Nothing is estimated.
         </p>
+        {/*
+         * P9 task 10. Decks, cards and reviews moved to the new backend; this
+         * page did not, because porting the aggregate behind it is work Phase F
+         * has to do anyway (see the split table in docs/plans/P9-aws-slice.md).
+         *
+         * So for the duration these charts read the old database while the deck
+         * list reads the new one, and they will disagree. One honest sentence
+         * where the discrepancy is visible, rather than a banner on every
+         * screen: a chart that silently contradicts the deck list reads as a
+         * bug and costs more trust than the admission does.
+         *
+         * **Delete this in Phase F, when the aggregate moves.** It is a
+         * statement about a temporary arrangement, not a permanent caveat.
+         */}
+        <p className="text-muted-foreground/80 mt-2 max-w-prose text-xs">
+          These charts still read the pre-migration database, so they show your
+          history from before the move and will not match your current decks.
+          They reconnect when the rest of the migration finishes.
+        </p>
       </header>
 
       {loading ? (

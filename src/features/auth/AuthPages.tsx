@@ -14,9 +14,9 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { supabase } from '@/lib/supabase';
+import { signIn, signUp } from '@/lib/cognito';
+import { useAuth } from './AuthProvider';
 import { Credentials, SignupInput } from '@/lib/schemas';
-import { detectTimeZone } from '@/lib/day';
 
 /**
  * Sign in and sign up.
@@ -86,6 +86,8 @@ export function LoginPage() {
     () => (location.state as { authMessage?: string } | null)?.authMessage ?? null,
   );
 
+  const { refresh } = useAuth();
+
   const form = useForm<Credentials>({
     resolver: zodResolver(Credentials),
     defaultValues: { email: '', password: '' },
@@ -93,9 +95,14 @@ export function LoginPage() {
 
   const onSubmit = form.handleSubmit(async values => {
     setServerError(null);
-    const { error } = await supabase.auth.signInWithPassword(values);
-    if (error) {
-      setServerError(error.message);
+    try {
+      await signIn(values.email, values.password);
+      // Cognito has no `onAuthStateChange`, so the provider is told directly
+      // rather than finding out. Without this the navigate below races the
+      // provider's own refresh and ProtectedRoute bounces straight back here.
+      await refresh();
+    } catch (error) {
+      setServerError(error instanceof Error ? error.message : 'Sign-in failed.');
       return;
     }
     // Resume whatever they were trying to reach before the guard intervened.
@@ -164,31 +171,33 @@ export function SignupPage() {
 
   const onSubmit = form.handleSubmit(async values => {
     setServerError(null);
-    const { data, error } = await supabase.auth.signUp({
-      email: values.email,
-      password: values.password,
-      options: {
-        // Read by the on_auth_user_created trigger, which creates the profile
-        // row (§5.6) — so the name is set before the app first reads it.
-        data: {
-          display_name: values.display_name?.trim() || null,
-          timezone: detectTimeZone(),
-        },
-      },
-    });
-
-    if (error) {
-      setServerError(error.message);
+    let confirmed = false;
+    try {
+      // The display name goes to a Cognito custom attribute rather than to a
+      // trigger: `auth.users` does not exist on RDS, so the profile row is
+      // created by the API on the first authenticated request instead (§5.6).
+      // The timezone is no longer sent at signup for the same reason — the
+      // profile row does not exist yet to receive it, and the settings screen
+      // is where it is set.
+      const result = await signUp(
+        values.email,
+        values.password,
+        values.display_name?.trim() || undefined,
+      );
+      confirmed = result.confirmed;
+    } catch (error) {
+      setServerError(error instanceof Error ? error.message : 'Sign-up failed.');
       return;
     }
 
-    // With email confirmation on, sign-up returns a user but no session. Saying
-    // "check your inbox" is the whole difference between working and broken here.
-    if (!data.session) {
+    // With email confirmation on, sign-up creates an unconfirmed user and no
+    // session. Saying "check your inbox" is the whole difference between
+    // working and broken here.
+    if (!confirmed) {
       setConfirmationSent(true);
       return;
     }
-    navigate('/dashboard', { replace: true });
+    navigate('/login', { replace: true });
   });
 
   if (confirmationSent) {

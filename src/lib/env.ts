@@ -1,6 +1,9 @@
 import { ClientEnv } from './env-schema';
 
 const parsed = ClientEnv.safeParse({
+  VITE_API_URL: import.meta.env.VITE_API_URL,
+  VITE_COGNITO_USER_POOL_ID: import.meta.env.VITE_COGNITO_USER_POOL_ID,
+  VITE_COGNITO_CLIENT_ID: import.meta.env.VITE_COGNITO_CLIENT_ID,
   VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
   VITE_SUPABASE_PUBLISHABLE_KEY: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
 });

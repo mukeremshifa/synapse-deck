@@ -1,0 +1,65 @@
+{
+  /* The fourth project reference, alongside tsconfig.app.json (src/),
+     tsconfig.node.json (vite.config.ts) and infra/ (CDK). Same reasoning as
+     infra/tsconfig.json: being a reference is what makes `npm run check` and
+     `npm run verify` cover this directory without a fourth gate.
+
+     That matters more here than anywhere else in the repo. Since P9 retired Row
+     Level Security (ADR 0008), the code under src/data/ *is* the security
+     boundary — a TypeScript codebase that tsc skips would be the least
+     supervised and most load-bearing code in the project at the same time. */
+  "compilerOptions": {
+    "target": "ES2022",
+    /* Node 22 on Lambda. DOM is deliberately absent: this code has no browser
+       to run in, and a handler that reaches for `window` or `fetch`'s browser
+       overloads should not typecheck. */
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    "composite": true,
+    "noEmit": true,
+
+    /* The same strictness as the app and infra. noUncheckedIndexedAccess is
+       what makes `result.rows[0]` a `Row | undefined` rather than a `Row` —
+       which is precisely the difference between handling "no such row, or not
+       yours" and returning undefined as if it were data. */
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    /* The handlers import the shared Zod schemas and src/lib/day.ts by their
+       real relative paths, with extensions — the same bridge the Deno Edge
+       Function uses (see supabase/functions/_shared/). One Zod definition per
+       concept and one implementation of the day boundary are project rules;
+       reaching the real modules is how they stay true. */
+    "allowImportingTsExtensions": true,
+
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  /* The two shared modules are listed explicitly because a composite project
+     must name every file it compiles (TS6307). They are consequently checked
+     twice — once here under Node's lib, once by tsconfig.app.json under the
+     DOM's — and that is a feature rather than duplication: both are pure,
+     dependency-free modules that genuinely have to work in both runtimes, and
+     the second check is what proves it. It is the same arrangement the Deno
+     Edge Function relies on through supabase/functions/_shared/.
+
+     Keep this list minimal. Anything added here is a file the API bundle will
+     pull in, and a module that reaches for the DOM will fail this project
+     rather than the app's. */
+  "include": [
+    "src",
+    "../../src/lib/schemas.ts",
+    "../../src/lib/day.ts"
+  ]
+}

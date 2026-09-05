@@ -2,34 +2,38 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { LogoLockup } from '@/components/Logo';
-import { supabase } from '@/lib/supabase';
+import { confirmSignUp } from '@/lib/cognito';
+import { getSession } from '@/lib/cognito';
 
 /**
- * `/auth/callback` (SPEC §8.2) — where Supabase sends a confirmed email address
- * or a password-recovery link.
+ * `/auth/callback` (SPEC §8.2) — where an email confirmation lands.
  *
- * Two shapes arrive here, because Supabase's `/auth/v1/verify` redirects
- * differently per flow:
+ * ── What changed at P9, and why this page got simpler ─────────────────────
  *
- * - **implicit** (this client's default, `flowType` is unset in `supabase.ts`) —
- *   tokens in the URL *fragment*. `detectSessionInUrl: true` means supabase-js
- *   has already consumed and stripped it before React mounts, so there is
- *   nothing to parse: `getSession()` awaits that same initialisation and
- *   answers with the result.
- * - **PKCE** — a `?code=` query parameter, which must be exchanged explicitly.
- *   Handled so that turning on PKCE later is a one-line client change and not a
- *   silent breakage here.
+ * Under Supabase this page handled two token-bearing shapes: an implicit
+ * fragment that supabase-js had already consumed, and a PKCE `?code=` that had
+ * to be exchanged. **Cognito does neither.**
  *
- * Failures (an expired or already-used link) come back as `error` /
- * `error_description`, in the query string or the fragment depending on flow.
+ * Cognito's built-in confirmation email carries a *code*, and the account is
+ * confirmed by calling `ConfirmSignUp` with it — not by an OAuth exchange, and
+ * not by a redirect that establishes a session. There is no hosted UI and no
+ * OAuth flow at all on this pool (ADR 0007; `disableOAuth` in
+ * `infra/lib/auth-stack.ts`), so a `?code=` here is a confirmation code rather
+ * than an authorization code, and confirming does **not** sign the user in.
  *
- * Not wrapped in `PublicOnlyRoute`: its redirect fires the moment the exchange
- * produces a session, which would race this component's own navigation. The
- * effect is the same — an unauthenticated visitor is exactly who arrives here,
- * and nobody stays.
+ * So the flow is: confirm the account, then send them to /login to sign in.
+ * That is one extra step compared to Supabase, and it is stated rather than
+ * papered over — signing them in here would mean holding the password, which
+ * this page does not have and should not.
+ *
+ * The route is kept rather than deleted for two reasons: links already sent
+ * point at it, and Cognito's email template is configured to.
+ *
+ * Not wrapped in `PublicOnlyRoute`: an unauthenticated visitor is exactly who
+ * arrives here, and nobody stays.
  */
 
-/** Errors arrive in `?query` or `#fragment`; the parameter names are identical. */
+/** Parameters may arrive in `?query` or `#fragment`; the names are identical. */
 function readCallbackParams(url: string): URLSearchParams {
   const parsed = new URL(url);
   const fragment = new URLSearchParams(parsed.hash.replace(/^#/, ''));
@@ -40,9 +44,9 @@ function readCallbackParams(url: string): URLSearchParams {
 
 export function AuthCallbackPage() {
   const navigate = useNavigate();
-  const [status, setStatus] = useState('Finishing sign-in…');
-  // StrictMode mounts effects twice in development, and an auth code is
-  // single-use: the second exchange would fail and bounce a valid link.
+  const [status, setStatus] = useState('Confirming your account…');
+  // StrictMode mounts effects twice in development, and a confirmation code is
+  // single-use: the second call would fail and bounce a valid link.
   const started = useRef(false);
 
   useEffect(() => {
@@ -67,27 +71,41 @@ export function AuthCallbackPage() {
         return;
       }
 
-      const code = params.get('code');
-      if (code) {
-        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-        if (exchangeError) {
-          console.error('Auth code exchange failed:', exchangeError);
+      // Cognito's confirmation link carries the code and the account it belongs
+      // to. Both are needed: `ConfirmSignUp` is not scoped to a session, since
+      // the whole point is that nobody is signed in yet.
+      const code = params.get('confirmation_code') ?? params.get('code');
+      const email = params.get('user_name') ?? params.get('email');
+
+      if (code && email) {
+        try {
+          await confirmSignUp(email, code);
+        } catch (confirmError) {
+          console.error('Confirmation failed:', confirmError);
           setStatus('That link could not be used.');
-          toLogin(exchangeError.message);
+          toLogin(
+            confirmError instanceof Error
+              ? confirmError.message
+              : 'That confirmation link could not be used.',
+          );
           return;
         }
+        setStatus('Account confirmed.');
+        toLogin('Your account is confirmed. Sign in to get started.');
+        return;
       }
 
-      const { data } = await supabase.auth.getSession();
-      if (data.session) {
+      // Already signed in — someone opened the link in a browser that has a
+      // session. Nothing to confirm; send them where they were going.
+      if (await getSession()) {
         navigate('/dashboard', { replace: true });
         return;
       }
 
-      // No error, no code, no session: someone opened the URL directly, or the
-      // fragment was stripped by something in front of the app.
+      // No error, no code, no session: the URL was opened directly, or the
+      // parameters were stripped by something in front of the app.
       setStatus('That link could not be used.');
-      toLogin('That sign-in link was not valid. Sign in with your email and password.');
+      toLogin('That confirmation link was not valid. Sign in with your email and password.');
     })();
   }, [navigate]);
 

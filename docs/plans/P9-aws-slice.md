@@ -167,20 +167,35 @@ showing a chart that no longer matches the deck list.
 | ---- | ----- | ----- |
 | 1. Cognito | ✅ Written, **not deployed** | `infra/lib/auth-stack.ts` |
 | 2. RDS + VPC | ✅ Written, **not deployed** | `infra/lib/data-stack.ts`. Cold start still unmeasured |
-| 3. Schema | ✅ Written, **never executed** | `services/api/migrations/` |
-| 4. Accounts | ⬜ | Blocked on a deploy |
-| 5. Data-access layer | ⬜ | The phase's real content |
+| 3. Schema | ✅ Written, **never executed** | `services/api/migrations/`. How it reaches RDS is now settled — see task 7 |
+| 4. Accounts | ⚠️ **Partly dropped** | No migration (owner, 2026-09-06). `demo:seed` deferred to Phase B — see the task |
+| 5. Data-access layer | ✅ Written, **never run** | `services/api/src/data/` — 4 modules, every export takes `userId` first |
 | 6. The three RPCs | ✅ **Done early** | Ported with `p_user_id` in `0002_review_card.sql` |
-| 7. API Gateway + Lambda | ⬜ | |
-| 8. Frontend | ⬜ | |
+| 7. API Gateway + Lambda | ✅ Written, **not deployed** | `infra/lib/api-stack.ts`, `services/api/src/handlers/`. 18 routes, all behind the JWT authorizer |
+| 8. Frontend | ✅ Written, **not run** | `api-client.ts`, `cognito.ts`, `queries.ts` rewritten, auth on Cognito |
 | 9. `CLAUDE.md` | ✅ | Rewritten; [ADR 0008](../adr/0008-application-level-tenancy.md) records the decision |
-| 10. `/progress` notice | ⬜ | |
-| 11. Enforcement lint | ✅ | `scripts/check-data-access.mjs`, in `verify`, tested against fixtures |
+| 10. `/progress` notice | ✅ | One sentence on `/progress`; the dashboard streak's staleness noted in code |
+| 11. Enforcement lint | ✅ | `scripts/check-data-access.mjs`, in `verify`. **Now has real code to check** |
 | 12. Write P10 | ⬜ | |
 
 **Session 1 (2026-09-06) did 1, 2, 3, 6, 9 and 11.** Owner scoped it to
 infrastructure-as-code with no deploy, so nothing bills yet and the acceptance criteria
 that need a running system are all still open.
+
+**Session 2 (2026-09-06) did 5, 7, 8, 10, and resolved 4.** Owner scoped it the same way:
+build everything, deploy nothing. `npm run verify` is green and all eight stacks
+synthesise, dev and prod. **Nothing in this session has ever run** — not a query, not a
+handler, not a sign-in. Every acceptance criterion that needs a running system is still
+open, and the code is more likely to have first-run bugs than the plan's confident tone
+suggests.
+
+Two things the session decided rather than deferred, both recorded in their tasks:
+
+1. **The migration runner reaches RDS through a Lambda** (`synapsedeck-dev-migrate`),
+   which is the answer task 3 left to task 7. It runs `run.mjs` unmodified.
+2. **`demo:seed` cannot be ported this phase** and acceptance criterion 2 is dropped. See
+   task 4 — the script's whole value is that it drives the real generation pipeline, and
+   generation stays on Supabase while decks and cards moved to RDS.
 
 **Task 6 was pulled forward** against the plan's "its own session" advice, because its
 content is SQL and it would have meant writing `0002_review_card.sql` twice — once
@@ -302,6 +317,34 @@ So this task is small, and the risk it used to carry is gone rather than managed
   plausible account from nothing (`scripts/seed-demo.mjs`); point it at the new API and
   run it. It drives the real pipeline rather than inserting rows directly, which is why it
   survives the backend change at all.
+
+  **This does not survive the split, and session 2 found out why rather than working
+  around it.** The script's stated rule 2 is that it drives the *real* generation
+  pipeline — the same POST to `generate-cards`, the same SSE decoder — and that is the
+  entire reason its output is a demonstration rather than a mock-up. But the Edge
+  Function writes its decks and cards **into Supabase**, and generation stays on Supabase
+  this phase by design (the split table). Decks and cards moved to RDS.
+
+  So the two halves of the script now land in different databases, and there is no
+  version of "point it at the new API" that keeps rule 2:
+
+  - Point it at the new API and it can no longer generate — it would have to insert card
+    rows directly, which is exactly the mock-up the script exists not to be.
+  - Leave it on Supabase and it seeds an account the app can no longer see.
+
+  **Decision: `demo:seed` is deferred to Phase B, and acceptance criterion 2 is dropped
+  from this phase.** Phase B rewrites generation onto Bedrock and Step Functions, writing
+  into RDS; that is the first moment a seeded account can be both really generated and
+  actually visible. Rewriting the script twice — once against a pipeline being replaced —
+  is the "no feature is built twice" rule this plan applies everywhere else.
+
+  The script is left untouched and still works against Supabase. It is not deleted,
+  because Phase B needs its structure (the replayed review history in particular, which
+  is backend-agnostic and the hard part).
+
+  **What this costs:** the end-to-end write path is no longer proven by something larger
+  than a hand-made deck. Criterion 3 still exercises it by hand, and that is genuinely
+  weaker. Say so rather than quietly reinterpreting criterion 2 as met.
 - **Existing Supabase rows are not ported.** They stay where they are until Phase F
   deletes the project. Nothing reads them after this phase.
 - **`user_id` is a Cognito `sub` from the first row written.** No remapping, no legacy ids,
@@ -476,10 +519,20 @@ not discovered by the session that starts Phase C.
 10. **No NAT Gateway exists in the account.** `aws ec2 describe-nat-gateways` returns
     empty.
 
-**State after session 1:** criteria 4 and 8 are met. Criterion 10 holds at the template
-level (zero `AWS::EC2::NatGateway` and zero `AWS::EC2::EIP` in the synthesised Data stack)
-but cannot be confirmed against the account until something is deployed. Criterion 6
-holds trivially — `dev` has not been touched. Everything else needs a running system.
+**State after session 2:** criteria 4, 6, 7 and 8 are met. Criterion 10 holds at the
+template level — zero `AWS::EC2::NatGateway` and zero `AWS::EC2::EIP` across every
+synthesised stack, checked again after the API stack was added, since a VPC Lambda is
+exactly the thing that tempts CDK into creating one — but cannot be confirmed against the
+account until something is deployed.
+
+**Criterion 2 is dropped** (task 4). Criteria 1, 3, 5 and 9 all need a deploy and are
+open.
+
+A criterion the phase should have had and did not: **nothing checks that the API's
+responses match what the client expects.** The client's row types come from
+`src/types/database.ts` (generated from Supabase) and the server's from
+`services/api/src/lib/rows.ts` (hand-written from the RDS migrations). They agree by
+transcription. The first deploy is what will find out whether that is true.
 
 ---
 

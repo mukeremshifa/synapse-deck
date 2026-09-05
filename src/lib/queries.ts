@@ -4,9 +4,10 @@ import {
   useQueryClient,
   type QueryClient,
 } from '@tanstack/react-query';
+import { api } from './api-client';
 import { supabase } from './supabase';
 import { CardPayload, DeckInput, Grade, ProfileSettings, type CardKind } from './schemas';
-import { applyGrade, newCardScheduling, type SchedulePreview } from './fsrs';
+import { applyGrade, type SchedulePreview } from './fsrs';
 import {
   GENERATION_QUOTA,
   monthWindow,
@@ -15,6 +16,7 @@ import {
 } from './quota';
 import {
   addStudyDays,
+  detectTimeZone,
   resolveTimeZone,
   startOfStudyDay,
   studyDayKey,
@@ -35,15 +37,37 @@ import {
 import type { Database } from '@/types/database';
 
 /**
- * Every read and write the app performs, as TanStack Query hooks over
- * supabase-js. Thin on purpose: policy lives in fsrs.ts and queue.ts, atomicity
- * lives in the `review_card` RPC, and this file is the wiring between them.
+ * Every read and write the app performs, as TanStack Query hooks.
  *
- * Two rules hold throughout:
+ * ── Two backends, for one phase ───────────────────────────────────────────
+ *
+ * P9 moved decks, cards, reviews, the practice queue and the profile onto the
+ * AWS API (`api-client.ts` → API Gateway → Lambda → RDS). `/progress` and card
+ * generation still read Supabase directly, because Phase B rewrites generation
+ * anyway and porting the progress aggregate is work Phase F has to do — doing
+ * either now would mean building it twice. See the split table in
+ * docs/plans/P9-aws-slice.md.
+ *
+ * Both are visible in this file on purpose: which hook talks to which backend
+ * is a fact worth being able to read, and hiding it behind a common wrapper is
+ * how a two-backend phase quietly becomes permanent.
+ *
+ * ── What did not change, deliberately ─────────────────────────────────────
+ *
+ * **The hooks' signatures and `queryKeys` are untouched.** That is what kept
+ * this from becoming a frontend rewrite: not one component changed. What
+ * changed is the body of each hook — `supabase.from(…)` became an `api` call.
+ *
+ * Two rules still hold throughout:
  *   - Validate with the shared Zod schemas *before* the network call, so bad
- *     data fails locally with a field-level message instead of as a 400.
- *   - Never send `user_id` from a form. It comes from the session, and RLS
- *     rejects anything else anyway (SPEC §5.7).
+ *     data fails locally with a field-level message instead of as a 400. The
+ *     server validates too, with the same schemas; that is not duplication,
+ *     because the client is not a security boundary.
+ *   - **Never send a user id.** It comes from the verified token, server-side.
+ *     `currentUserId()` used to live here and was deleted rather than ported:
+ *     its doc comment promised "RLS will not accept any other", a guarantee
+ *     that no longer exists, and a function that looks like it scopes queries
+ *     is worse than none (ADR 0008).
  */
 
 export type CardRow = Database['public']['Tables']['cards']['Row'];
@@ -69,9 +93,13 @@ export const queryKeys = {
 };
 
 /**
- * Error codes raised by supabase/migrations/20260812093000_review_card.sql.
+ * Error codes raised by services/api/migrations/0002_review_card.sql, passed
+ * through by the API rather than translated.
+ *
  * A stale rating is an expected outcome, not a crash: it means the card was
- * already rated somewhere else.
+ * already rated somewhere else. The codes are unchanged from the Supabase
+ * originals — what changed is that `services/api/src/lib/http.ts` now maps them
+ * to status codes explicitly, where PostgREST used to do it automatically.
  */
 export const RPC_ERROR = {
   staleCard: 'PT409',
@@ -87,17 +115,11 @@ export function isStaleCardError(error: unknown): boolean {
  * beyond a few hundred cards the number stops being actionable, and the next
  * fetch picks up whatever is left. Reviews are never *dropped* by this — they
  * are still due, and still first in line.
+ *
+ * The server applies the same limit (`QUEUE_FETCH_LIMIT` in the reviews
+ * handler); this copy is what the client reasons about, not what enforces it.
  */
 export const QUEUE_FETCH_LIMIT = 400;
-
-/**
- * Cards are selected whole. Every column except `user_id` is used somewhere —
- * content to render, scheduling to grade against, `updated_at` as the
- * concurrency token — and a hand-maintained column list is one more place to
- * forget a migration. supabase-js also infers row types only from a literal
- * selector, so `'*'` is what keeps `CardRow` honest.
- */
-const CARD_COLUMNS = '*';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -110,21 +132,6 @@ function unwrap<T>(result: PostgrestResult<T>): T {
   if (result.error) throw result.error;
   if (result.data === null) throw new Error('The server returned no row.');
   return result.data;
-}
-
-/** Same, for reads where "no row" is a legitimate answer. */
-function unwrapMaybe<T>(result: PostgrestResult<T>): T | null {
-  if (result.error) throw result.error;
-  return result.data;
-}
-
-/** The signed-in user's id. Mutations need it; RLS will not accept any other. */
-async function currentUserId(): Promise<string> {
-  const { data, error } = await supabase.auth.getSession();
-  if (error) throw error;
-  const userId = data.session?.user.id;
-  if (!userId) throw new Error('You are signed out. Sign in and try again.');
-  return userId;
 }
 
 /**
@@ -146,15 +153,17 @@ export function parseCardPayload(row: Pick<CardRow, 'payload'>): CardPayload | n
 export function useProfile() {
   return useQuery({
     queryKey: queryKeys.profile,
-    queryFn: async (): Promise<ProfileRow | null> => {
-      const userId = await currentUserId();
-      const result = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
-      return unwrapMaybe(result);
-    },
+    // The API creates the row on first authenticated request — there is no
+    // `handle_new_user` trigger any more, because `auth.users` does not exist
+    // in RDS. So this never returns null for a signed-in user, where the
+    // Supabase version could. The type keeps `| null` so no component changes.
+    // `tz` seeds the row's timezone the first time it is created, and is
+    // ignored on every later request. The Supabase signup screen used to pass
+    // this through user metadata into the `handle_new_user` trigger; there is
+    // no trigger any more, so without it every new account would start on UTC
+    // and quietly get the wrong day boundary (SPEC §6).
+    queryFn: (): Promise<ProfileRow | null> =>
+      api.get<ProfileRow>(`/profile?tz=${encodeURIComponent(detectTimeZone())}`),
     // The timezone here decides every day boundary; a stale copy shifts the
     // new-card cap. Cheap row, so just keep it fresh.
     staleTime: 60_000,
@@ -164,21 +173,8 @@ export function useProfile() {
 export function useUpdateProfile() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: ProfileSettings) => {
-      const settings = ProfileSettings.parse(input);
-      const userId = await currentUserId();
-      const result = await supabase
-        .from('profiles')
-        .update({
-          display_name: settings.display_name?.trim() || null,
-          timezone: settings.timezone,
-          daily_new_limit: settings.daily_new_limit,
-        })
-        .eq('id', userId)
-        .select()
-        .single();
-      return unwrap(result);
-    },
+    mutationFn: (input: ProfileSettings) =>
+      api.patch<ProfileRow>('/profile', ProfileSettings.parse(input)),
     onSuccess: profile => {
       queryClient.setQueryData(queryKeys.profile, profile);
       // The day boundary and the cap both moved; every queue is now suspect.
@@ -202,63 +198,16 @@ export type DeckWithCounts = DeckRow & {
 /**
  * Decks with their card, due and new counts.
  *
- * The counts come from one card fetch rather than three aggregate round trips:
- * `select deck_id, status, fsrs_state, due` over a user's own cards is small and
- * index-covered, and it keeps the deck list a single request.
+ * The counts are now computed in Postgres and arrive with the decks. The
+ * Supabase version fetched every card and bucketed them here, because counting
+ * per deck would otherwise have been three more round trips — a shape that only
+ * made sense while the client *was* the API. One request either way; far less
+ * crossing the wire.
  */
 export function useDecks() {
   return useQuery({
     queryKey: queryKeys.decks,
-    queryFn: async (): Promise<DeckWithCounts[]> => {
-      const decks = unwrap(
-        await supabase
-          .from('decks')
-          .select('*')
-          .neq('status', 'failed')
-          .order('updated_at', { ascending: false }),
-      );
-
-      const counters = unwrap(
-        await supabase
-          .from('cards')
-          .select('deck_id, status, fsrs_state, due')
-          // Drafts come along for the ride: a deck abandoned part-way through
-          // the review gate has to be findable from the deck list, and it has no
-          // active cards to advertise itself with (SPEC §4.1).
-          .in('status', ['active', 'draft']),
-      );
-
-      const now = Date.now();
-      type Bucket = { cards: number; due: number; fresh: number; drafts: number };
-      const byDeck = new Map<string, Bucket>();
-      for (const card of counters) {
-        const bucket = byDeck.get(card.deck_id) ?? {
-          cards: 0,
-          due: 0,
-          fresh: 0,
-          drafts: 0,
-        };
-        if (card.status === 'draft') {
-          bucket.drafts += 1;
-        } else {
-          bucket.cards += 1;
-          if (card.fsrs_state === 'new') bucket.fresh += 1;
-          else if (new Date(card.due).getTime() <= now) bucket.due += 1;
-        }
-        byDeck.set(card.deck_id, bucket);
-      }
-
-      return decks.map(deck => {
-        const bucket = byDeck.get(deck.id);
-        return {
-          ...deck,
-          cardCount: bucket?.cards ?? 0,
-          dueCount: bucket?.due ?? 0,
-          newCount: bucket?.fresh ?? 0,
-          draftCount: bucket?.drafts ?? 0,
-        };
-      });
-    },
+    queryFn: () => api.get<DeckWithCounts[]>('/decks'),
   });
 }
 
@@ -266,32 +215,14 @@ export function useDeck(deckId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.deck(deckId ?? ''),
     enabled: Boolean(deckId),
-    queryFn: async (): Promise<DeckRow> => {
-      const result = await supabase.from('decks').select('*').eq('id', deckId!).single();
-      return unwrap(result);
-    },
+    queryFn: () => api.get<DeckRow>(`/decks/${deckId!}`),
   });
 }
 
 export function useCreateDeck() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: DeckInput) => {
-      const deck = DeckInput.parse(input);
-      const userId = await currentUserId();
-      const result = await supabase
-        .from('decks')
-        .insert({
-          user_id: userId,
-          title: deck.title,
-          description: deck.description || null,
-          source: 'manual',
-          status: 'active',
-        })
-        .select()
-        .single();
-      return unwrap(result);
-    },
+    mutationFn: (input: DeckInput) => api.post<DeckRow>('/decks', DeckInput.parse(input)),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.decks }),
   });
 }
@@ -299,16 +230,8 @@ export function useCreateDeck() {
 export function useUpdateDeck() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ deckId, ...input }: DeckInput & { deckId: string }) => {
-      const deck = DeckInput.parse(input);
-      const result = await supabase
-        .from('decks')
-        .update({ title: deck.title, description: deck.description || null })
-        .eq('id', deckId)
-        .select()
-        .single();
-      return unwrap(result);
-    },
+    mutationFn: ({ deckId, ...input }: DeckInput & { deckId: string }) =>
+      api.patch<DeckRow>(`/decks/${deckId}`, DeckInput.parse(input)),
     onSuccess: deck => {
       queryClient.setQueryData(queryKeys.deck(deck.id), deck);
       void queryClient.invalidateQueries({ queryKey: queryKeys.decks });
@@ -322,7 +245,7 @@ export function useDeleteDeck() {
     // Cards cascade with the deck (§5.3 references ... on delete cascade), so
     // this is genuinely destructive — the caller must confirm first (§10).
     mutationFn: async (deckId: string) => {
-      unwrap(await supabase.from('decks').delete().eq('id', deckId).select('id'));
+      await api.delete<{ id: string }>(`/decks/${deckId}`);
       return deckId;
     },
     onSuccess: deckId => {
@@ -341,15 +264,7 @@ export function useCards(deckId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.deckCards(deckId ?? ''),
     enabled: Boolean(deckId),
-    queryFn: async (): Promise<CardRow[]> => {
-      const result = await supabase
-        .from('cards')
-        .select(CARD_COLUMNS)
-        .eq('deck_id', deckId!)
-        .neq('status', 'archived')
-        .order('created_at', { ascending: true });
-      return unwrap(result);
-    },
+    queryFn: () => api.get<CardRow[]>(`/decks/${deckId!}/cards`),
   });
 }
 
@@ -364,22 +279,16 @@ export function useCreateCard() {
   return useMutation({
     mutationFn: async ({ deckId, payload, sourceExcerpt }: CreateCardInput) => {
       const content = CardPayload.parse(payload);
-      const userId = await currentUserId();
-      const result = await supabase
-        .from('cards')
-        .insert({
-          user_id: userId,
-          deck_id: deckId,
-          kind: content.kind,
-          payload: content,
-          status: 'active',
-          source_excerpt: sourceExcerpt ?? null,
-          // A manually added card enters the `new` queue (SPEC §4.1 step 6).
-          ...newCardScheduling(new Date()),
-        })
-        .select(CARD_COLUMNS)
-        .single();
-      return unwrap(result);
+      // The server assigns fresh-card scheduling; a manually added card enters
+      // the `new` queue (SPEC §4.1 step 6). The client no longer sends it,
+      // which is one fewer thing a request body can lie about.
+      const cards = await api.post<CardRow[]>(`/decks/${deckId}/cards`, {
+        payloads: [content],
+        sourceExcerpt: sourceExcerpt ?? null,
+      });
+      const card = cards[0];
+      if (!card) throw new Error('The server returned no card.');
+      return card;
     },
     onSuccess: card => invalidateCardCaches(queryClient, card.deck_id),
   });
@@ -389,7 +298,7 @@ export function useCreateCard() {
 export function useCreateCards() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({
+    mutationFn: ({
       deckId,
       payloads,
       sourceExcerpt,
@@ -397,26 +306,11 @@ export function useCreateCards() {
       deckId: string;
       payloads: CardPayload[];
       sourceExcerpt?: string | null;
-    }) => {
-      const contents = payloads.map(payload => CardPayload.parse(payload));
-      const userId = await currentUserId();
-      const scheduling = newCardScheduling(new Date());
-      const result = await supabase
-        .from('cards')
-        .insert(
-          contents.map(content => ({
-            user_id: userId,
-            deck_id: deckId,
-            kind: content.kind,
-            payload: content,
-            status: 'active' as const,
-            source_excerpt: sourceExcerpt ?? null,
-            ...scheduling,
-          })),
-        )
-        .select(CARD_COLUMNS);
-      return unwrap(result);
-    },
+    }) =>
+      api.post<CardRow[]>(`/decks/${deckId}/cards`, {
+        payloads: payloads.map(payload => CardPayload.parse(payload)),
+        sourceExcerpt: sourceExcerpt ?? null,
+      }),
     onSuccess: (_cards, variables) => invalidateCardCaches(queryClient, variables.deckId),
   });
 }
@@ -424,7 +318,7 @@ export function useCreateCards() {
 export function useUpdateCard() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({
+    mutationFn: ({
       cardId,
       deckId: _deckId,
       payload,
@@ -432,18 +326,10 @@ export function useUpdateCard() {
       cardId: string;
       deckId: string;
       payload: CardPayload;
-    }) => {
-      const content = CardPayload.parse(payload);
-      const result = await supabase
-        .from('cards')
-        // Content only. Editing a card must never disturb its schedule — that is
-        // the point of keeping content and scheduling in separate columns (§5.3).
-        .update({ kind: content.kind, payload: content })
-        .eq('id', cardId)
-        .select(CARD_COLUMNS)
-        .single();
-      return unwrap(result);
-    },
+    }) =>
+      // Content only. Editing a card must never disturb its schedule — that is
+      // the point of keeping content and scheduling in separate columns (§5.3).
+      api.patch<CardRow>(`/cards/${cardId}`, CardPayload.parse(payload)),
     onSuccess: card => invalidateCardCaches(queryClient, card.deck_id),
   });
 }
@@ -452,7 +338,7 @@ export function useUpdateCard() {
 export function useSetCardStatus() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({
+    mutationFn: ({
       cardIds,
       status,
       deckId: _deckId,
@@ -460,14 +346,7 @@ export function useSetCardStatus() {
       cardIds: string[];
       status: 'active' | 'suspended';
       deckId: string;
-    }) => {
-      const result = await supabase
-        .from('cards')
-        .update({ status })
-        .in('id', cardIds)
-        .select('id');
-      return unwrap(result);
-    },
+    }) => api.post<{ ids: string[] }>('/cards/status', { cardIds, status }),
     onSuccess: (_rows, variables) => invalidateCardCaches(queryClient, variables.deckId),
   });
 }
@@ -475,16 +354,8 @@ export function useSetCardStatus() {
 export function useDeleteCards() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      cardIds,
-      deckId: _deckId,
-    }: {
-      cardIds: string[];
-      deckId: string;
-    }) => {
-      const result = await supabase.from('cards').delete().in('id', cardIds).select('id');
-      return unwrap(result);
-    },
+    mutationFn: ({ cardIds, deckId: _deckId }: { cardIds: string[]; deckId: string }) =>
+      api.post<{ ids: string[] }>('/cards/delete', { cardIds }),
     onSuccess: (_rows, variables) => invalidateCardCaches(queryClient, variables.deckId),
   });
 }
@@ -509,100 +380,60 @@ export type PracticeQueue = {
   fetchedAt: string;
 };
 
+/** What `GET /queue` returns: the reads, not the policy. */
+type QueueResponse = {
+  due: CardRow[];
+  fresh: CardRow[];
+  introducedToday: number;
+  nextDueAt: string | null;
+  dailyNewLimit: number;
+  fetchedAt: string;
+};
+
 /**
  * The session's queue, assembled once.
  *
- * Three cheap reads — due cards, unseen cards, today's introductions — then
- * `buildQueue` applies the §6 policy. The counting query is separate because
- * "how many new cards has this user started today" is a fact about the whole
- * account, not about the deck being practised: switching decks must not hand
- * out a second day's worth of new cards.
+ * The four reads that used to be four parallel supabase-js calls are now one
+ * request — which on a VPC Lambda is most of the latency budget.
+ *
+ * **`buildQueue` still runs here, not on the server**, and that is deliberate:
+ * the same §6 policy drives this queue, the dashboard's "new available" figure
+ * and the forecast's day 0, so a second implementation server-side is how those
+ * three start disagreeing about what today's allowance is. The server fetches;
+ * the client decides.
+ *
+ * It no longer waits for `useProfile`: the server reads the profile itself, so
+ * the timezone that decides where "today" starts is applied where the counting
+ * happens rather than guessed here.
  */
 export function usePracticeQueue(deckId?: string) {
-  const { data: profile } = useProfile();
-
   return useQuery({
     queryKey: queryKeys.queue(deckId),
-    // Wait for the profile: the timezone decides where "today" starts, and
-    // guessing UTC would hand out new cards early for most of the world.
-    enabled: profile !== undefined,
     // A queue is a snapshot of a session. Refetching under the user mid-session
     // reorders the cards they are looking at.
     staleTime: Infinity,
     gcTime: 5 * 60_000,
     queryFn: async (): Promise<PracticeQueue> => {
-      const now = new Date();
-      const timeZone = resolveTimeZone(profile?.timezone);
-      const dayStart = startOfStudyDay(now, timeZone);
-      const dailyNewLimit = profile?.daily_new_limit ?? 20;
+      const response = await api.get<QueueResponse>(
+        deckId ? `/queue?deckId=${encodeURIComponent(deckId)}` : '/queue',
+      );
 
-      const dueQuery = supabase
-        .from('cards')
-        .select(CARD_COLUMNS)
-        .eq('status', 'active')
-        // `new` cards are handled by the other stream; a new card's `due` is its
-        // creation time, so without this they would appear twice and dodge the cap.
-        .neq('fsrs_state', 'new')
-        .lte('due', now.toISOString())
-        .order('due', { ascending: true })
-        .limit(QUEUE_FETCH_LIMIT);
-
-      const freshQuery = supabase
-        .from('cards')
-        .select(CARD_COLUMNS)
-        .eq('status', 'active')
-        .eq('fsrs_state', 'new')
-        .order('created_at', { ascending: true })
-        .limit(Math.max(dailyNewLimit, 1));
-
-      const introducedQuery = supabase
-        .from('reviews')
-        .select('id', { count: 'exact', head: true })
-        .eq('state_before', 'new')
-        .is('undone_at', null)
-        .gte('reviewed_at', dayStart.toISOString());
-
-      const upcomingQuery = supabase
-        .from('cards')
-        .select('due')
-        .eq('status', 'active')
-        .neq('fsrs_state', 'new')
-        .gt('due', now.toISOString())
-        .order('due', { ascending: true })
-        .limit(1);
-
-      if (deckId) {
-        void dueQuery.eq('deck_id', deckId);
-        void freshQuery.eq('deck_id', deckId);
-        void upcomingQuery.eq('deck_id', deckId);
-      }
-
-      const [due, freshCards, introduced, upcoming] = await Promise.all([
-        dueQuery,
-        freshQuery,
-        introducedQuery,
-        upcomingQuery,
-      ]);
-
-      if (due.error) throw due.error;
-      if (freshCards.error) throw freshCards.error;
-      if (introduced.error) throw introduced.error;
-      if (upcoming.error) throw upcoming.error;
-
-      const introducedToday = introduced.count ?? 0;
-      const allowance = remainingNewAllowance(dailyNewLimit, introducedToday);
+      const allowance = remainingNewAllowance(
+        response.dailyNewLimit,
+        response.introducedToday,
+      );
 
       return {
         cards: buildQueue({
-          due: due.data,
-          fresh: freshCards.data,
-          dailyNewLimit,
-          introducedToday,
+          due: response.due,
+          fresh: response.fresh,
+          dailyNewLimit: response.dailyNewLimit,
+          introducedToday: response.introducedToday,
         }),
-        heldBackNew: Math.max(0, freshCards.data.length - allowance),
+        heldBackNew: Math.max(0, response.fresh.length - allowance),
         newAllowanceLeft: allowance,
-        nextDueAt: upcoming.data[0]?.due ?? null,
-        fetchedAt: now.toISOString(),
+        nextDueAt: response.nextDueAt,
+        fetchedAt: response.fetchedAt,
       };
     },
   });
@@ -630,6 +461,12 @@ export type ReviewCardInput = {
  * caller rolls back and toasts — and one failure in particular is expected
  * rather than exceptional, `isStaleCardError`, which means another tab already
  * rated this card.
+ *
+ * `applyGrade` still runs on the client and the result is sent as `next`. The
+ * database validates the shape key by key and rejects anything else, which is
+ * the same arrangement the Supabase RPC had — the difference is that
+ * `review_card` now also filters every statement by the caller's id, because
+ * RLS is no longer behind it (ADR 0008).
  */
 export function useReviewCard() {
   const queryClient = useQueryClient();
@@ -643,21 +480,18 @@ export function useReviewCard() {
         params: (profile?.fsrs_params as Record<string, never> | null) ?? null,
       });
 
-      const result = await supabase.rpc('review_card', {
-        p_card_id: card.id,
-        p_rating: grade,
+      return api.post<CardRow>('/reviews', {
+        cardId: card.id,
+        rating: grade,
         // Null is a real value here — the card may have been rated before any
         // timer started, and `reviews.duration_ms` is nullable for exactly that.
-        // Postgres cannot express argument nullability, so the generated types
-        // say `number`; the cast says what the function actually accepts rather
-        // than inventing a zero that would read as "answered instantly".
-        p_duration_ms: (durationMs ?? null) as number,
-        // Sent back exactly as PostgREST rendered it; this is the optimistic
-        // concurrency token, and a re-formatted timestamp would never match.
-        p_expected_updated_at: card.updated_at,
-        p_next: next,
+        durationMs: durationMs ?? null,
+        // The optimistic-concurrency token, sent back byte for byte. The API
+        // hands timestamps through as the strings Postgres produced rather than
+        // as Date objects, so a re-formatted value can never fail to match.
+        expectedUpdatedAt: card.updated_at,
+        next,
       });
-      return unwrap(result);
     },
 
     onMutate: async ({ card, deckId }) => {
@@ -698,10 +532,8 @@ export function useReviewCard() {
 export function useUndoLastReview() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ cardId }: { cardId: string; deckId?: string }) => {
-      const result = await supabase.rpc('undo_last_review', { p_card_id: cardId });
-      return unwrap(result);
-    },
+    mutationFn: ({ cardId }: { cardId: string; deckId?: string }) =>
+      api.post<CardRow>('/reviews/undo', { cardId }),
     onSuccess: card => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.decks });
       void queryClient.invalidateQueries({ queryKey: queryKeys.deckCards(card.deck_id) });
@@ -723,57 +555,24 @@ export type DueSummary = {
   nextDueAt: string | null;
 };
 
+type DueSummaryResponse = DueSummary & { dailyNewLimit: number };
+
 /** The handful of numbers the dashboard shows. P3 owns anything more. */
 export function useDueSummary() {
-  const { data: profile } = useProfile();
-
   return useQuery({
     queryKey: ['queue', 'summary'],
-    enabled: profile !== undefined,
     queryFn: async (): Promise<DueSummary> => {
-      const now = new Date();
-      const dayStart = startOfStudyDay(now, resolveTimeZone(profile?.timezone));
-
-      const [due, fresh, reviewed, upcoming] = await Promise.all([
-        supabase
-          .from('cards')
-          .select('id', { count: 'exact', head: true })
-          .eq('status', 'active')
-          .neq('fsrs_state', 'new')
-          .lte('due', now.toISOString()),
-        supabase
-          .from('cards')
-          .select('id', { count: 'exact', head: true })
-          .eq('status', 'active')
-          .eq('fsrs_state', 'new'),
-        supabase
-          .from('reviews')
-          .select('id', { count: 'exact', head: true })
-          .is('undone_at', null)
-          .gte('reviewed_at', dayStart.toISOString()),
-        supabase
-          .from('cards')
-          .select('due')
-          .eq('status', 'active')
-          .neq('fsrs_state', 'new')
-          .gt('due', now.toISOString())
-          .order('due', { ascending: true })
-          .limit(1),
-      ]);
-
-      if (due.error) throw due.error;
-      if (fresh.error) throw fresh.error;
-      if (reviewed.error) throw reviewed.error;
-      if (upcoming.error) throw upcoming.error;
-
+      const response = await api.get<DueSummaryResponse>('/summary');
       return {
-        dueNow: due.count ?? 0,
+        dueNow: response.dueNow,
+        // The cap is applied here for the same reason `buildQueue` is: it is
+        // the §6 policy, and it lives in one place.
         newAvailable: Math.min(
-          fresh.count ?? 0,
-          remainingNewAllowance(profile?.daily_new_limit ?? 20, 0),
+          response.newAvailable,
+          remainingNewAllowance(response.dailyNewLimit, 0),
         ),
-        reviewedToday: reviewed.count ?? 0,
-        nextDueAt: upcoming.data[0]?.due ?? null,
+        reviewedToday: response.reviewedToday,
+        nextDueAt: response.nextDueAt,
       };
     },
   });
@@ -793,15 +592,7 @@ export function useDraftCards(deckId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.deckDrafts(deckId ?? ''),
     enabled: Boolean(deckId),
-    queryFn: async (): Promise<CardRow[]> => {
-      const result = await supabase
-        .from('cards')
-        .select(CARD_COLUMNS)
-        .eq('deck_id', deckId!)
-        .eq('status', 'draft')
-        .order('created_at', { ascending: true });
-      return unwrap(result);
-    },
+    queryFn: () => api.get<CardRow[]>(`/decks/${deckId!}/cards?status=draft`),
     // A generation may still be streaming into this deck; a stale list here is
     // the difference between "resume where you left off" and "half your cards
     // are missing".
@@ -821,21 +612,8 @@ export function useDraftCards(deckId: string | undefined) {
 export function useAcceptDrafts() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      cardIds,
-      deckId: _deckId,
-    }: {
-      cardIds: string[];
-      deckId: string;
-    }) => {
-      const result = await supabase
-        .from('cards')
-        .update({ status: 'active' })
-        .in('id', cardIds)
-        .eq('status', 'draft')
-        .select('id');
-      return unwrap(result);
-    },
+    mutationFn: ({ cardIds, deckId: _deckId }: { cardIds: string[]; deckId: string }) =>
+      api.post<{ ids: string[] }>('/cards/accept', { cardIds }),
     onSuccess: (_rows, variables) => invalidateCardCaches(queryClient, variables.deckId),
   });
 }
@@ -852,31 +630,13 @@ export function useAcceptDrafts() {
 export function useFinishReviewGate() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ deckId }: { deckId: string }) => {
-      const accepted = await supabase
-        .from('cards')
-        .select('id', { count: 'exact', head: true })
-        .eq('deck_id', deckId)
-        .eq('status', 'active');
-      if (accepted.error) throw accepted.error;
-
-      const deck = await supabase
-        .from('decks')
-        .update({ status: 'active' })
-        .eq('id', deckId)
-        .select()
-        .single();
-
-      // Best effort by design: the generation row is an audit trail, and failing
-      // to stamp it must not leave the user staring at a deck that will not
-      // leave the review gate.
-      await supabase
-        .from('generations')
-        .update({ cards_accepted: accepted.count ?? 0 })
-        .eq('deck_id', deckId);
-
-      return unwrap(deck);
-    },
+    // Three statements became one call. They now run in a single transaction
+    // server-side (`finishReviewGate` in services/api/src/data/decks.ts), which
+    // the client could not do: a deck that flipped to `active` while its
+    // generation row went unstamped was a real, if harmless, way for the two to
+    // disagree.
+    mutationFn: ({ deckId }: { deckId: string }) =>
+      api.post<DeckRow>(`/decks/${deckId}/finish-gate`),
     onSuccess: deck => {
       queryClient.setQueryData(queryKeys.deck(deck.id), deck);
       invalidateCardCaches(queryClient, deck.id);

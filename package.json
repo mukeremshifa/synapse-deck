@@ -26,8 +26,8 @@
     "demo:seed": "node --experimental-strip-types scripts/seed-demo.mjs",
     "infra:synth": "npm run synth --workspace infra --",
     "infra:diff": "npm run diff --workspace infra --",
-    "infra:deploy": "npm run deploy --workspace infra -- SynapseDeck-Foundation-dev SynapseDeck-Auth-dev SynapseDeck-Data-dev",
-    "infra:deploy:prod": "npm run deploy --workspace infra -- SynapseDeck-Foundation-prod SynapseDeck-Auth-prod SynapseDeck-Data-prod",
+    "infra:deploy": "npm run deploy --workspace infra -- SynapseDeck-Foundation-dev SynapseDeck-Auth-dev SynapseDeck-Data-dev SynapseDeck-Api-dev",
+    "infra:deploy:prod": "npm run deploy --workspace infra -- SynapseDeck-Foundation-prod SynapseDeck-Auth-prod SynapseDeck-Data-prod SynapseDeck-Api-prod",
     "brand:assets": "node scripts/build-brand-assets.mjs",
     "hero:images": "node scripts/build-hero-images.mjs",
     "check:data-access": "node scripts/check-data-access.mjs"
@@ -39,6 +39,7 @@
     "@hookform/resolvers": "^5.7.1",
     "@supabase/supabase-js": "^2.112.3",
     "@tanstack/react-query": "^5.101.4",
+    "amazon-cognito-identity-js": "^6.3.20",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.31.0",

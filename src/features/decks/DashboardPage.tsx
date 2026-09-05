@@ -20,6 +20,18 @@ import { useDecks, useDueSummary, useProfile, useReviewHistory } from '@/lib/que
  * tomorrow. It shares `useReviewHistory`'s cache with /progress, so navigating
  * between the two costs nothing.
  *
+ * **P9: the streak reads the pre-migration database and the other three figures
+ * do not.** `useReviewHistory` is one of the four hooks still pointed at
+ * Supabase (the split table in docs/plans/P9-aws-slice.md); due, new and decks
+ * all come from the new API. So the streak can disagree with them for the
+ * duration, and Phase F is what ends that.
+ *
+ * The explanatory sentence lives on /progress, not here — P9 task 10 asks for
+ * one honest line where the discrepancy is actually visible, not a caveat on
+ * every screen. A single stale number among four is a much smaller lie than
+ * five charts, and this comment is here so the next reader knows it is a known
+ * one rather than a bug.
+ *
  * P6: these four figures carry more typographic weight than anything else in
  * the product, because this is the screen that opens after sign-in and four
  * numbers are the entire message. Display-size mono digits, and a label above
