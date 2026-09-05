@@ -56,7 +56,7 @@ authored against the codebase it will actually run in.
 | Post-v1          | [POST-V1.md](POST-V1.md)                   | 📋 Backlog, not a phase                                              |
 | AWS-native + v2  | [AWS-NATIVE-BRIEF.md](AWS-NATIVE-BRIEF.md) | 🧭 Decisions made 2026-09-05 — 8 phases scoped                        |
 | P8 — AWS founda. | [P8-aws-foundation.md](P8-aws-foundation.md) | ✅ Complete — 2026-09-06; dev stack live in `us-east-1`             |
-| P9 — AWS slice   | [P9-aws-slice.md](P9-aws-slice.md)           | 📋 Planned 2026-09-06 — **retires RLS**; ready to start             |
+| P9 — AWS slice   | [P9-aws-slice.md](P9-aws-slice.md)           | 🔨 In progress — tasks 1,2,3,6,9,11 done 2026-09-06. **Nothing deployed**; RLS retired in code |
 
 **P7 was the last phase of v1, and the v1 board is closed.** SPEC §11 lists nothing between
 P7 and Post-v1, so for two days there was deliberately no P8 file: writing one would have

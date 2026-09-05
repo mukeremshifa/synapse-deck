@@ -161,6 +161,47 @@ showing a chart that no longer matches the deck list.
 
 ---
 
+## Progress
+
+| Task | State | Notes |
+| ---- | ----- | ----- |
+| 1. Cognito | ✅ Written, **not deployed** | `infra/lib/auth-stack.ts` |
+| 2. RDS + VPC | ✅ Written, **not deployed** | `infra/lib/data-stack.ts`. Cold start still unmeasured |
+| 3. Schema | ✅ Written, **never executed** | `services/api/migrations/` |
+| 4. Accounts | ⬜ | Blocked on a deploy |
+| 5. Data-access layer | ⬜ | The phase's real content |
+| 6. The three RPCs | ✅ **Done early** | Ported with `p_user_id` in `0002_review_card.sql` |
+| 7. API Gateway + Lambda | ⬜ | |
+| 8. Frontend | ⬜ | |
+| 9. `CLAUDE.md` | ✅ | Rewritten; [ADR 0008](../adr/0008-application-level-tenancy.md) records the decision |
+| 10. `/progress` notice | ⬜ | |
+| 11. Enforcement lint | ✅ | `scripts/check-data-access.mjs`, in `verify`, tested against fixtures |
+| 12. Write P10 | ⬜ | |
+
+**Session 1 (2026-09-06) did 1, 2, 3, 6, 9 and 11.** Owner scoped it to
+infrastructure-as-code with no deploy, so nothing bills yet and the acceptance criteria
+that need a running system are all still open.
+
+**Task 6 was pulled forward** against the plan's "its own session" advice, because its
+content is SQL and it would have meant writing `0002_review_card.sql` twice — once
+wrong, then once correctly. The analysis it deserved is in the file's header and in
+ADR 0008; it did not get less attention for arriving early. **It has not been run.**
+
+### What the next session inherits
+
+1. **Nothing is deployed.** `npm run infra:diff` shows the two new dev stacks as pure
+   additions. Deploying starts the ~$12-15/mo RDS meter, which will trip the $10 and $15
+   budget alarms — correctly, not accidentally.
+2. **The SQL has never been executed** (owner's call, 2026-09-06). Expect to debug it on
+   first run; `npm run db:migrate:status` first.
+3. **The database has no public route**, so migrations cannot run from a laptop without a
+   tunnel. How they run in practice is an open decision that task 7 has to settle, since
+   it is the session that puts compute inside the VPC.
+4. **The lint currently checks nothing**, because `services/api/src/{handlers,data}` do
+   not exist. It says so rather than passing silently. Task 5 is what gives it teeth.
+
+---
+
 ## Tasks
 
 Ordered so the app runs after every one.
@@ -196,6 +237,16 @@ avoid it).
   flags it as "a measurement for Phase A, not an assumption" — so measure it before the
   interactive paths depend on it, not after.
 
+  **Still unmeasured as of session 1.** It cannot be measured before something is
+  deployed, and nothing is. It belongs to the session that deploys — measure it then,
+  before task 7's interactive paths are built on top of an assumption. Replace this
+  paragraph with the number.
+
+**Written and synthesising as of 2026-09-06; not deployed.** The template was checked
+rather than trusted: `AWS::EC2::NatGateway` and `AWS::EC2::EIP` counts are both zero
+(acceptance criterion 10, at template level), dev shows `DeletionProtection: false` with
+`DeletionPolicy: Delete`, and prod shows `true` / `Retain`.
+
 ### 3. Schema — `infra/migrations/` or `services/api/migrations/`
 
 The five tables, ported from `supabase/migrations/` — **without the RLS policies.**
@@ -214,6 +265,27 @@ The five tables, ported from `supabase/migrations/` — **without the RLS polici
 - Decide and record how migrations run against RDS now that `supabase db push` is gone. A
   plain SQL runner in a Lambda invoked by CDK is the boring answer; **do not reach for a
   migration framework** for five files.
+
+  **Decided 2026-09-06: `services/api/migrations/`, with `run.mjs` as the runner.** The
+  schema lives beside the data-access layer that mirrors it rather than in `infra/`,
+  because a column added in one needs a query changed in the other and two directories
+  apart is where that gets forgotten. `infra/` stays pure CDK.
+
+  The runner is ~200 lines and no dependency beyond `pg`, which the API needs anyway. One
+  transaction per file, an advisory lock so two runners cannot interleave, and a
+  `schema_migrations` ledger with a **checksum** — which makes "never edit an applied
+  migration" enforced rather than merely stated. No down-migrations: reversing
+  `0001_schema.sql` is `drop schema public cascade`, and reversing a data migration
+  correctly is bespoke every time.
+
+  **Still open: how the runner reaches the database.** The RDS instance is in an isolated
+  subnet with no public route, so this does not run from a laptop without a tunnel.
+  **Task 7 must settle it** — that is the session that first puts compute inside the VPC,
+  and a Lambda invoked by CDK is the boring answer there too.
+
+**Written 2026-09-06 and never executed.** The owner decided against standing up a
+Postgres to run it through, so the first `db:migrate` will be the first execution. The
+migrations README says so where the person running it will see it.
 
 ### 4. Accounts — start clean, migrate nothing
 
@@ -404,6 +476,11 @@ not discovered by the session that starts Phase C.
 10. **No NAT Gateway exists in the account.** `aws ec2 describe-nat-gateways` returns
     empty.
 
+**State after session 1:** criteria 4 and 8 are met. Criterion 10 holds at the template
+level (zero `AWS::EC2::NatGateway` and zero `AWS::EC2::EIP` in the synthesised Data stack)
+but cannot be confirmed against the account until something is deployed. Criterion 6
+holds trivially — `dev` has not been touched. Everything else needs a running system.
+
 ---
 
 ## What went unverified
@@ -427,6 +504,19 @@ Larger than usual, and this section is the honest core of the phase.
   decision to start clean is what removed it.
 - **Migrations.** Already unguarded since ADR 0005; now also running against a database
   with no policy layer to refuse a mistake.
+
+  **Worse than that as of session 1: the SQL has never been executed at all.** Not against
+  RDS, not against a local Postgres, not against PGlite. It was ported by reading the
+  Supabase originals and reviewed by reading it back. The owner chose this deliberately on
+  2026-09-06 rather than standing up a database to run it through, so the first
+  `npm run db:migrate` is a first execution and should be treated as one.
+
+- **The lint itself was tested; the code it guards does not exist yet.** Every rule was
+  exercised against fixtures — SQL in a handler, a wrong first parameter, an optional and
+  a defaulted `userId`, `user_id` outside the data layer — and the clean fixtures pass
+  without false positives. That is more than the rest of this repository can say. But it
+  currently runs over two directories that do not exist, so it proves nothing about
+  production code until task 5 lands.
 - **Cold-start latency on interactive paths**, until task 2's measurement exists.
 
 ---
