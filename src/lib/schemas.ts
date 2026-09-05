@@ -149,7 +149,22 @@ export function parseCloze(text: string): ClozeSegment[] {
 
 export const DeckInput = z.object({
   title: z.string().trim().min(1, 'Give the deck a title').max(200),
-  description: z.string().trim().max(2000).optional(),
+  /**
+   * `.nullish()`, not `.optional()`, and the difference is load-bearing.
+   *
+   * `decks.description` is a nullable column, and both the form and the API
+   * client normalise an empty field to `null` (`deck.description || null`).
+   * Under `.optional()` that `null` failed the parse — so creating or editing a
+   * deck with no description returned a 400 saying "expected string, received
+   * null", which the form had no field to attach to.
+   *
+   * P9 moved this parse to the server, which is what exposed it: on Supabase
+   * the client parsed its own already-shaped object and PostgREST took the null
+   * happily, so the mismatch existed but was never reached. Found on the first
+   * local execution of the handlers (P9b), which is precisely what running the
+   * code was meant to catch.
+   */
+  description: z.string().trim().max(2000).nullish(),
 });
 export type DeckInput = z.infer<typeof DeckInput>;
 

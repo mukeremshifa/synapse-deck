@@ -512,6 +512,36 @@ not discovered by the session that starts Phase C.
    see "What went unverified". Two accounts; account B calls `GET /decks/{a-deck-id}` with
    A's deck id and a valid B token; the response is 404 (not 403, which confirms the id
    exists). Repeat for one card and one review.
+
+   **✅ Done 2026-09-06, against local Postgres 18 rather than RDS.** Run at three layers,
+   because a check at only one of them proves less than it looks:
+
+   *SQL (the RPCs, which never filtered by user before P9 task 6):*
+
+   ```
+   review_card(B, A's card)      -> SQLSTATE PT404  "card ... not found"
+   undo_last_review(B, A's card) -> SQLSTATE PT404  "card ... not found"
+   review_card(A, stale token)   -> SQLSTATE PT409
+   update reviews set rating=4   -> "reviews are append-only; only undone_at may be set"
+   ```
+
+   *Data layer:* `listDecks(B)` → `[]`; `getDeck(B, A's deck)` → `null`;
+   `createCards(B, A's deck, …)` → `[]` (the `owned_deck` CTE matches nothing);
+   `finishReviewGate(B, A's deck)` → `null`.
+
+   *Handlers (32 checks, all passing):* every cross-tenant call returns **404, never 403** —
+   `GET /decks/{id}`, `PATCH /cards/{id}`, `POST /reviews`, `POST /reviews/undo`,
+   `POST /decks/{id}/finish-gate`, `DELETE /decks/{id}`. `POST /cards/delete` returns
+   **200 with an empty id list**, which is the deliberate choice: reporting "that one was
+   not yours" is the oracle this API refuses to be.
+
+   Afterwards A still had 2 decks and 2 cards; B had written **zero rows** anywhere.
+
+   **What this does and does not prove.** It exercises the real SQL, the real data layer
+   and the real handlers — the entire boundary that replaced RLS — against a real Postgres.
+   What it does not exercise is API Gateway's JWT authorizer, because `sub` was injected
+   directly into the event. So *"the boundary holds given a correct `sub`"* is proven;
+   *"only a valid Cognito token can supply that `sub`"* is not, and moves with criterion 1.
 6. `dev` is untouched, still on Supabase, still working.
 7. `/progress` states that it is showing pre-migration data.
 8. `CLAUDE.md` no longer claims RLS is the boundary.

@@ -138,13 +138,29 @@ export const PG_ERROR = {
  * unrecognised failure is a bug, and mapping it to a friendly 4xx would hide it.
  */
 export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-    readonly code?: string,
-  ) {
+  readonly status: number;
+  readonly code: string | undefined;
+
+  /**
+   * Fields are declared and assigned explicitly rather than written as
+   * TypeScript *parameter properties* (`constructor(readonly status: number)`).
+   *
+   * That shorthand is one of the few constructs Node's `--experimental-strip-types`
+   * refuses — it erases types but will not *generate* the assignments a parameter
+   * property implies, and fails with ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX. The
+   * Lambda bundle would not care, because esbuild transpiles properly; local
+   * execution does, and running this code against a local Postgres is how the
+   * data layer gets exercised at all before RDS is deployed.
+   *
+   * Same family of constraint as the `enum` ban in `infra/` (see the header of
+   * `infra/lib/config.ts`), and worth the four extra lines for the same reason:
+   * the code stays runnable by the plain Node that is already installed.
+   */
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
   }
 }
 
