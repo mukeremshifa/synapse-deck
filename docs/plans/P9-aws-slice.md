@@ -78,12 +78,26 @@ npx cdk diff SynapseDeck-Foundation-dev   # empty
   meaningful: it is the last moment at which the pre-migration app can be captured
   running. **Deploy the current app to Vercel before task 4.** Tasks 1–3 are safe to do
   first, which is why the order below puts them there.
-- **Another session is active in this repo.** As of 2026-09-06, `feat/exam-runner-shell`
-  carries ~1,100 lines of exam-runner work (Phase C, built ahead of its phase) and the
-  checkout switched branches mid-command more than once during P8. Two consequences:
-  **always `git rev-parse aws-native`, never `HEAD`** (P8 decision 9), and expect
-  `npm run check` to fail on files that are not yours. Reconcile ownership with the owner
-  before task 1 rather than merging blind.
+- **The parallel sessions are finished and their work is merged.** Resolved 2026-09-06:
+  `feat/exam-runner-shell` is merged into `aws-native` and deleted, local and remote.
+  `git status` is clean, `npm run verify` is green, and everything lives on one branch.
+
+  **What that branch now carries beyond P8**, so it is not a surprise:
+
+  | Work | Files | Phase it belongs to |
+  | ---- | ----- | ------------------- |
+  | Exam runner, setup, results, focus mode | `src/features/exam/`, `src/lib/exam.ts` | C |
+  | Topic mastery + mastery map | `src/lib/mastery.ts`, `src/features/progress/MasteryMap.tsx` | D |
+
+  **This does not expand P9's scope, and the reason is worth checking rather than
+  trusting.** That code imports neither `supabase` nor `@/lib/queries` — it runs on
+  `src/features/exam/fixtures.ts`. So P9 rewrites the data layer *underneath* it without
+  touching it, and it neither blocks this phase nor gets migrated by it. It still needs
+  wiring to real data when Phase C actually runs; P9 task 12 records that for P10.
+  **Do not adopt it into this phase** to "finish" it.
+
+- **Still always `git rev-parse aws-native`, never `HEAD`** (P8 decision 9). The parallel
+  session is gone, but the rule earned its place and costs nothing.
 
 ---
 

@@ -56,7 +56,7 @@ authored against the codebase it will actually run in.
 | Post-v1          | [POST-V1.md](POST-V1.md)                   | 📋 Backlog, not a phase                                              |
 | AWS-native + v2  | [AWS-NATIVE-BRIEF.md](AWS-NATIVE-BRIEF.md) | 🧭 Decisions made 2026-09-05 — 8 phases scoped                        |
 | P8 — AWS founda. | [P8-aws-foundation.md](P8-aws-foundation.md) | ✅ Complete — 2026-09-06; dev stack live in `us-east-1`             |
-| P9 — AWS slice   | [P9-aws-slice.md](P9-aws-slice.md)           | 📋 Planned 2026-09-06 — **retires RLS**; not started                |
+| P9 — AWS slice   | [P9-aws-slice.md](P9-aws-slice.md)           | 📋 Planned 2026-09-06 — **retires RLS**; ready to start             |
 
 **P7 was the last phase of v1, and the v1 board is closed.** SPEC §11 lists nothing between
 P7 and Post-v1, so for two days there was deliberately no P8 file: writing one would have
@@ -84,6 +84,22 @@ with a blueprint generator, a timed exam runner, and a diagnostic that turns exa
 scheduled cards. Eight phases are scoped in the brief's §5, roughly 25–35 sessions.
 `SPEC.md` §1 carries a pointer to that direction but **still describes v1**, deliberately:
 it is rewritten by the phase that first implements the new loop, not in advance.
+
+**Where the work lives, as of 2026-09-06.** Everything AWS-related and everything the
+parallel sessions built is on **`aws-native`**, which is the branch to check out. It is
+clean, `verify` is green, and `feat/exam-runner-shell` has been merged into it and deleted.
+
+**`dev` is deliberately left at `0f8b3d1`**, nine commits behind. It could fast-forward
+cleanly, and it should not: [ADR 0003](../adr/0003-branching-model.md) clause 2 keeps
+multi-session speculative work on its own branch precisely so a stall costs a branch
+rather than the product, and the brief's §8 constraint 2 requires `dev` to keep working
+throughout. `dev` still runs on Supabase and still works. **Merging `aws-native` into
+`dev` is a checkpoint decision for the end of Phase F, and it is the owner's.**
+
+`aws-native` also carries two pieces of work built ahead of their phases — the exam runner
+(Phase C) and the mastery map (Phase D). Both are self-contained on fixtures, importing
+neither `supabase` nor `@/lib/queries`, so P9 rewrites the data layer underneath them
+without touching them. They are not P9's scope; see P9's preconditions.
 
 **RLS is retired for good — decided by the owner on 2026-09-06.** It is executed by
 [P9](P9-aws-slice.md), which is written under that decision rather than around it. The
