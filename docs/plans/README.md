@@ -49,7 +49,7 @@ authored against the codebase it will actually run in.
 | P6 — Surface     | [P6-surface.md](P6-surface.md)         | ✅ Complete — 2026-08-13                                        |
 | P7 — Landing     | [P7-landing.md](P7-landing.md)         | ✅ Complete — 2026-08-13                                        |
 | Post-v1          | [POST-V1.md](POST-V1.md)               | 📋 Backlog, not a phase                                         |
-| AWS-native       | [AWS-NATIVE-BRIEF.md](AWS-NATIVE-BRIEF.md) | 🧭 Decisions made 2026-09-05 — no plan, no code yet         |
+| AWS-native + v2  | [AWS-NATIVE-BRIEF.md](AWS-NATIVE-BRIEF.md) | 🧭 Decisions made 2026-09-05 — 8 phases scoped, no plan, no code yet |
 
 **P7 was the last phase of v1, and the v1 board is closed.** SPEC §11 lists nothing between
 P7 and Post-v1, so there is no P8 plan file and this is not an omission: writing one would
@@ -64,6 +64,13 @@ meant to be handed to a planning session whose first output is `P8-aws-foundatio
 optimised for lowest idle cost against a goal that had not yet been stated, and concluded
 the opposite on four decisions; the brief's §10 records which and why. It is kept because
 the wrong reasoning is instructive, not because any of it is current.
+
+**Scope grew again the same day.** The brief's §2 records it: the product is no longer only
+flashcards but **one loop, both halves equal** — study → practice → simulated exam → review,
+with a blueprint generator, a timed exam runner, and a diagnostic that turns exam misses into
+scheduled cards. Eight phases are scoped in the brief's §5, roughly 25–35 sessions.
+`SPEC.md` §1 carries a pointer to that direction but **still describes v1**, deliberately:
+it is rewritten by the phase that first implements the new loop, not in advance.
 
 The convention below still holds, so each phase gets a real plan file when it is actually
 started, written against the codebase it will run in. Until then the board stays closed in

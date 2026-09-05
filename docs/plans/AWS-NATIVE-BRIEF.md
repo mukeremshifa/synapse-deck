@@ -8,7 +8,7 @@ plans under the convention in [README.md](README.md) — not to re-litigate it.
 
 It replaces the earlier `AWS-MIGRATION.md`, which was written before the goal was stated
 clearly and reached materially different conclusions as a result. Where the two disagree,
-this file is correct. §10 records what changed and why, because the reasoning that was
+this file is correct. §11 records what changed and why, because the reasoning that was
 wrong is instructive.
 
 **The app runs on Supabase and Vercel today and keeps working until a phase plan says
@@ -35,7 +35,7 @@ pure operations. The test is instead the six capabilities a cloud engineer is hi
 > **design · deploy · observe · secure · cost-govern · operate** an AI product on AWS.
 
 A step earns its place by demonstrating one of those. A step that demonstrates none is
-service collection, and belongs in §9.
+service collection, and belongs in §10.
 
 ### What "boastable" excludes
 
@@ -48,26 +48,122 @@ That is why the division here is **the entire backend**, not "the pipeline."
 
 ---
 
-## 2. What is true today
+## 2. The product, which has grown
 
-| Concern    | Today                                        | Fate                                 |
-| ---------- | -------------------------------------------- | ------------------------------------ |
-| Data       | Supabase Postgres, 5 migrations, RLS-forced  | → RDS Postgres; RLS retired (§3)     |
-| Auth       | Supabase Auth, publishable-key mode          | → Cognito                            |
-| Generation | Deno Edge Function → Groq, NDJSON over SSE   | → Lambda + Step Functions → Bedrock  |
-| Hosting    | Vercel, static SPA                           | → S3 + CloudFront                    |
-| Tests      | 359 tests, PGlite in-process Postgres        | **Kept** — RDS is still Postgres     |
-| Frontend   | React SPA, design system, FSRS scheduler     | **Kept, nearly unchanged**           |
+**Decided 2026-09-05, after the AWS decisions and partly changing what they are for.**
 
-**The product does not change.** Upload material → generate cards → review with FSRS →
-track progress. What changes is where it runs. The FSRS scheduler, the card schemas, the
-design system and its three enforced invariants, the landing page, and the test suite all
-survive; the Supabase-coupled layer (`src/lib/queries.ts`, the auth wrapper, the Edge
-Function) is what gets rewritten.
+v1 was: paste text → generate flashcards → review gate → FSRS practice → progress. That
+product still exists and still works. What is added is an **exam loop**:
+
+> upload material → extract topics, weights and objectives → **exam blueprint** →
+> generate a blueprint-aligned exam → **sit it under timed conditions** → grade →
+> **topic-level diagnostic and study plan** → generate remedial cards → back into FSRS
+
+### Positioning: one loop, both halves equal
+
+**study → practice → simulated exam → review.** Neither half is subordinate: flashcards are
+not a feature of the exam tool, and the exam is not a feature of the flashcard tool. The
+diagnostic is what joins them — it converts exam failures into scheduled cards, which is
+the single most demoable moment in the product.
+
+This is harder to say in one line than either half alone, and that cost is accepted. It is
+also the honest description of what gets built, and **SPEC §1 must be rewritten to match**
+— its current one-line and its v1 non-goals (which exclude explanations and open-ended
+tutoring) no longer describe this product.
+
+### Why this strengthens the AWS case rather than complicating it
+
+"AI generates flashcards" is a crowded space a reviewer has seen. A blueprint generator is
+a multi-step AI job with fan-out over topics — **the same Step Functions shape the document
+pipeline already needed**. This is not a second architecture; it is a second, more
+impressive workload for the one already chosen (D5), and it demos in the 2–3 minutes a
+reviewer will give it.
+
+### Enhancements: four planned, one cut
+
+| # | Enhancement                          | Verdict                                              |
+| - | ------------------------------------ | ---------------------------------------------------- |
+| 1 | Adaptive difficulty + mastery model  | **Planned** — mostly already recorded; see §3         |
+| 2 | Exam blueprint from syllabus         | **Planned, as the ingestion phase** — not a separate item |
+| 3 | Post-exam diagnostic + study plan    | **Planned** — highest value per unit of work; closes the loop |
+| 4 | Multimodal explanations              | **Cut** — see below                                   |
+| 5 | Exam mode realism                    | **Planned** — cheap frontend work, high demo value    |
+
+**#1 is far cheaper than it looks, and this is the most useful finding in this section.**
+`cards.difficulty` and `cards.stability` are FSRS's per-card model of how hard something is
+*for this user*; `reviews` has carried the full pre-review snapshot since P1; P3 already
+aggregates over it. **The only missing piece is a topic label** — and once exams exist,
+`answers` gives a second, independent mastery signal on the same axis. Two signals is a
+better model than either, and being able to explain why is itself the artifact.
+
+**#4 is cut.** Step-by-step solutions are table stakes any model does; "simple diagrams" is
+a rabbit hole with poor payoff. The one part worth keeping — explanations attached to wrong
+answers — arrives with #3 anyway.
+
+**#5 is scoped as *focus mode and exam realism*, never "anti-cheat".** Full-screen, timer,
+locked navigation, randomised order, auto-submit. Browser-based lockdown is trivially
+defeated and real anti-cheat means proctoring; claiming otherwise in a portfolio piece
+invites a reviewer to poke it and win.
+
+### What blocks, and therefore gets rewritten or cut
+
+The rule is: **extend by default, replace without sentiment anything that blocks.** Three
+things block, and only three:
+
+1. **`cards` fuses content and scheduling state.** `cards_state_consistency` requires any
+   non-`new` card to carry `stability` and `difficulty`. An exam question is answered once
+   under time and is not on an FSRS schedule at all. Forcing questions into `cards` means
+   nullable scheduling columns and a weakened constraint — compromising the flashcard model
+   to accommodate a different one. **Questions get their own table** (D11).
+2. **SSE streaming generation.** A job pipeline cannot hold one request open.
+   `useGenerateCards.ts` becomes job polling; the NDJSON/SSE libraries are repurposed or
+   cut.
+3. **No topic dimension anywhere.** Blueprint, mastery map and diagnostic all need it.
+   This is the schema change everything else waits on.
 
 ---
 
-## 3. Decisions
+## 3. What is true today
+
+| Concern    | Today                                        | Fate                                 |
+| ---------- | -------------------------------------------- | ------------------------------------ |
+| Data       | Supabase Postgres, 5 migrations, RLS-forced  | → RDS Postgres; RLS retired (D2)     |
+| Auth       | Supabase Auth, publishable-key mode          | → Cognito                            |
+| Generation | Deno Edge Function → Groq, NDJSON over SSE   | → Lambda + Step Functions → Bedrock  |
+| Hosting    | Vercel, static SPA                           | → S3 + CloudFront                    |
+| Tests      | 5,694 lines, 31 suites, PGlite Postgres      | **Mostly kept** — RDS is still Postgres |
+| Frontend   | React + TS + Tailwind + Zod, design system   | **Kept** — see below                 |
+
+### The measurement, because "rewrite everything" was on the table
+
+11,162 lines of source. **Exactly 8 non-test files import Supabase:**
+
+| File                                    | Lines | Fate                          |
+| --------------------------------------- | ----- | ----------------------------- |
+| `src/lib/queries.ts`                    | 1,146 | Rewritten against the new API |
+| `src/features/auth/*` (3 files)         | ~500  | Rewritten for Cognito         |
+| `src/features/generate/useGenerateCards.ts` | 264 | Rewritten — SSE → polling     |
+| `src/types/database.ts`                 | 542   | Regenerated from RDS          |
+| `src/lib/supabase.ts`                   | small | Deleted                       |
+| `src/lib/schemas.ts`, `src/lib/ndjson.ts` | —   | One import line each          |
+
+**~2,500 of 11,162 lines — about 22% — are rewritten by the backend migration.** The other
+78% is stack-agnostic: `fsrs.ts` (347), `progress.ts` (534), `day.ts`, `quota.ts`,
+`queue.ts`, the entire design system, every page component, and 5,694 lines of tests that
+mostly cover pure logic.
+
+**So the architecture changes; the frontend stack does not.** React + TypeScript + Tailwind
++ Zod is what this product would be built on if started fresh on AWS today. Rewriting the
+78% would cost weeks, produce the same result, and demonstrate nothing to a reviewer. The
+schema and everything behind the API boundary is where the change is real — and that is a
+genuine architecture change, not a cosmetic one.
+
+What *is* rewritten beyond the 22% is driven by §2's blocking list, not by age: the card
+schema, the generation UX, and the addition of topics.
+
+---
+
+## 4. Decisions
 
 Each is settled. The planning session implements them; it does not reopen them. Where a
 decision has a real cost, the cost is stated rather than hidden.
@@ -236,37 +332,85 @@ the AWS-native options are **Bedrock AgentCore** (managed runtime, memory, gatew
 identity, observability), **Bedrock Agents**, or **Strands Agents** as an SDK. **Nothing is
 built now.**
 
+### D11 · Topics are the join. Exam questions are not cards.
+
+The schema the new product needs, and the reason §2's blocking list exists:
+
+```
+topics ─────┬── cards (FSRS scheduled) ──── reviews
+            │
+            └── questions (exam pool) ───── answers
+                                              │
+blueprints ──── exams ── exam_attempts ───────┘
+```
+
+**`topics` is the join and lands before anything that depends on it** — blueprint, mastery
+map and diagnostic all read it. Topics are extracted by the model during generation, in the
+same call that produces content, not as a separate pass.
+
+**`questions` is separate from `cards`**, sharing the payload schema (the existing `mcq`
+discriminated union in `src/lib/schemas.ts` is already the right shape) but carrying no
+FSRS scheduling state. This keeps `cards_state_consistency` intact rather than weakening a
+constraint that currently guarantees something real.
+
+**The loop closes through the diagnostic:** it reads `answers` grouped by topic and
+*creates cards* from missed questions. That is a first-class product action with its own
+write path — not a schema convenience — and it is the demo's best 30 seconds.
+
+Mastery reads both `reviews` (FSRS difficulty and stability, per topic) and `answers` (exam
+performance under time). Two independent signals on one axis.
+
+### D12 · Phase A migrates a thin vertical slice first.
+
+The risk this answers: Phase A is 5–8 sessions that produce **no new user-visible product**,
+and it is the phase most likely to stall. Doing it fully before anything else means 16–24
+sessions before the first demo, and the failure mode is an impressive half-finished thing
+when the credits expire.
+
+So Phase A migrates **only what the exam loop needs**, and Phase C proves that loop end to
+end early — paste text → short exam → grade → topic breakdown — before either is broadened.
+
+**The accepted cost, stated plainly: the app runs on two backends for a stretch.** That is
+a real cost and it becomes a permanent liability if left unbounded, so:
+
+- the split is **written down** in the phase plan — which tables and routes are on which
+  backend, at every point
+- **no feature is built twice.** A screen is migrated or it is not; it is never
+  simultaneously live on both.
+- **a named phase ends the split**, and it is not optional. Two backends is a transitional
+  state with an expiry, not an architecture.
+
 ---
 
-## 4. Sequencing
+## 5. Sequencing
 
 Ordered by value per unit of risk. The planning session writes one plan at a time, per
 [README.md](README.md); the last task of each plan writes the next.
 
-**Phase 0 · Foundation.** CDK skeleton, dev/prod stacks, GitHub Actions with OIDC,
-budgets, alarms, tagging, log retention. Deploys something trivial end to end. This exists
-so every later phase inherits governance rather than promising it.
+| Phase | What                                                                          | Sessions |
+| ----- | ----------------------------------------------------------------------------- | -------- |
+| **0** | **Foundation.** CDK skeleton, dev/prod stacks, GitHub Actions + OIDC, budgets, alarms, tagging, log retention. Deploys something trivial end to end, so every later phase inherits governance rather than promising it. | 2–3 |
+| **A** | **Backend migration — vertical slice (D12).** RDS + Cognito + API Gateway + Lambda; the 22% rewritten; RLS replaced per D2 with cross-tenant tests. Migrates what the exam loop needs, not everything. | 5–8 |
+| **B** | **Ingestion + blueprint.** S3 presigned upload → Step Functions → extract, chunk, fan-out. **Topics land here** (D11), and so does the provider interface + Bedrock. Ends at `/create/document` working in the app. | 4–6 |
+| **C** | **Exam simulator.** `questions`, `exams`, `attempts`, `answers`; exam configuration; the runner with focus mode (#5); grading. **Ends with the thin loop demoable end to end** (§8). | 5–7 |
+| **D** | **Diagnostic loop.** Topic breakdown, study plan, cards generated from misses (#3), mastery map (#1). This is where the loop closes. | 3–5 |
+| **E** | **Eval harness.** Groq as second implementation; the numbers on card and question quality. | 2–3 |
+| **F** | **Finish the migration.** Ends the two-backend split D12 opened. **Not optional.** | 2–4 |
+| **G** | **CloudFront + pgvector.** Frontend to S3/CloudFront; semantic layer as a pgvector extension in RDS — **not OpenSearch** (§10). | 2–3 |
 
-**Phase A · Backend migration.** RDS + Cognito + API Gateway + Lambda. Migrations move,
-`src/lib/queries.ts` is rewritten against the new API, RLS is replaced per D2 with
-cross-tenant tests. The riskiest phase, and the one that makes the division AWS-native.
+**~25–35 sessions.** Feasible inside the six-month credit window, not comfortable.
 
-**Phase B · Document pipeline.** S3 presigned upload → Step Functions → extract, chunk,
-fan-out generate, write drafts. **Ends at `/create/document` working in the app** — see §7.
+**Bedrock moved earlier — into B rather than its own later phase.** The blueprint work needs
+a provider interface anyway, so Bedrock is in from the first AI work rather than retrofitted
+onto it. What remains as E is the *eval harness*, which is the actual artifact (D6).
 
-**Phase C · Bedrock and the eval harness.** Provider interface, both implementations, the
-numbers.
-
-**Phase D · Frontend to S3 + CloudFront.** Cheap, low-risk, completes the picture.
-
-**Phase E · Semantic layer.** pgvector in RDS — an extension, free, next to the data,
-testable under PGlite. **Not OpenSearch** (§9).
-
-Phases D and E are genuinely optional against §1; A and B are not.
+Phase G is genuinely optional against §1. Phases 0, A, B, C, D and F are not — and **F is
+listed as non-optional deliberately**, because it is the one most likely to be quietly
+dropped once the demo works, leaving the two-backend split permanent.
 
 ---
 
-## 5. Cost
+## 6. Cost
 
 All figures on-demand `us-east-1`, rounded up. Runway is **$100 in credits expiring within
 six months**, possibly more from SBGL and Community Builder.
@@ -290,12 +434,45 @@ link.
 | SSM Parameter Store       | **$0**     | Use instead of Secrets Manager ($0.40/secret)         |
 | Bedrock                   | **$2–10**  | The only real variable                                |
 
-**Total: $5–20/month.** Six months costs roughly $30–100 of the $100. The free tier carries
-the infrastructure; **the credits are effectively a Bedrock experimentation fund**, which is
-the right place for them.
+**Infrastructure total: $0–5/month.** The free tier carries all of it. **Bedrock is the
+only line that moves, and §2's product growth moves it a lot.**
 
-Bedrock sizing: a Haiku-class card generation is ~5k in / 2k out ≈ **$0.015**. A 60-page
-document over ~15 chunks ≈ **$0.25**. A hundred documents a month stays under $30.
+### Bedrock, per workload
+
+| Workload                                  | Tokens (rough)   | Cost (Haiku-class) |
+| ----------------------------------------- | ---------------- | ------------------ |
+| Card generation (existing)                | 5k in / 2k out   | ~$0.015            |
+| Syllabus → blueprint                      | 20k in / 4k out  | ~$0.04             |
+| Exam generation, 40 questions, fanned out  | 60k in / 25k out | ~$0.19             |
+| Grading one free-text answer              | 2k in / 1k out   | ~$0.007            |
+| Diagnostic + study plan                   | 15k in / 5k out  | ~$0.04             |
+| Explanation for one missed question       | 3k in / 2k out   | ~$0.013            |
+
+**One full loop — upload syllabus, blueprint, 40-question exam, grade, diagnose, explain 12
+misses, generate remedial cards — is roughly $0.45.**
+
+That figure sets everything else:
+
+- **Development and demoing: $20–40/month.** The loop gets run dozens of times while
+  building. Say 60 full loops a month plus experimentation ≈ $30.
+- **$100 in credits ≈ 200 full loops.** Plenty for building and demoing. **Not** plenty for
+  open public usage — which is a product constraint, not just a billing one.
+- **Six-month total: $30–60/month**, up from the $5–20 this brief carried before §2. Still
+  inside the runway, but **the margin is thinner and the credits are now genuinely
+  consumed** rather than barely touched.
+
+### Three cost controls, written as constraints rather than advice
+
+1. **Cap exam length** (≤50 questions) and questions per generation call. An uncapped
+   "generate a 200-question exam" is a ~$1 single request.
+2. **Cache blueprints** by document version + settings. Regenerating an identical blueprint
+   is pure waste and it will happen constantly during development.
+3. **Explanations are generated on demand, per question.** Generating all 40 when the user
+   reviews 12 is 3× waste.
+
+This also **raises the value of the eval harness** (D6, Phase E): at this volume, provider
+cost differences compound, and Groq's free tier becomes a genuine fallback for the cheap
+high-volume paths rather than a token second implementation.
 
 **After the free tier (month 13+).** RDS on-demand ~$12 + ~$2 storage dominates;
 everything else stays near-free at low volume. **~$20–35/month**, and a 1-year reserved
@@ -318,12 +495,13 @@ improved substantially but it is a measurement for Phase A, not an assumption.
 
 ---
 
-## 6. Open questions the planning session must settle
+## 7. Open questions the planning session must settle
 
 Decisions above are closed. These are genuinely open and each belongs in a specific plan:
 
-1. **Multi-chunk quota shape.** "One document = 12 of your 30 monthly generations" is a
-   *product* decision, not an implementation detail. Blocks Phase B.
+1. **Quota shape for multi-chunk and exam work.** "One document = 12 of your 30 monthly
+   generations" is a *product* decision, not an implementation detail — and an exam is now
+   a second, larger unit of spend. Blocks Phases B and C.
 2. **Progress reporting once it is no longer one SSE stream.** Job-status polling is the
    boring and probably correct answer. Blocks Phase B.
 3. **How a half-failed job presents to the user.** Partial failure is the normal case in a
@@ -334,27 +512,47 @@ Decisions above are closed. These are genuinely open and each belongs in a speci
    `supabase/pg-version.json` must be re-pointed at the RDS major.
 6. **Scanned PDFs have no text layer.** Detecting that in the browser before a 20 MB upload
    is worth more than any server-side cleverness after.
+7. **Where topics come from, and how stable they are.** Model-extracted per document, but a
+   user studying one subject across five uploads must not get five overlapping topic sets —
+   the mastery map is meaningless if topics fragment. Blocks Phase B; D11 depends on it.
+8. **What grading means per question kind.** MCQ is exact-match. Free-text needs a model
+   and a rubric, and a rubric is a product decision about how harsh the grader is.
+9. **Whether an exam attempt can be resumed.** A timed exam and a closed laptop are a
+   conflict; whichever way it goes, the answer must be deliberate.
+10. **Mastery: which signal wins when they disagree.** FSRS says a topic is well-retained;
+    the exam says it failed under time. That disagreement is *information*, and how it is
+    surfaced is the interesting part of #1.
 
 ---
 
-## 7. Hard constraints on any plan written from this brief
+## 8. Hard constraints on any plan written from this brief
 
-1. **Phase B ends with `/create/document` working in the app.** A pipeline with no front
-   door is not a boastable division. A green execution in the Step Functions console is
-   not the acceptance criterion.
+1. **Every phase ends at something a user can do in the app.** Phase B ends with
+   `/create/document` working; **Phase C ends with the thin exam loop demoable end to end**
+   — paste text → short exam → grade → topic breakdown. A green execution in the Step
+   Functions console is never the acceptance criterion. A pipeline with no front door is
+   not a boastable division.
 2. **`dev` keeps working throughout.** The migration lives on a long-lived branch. If it
    stalls, the loss is a branch, not the product.
-3. **No NAT Gateway** (§5).
+3. **No NAT Gateway** (§6).
 4. **Budgets and tagging exist before the first billable resource** — Phase 0, not later.
 5. **D2's replacement authorisation is built with the phase that retires RLS**, including
    its cross-tenant tests and the `CLAUDE.md` rewrite. Not deferred.
-6. **Two ADRs before the code they justify:** the D3 data-store split, and D4 auth.
+6. **Two ADRs before the code they justify:** the D3 data-store split, and D4 auth. A third
+   for D11 if the planning session finds the schema contentious.
 7. **`npm run verify` is green and there is a known-good deployed state** before Phase A
-   begins — see §8.
+   begins — see §9.
+8. **The two-backend split (D12) is written down and has an owner phase that ends it.**
+   Phase F is not optional and no feature is built twice.
+9. **`SPEC.md` §1 is rewritten in the same commit that first implements §2's product.**
+   Its current one-line and non-goals describe the old product; code and spec must not
+   drift, per `CLAUDE.md`.
+10. **The three Bedrock cost controls in §6 are implemented, not just noted** — exam-length
+    cap, blueprint caching, on-demand explanations.
 
 ---
 
-## 8. The one blocker that is the owner's
+## 9. The one blocker that is the owner's
 
 Local `dev` is **16 commits ahead of both `origin/dev` and `origin/main`**, and Vercel has
 never been connected, so nothing is deployed. There is no known-good deployed state to
@@ -367,7 +565,7 @@ Per `CLAUDE.md` this is the owner's alone: no session pushes, merges, or opens a
 
 ---
 
-## 9. Deliberately not doing
+## 10. Deliberately not doing
 
 Named explicitly, because the failure mode of an "AWS-native" rewrite is collecting
 services. Each of these looks good in a technology list and would make the product worse.
@@ -387,7 +585,7 @@ services. Each of these looks good in a technology list and would make the produ
 
 ---
 
-## 10. What changed from `AWS-MIGRATION.md`, and why
+## 11. What changed from `AWS-MIGRATION.md`, and why
 
 The earlier document was written before the goal in §1 was stated. It optimised for lowest
 idle cost and least migration risk and concluded "stay on Supabase Postgres, defer Cognito,
@@ -410,7 +608,7 @@ wrong advice.
 
 ---
 
-## 11. Next action
+## 12. Next action
 
 Hand this file to a planning session. Its first output is **Phase 0's plan** —
 `docs/plans/P8-aws-foundation.md` — written against the codebase it will run in, following

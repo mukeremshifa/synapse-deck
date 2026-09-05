@@ -1,6 +1,7 @@
 # SynapseDeck — Product & Technical Specification
 
-**Status:** v1 · **Owner:** Mukerem Shifa · **Spec'd** 2026-08-11 · **Last revised** 2026-08-14
+**Status:** v1 shipped; v2 direction set · **Owner:** Mukerem Shifa · **Spec'd** 2026-08-11
+· **Last revised** 2026-09-05
 
 Phase progress and per-phase execution plans live in [plans/](plans/).
 
@@ -14,8 +15,20 @@ documents), then drills them with real spaced repetition and honest progress tra
 **Name:** **SynapseDeck**, from P5. A synapse is a gap a signal jumps; a deck is cards in a
 stack — the mark is both at once. Named late and deliberately: P1–P4 had nothing to brand.
 
-**One-line:** Paste what you're studying, get good flashcards, and get drilled on them at
-the right time.
+**One-line (v1, shipped):** Paste what you're studying, get good flashcards, and get
+drilled on them at the right time.
+
+> **v2 direction, decided 2026-09-05 — not yet built.**
+> [plans/AWS-NATIVE-BRIEF.md](plans/AWS-NATIVE-BRIEF.md) §2 sets a larger product: **one
+> loop, both halves equal** — study → practice → **simulated exam** → review. Upload
+> material, get an exam blueprint, sit a timed exam, get a topic-level diagnostic, and have
+> the misses become scheduled cards.
+>
+> **This section still describes v1, which is what exists.** The one-line, the non-goals
+> below, and §11's phasing are rewritten by the first phase that implements the exam loop,
+> not before — a spec that describes unbuilt software is the drift this document exists to
+> prevent. Three v1 non-goals are already known to fall: explanations, open-ended tutoring,
+> and the deferral of documents.
 
 **Why this project exists (secondary but real):** it is the bridge between an existing React
 frontend skillset and existing LLM experience. Design decisions therefore favour
