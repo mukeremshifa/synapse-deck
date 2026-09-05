@@ -24,6 +24,7 @@
     "fn:deploy": "npx supabase functions deploy generate-cards --use-api",
     "fn:check": "cd supabase/functions && npx deno@2 check --frozen generate-cards/index.ts",
     "demo:seed": "node --experimental-strip-types scripts/seed-demo.mjs",
+    "dev:api": "node --experimental-strip-types --env-file=.env.local scripts/dev-api.mjs",
     "infra:synth": "npm run synth --workspace infra --",
     "infra:diff": "npm run diff --workspace infra --",
     "infra:deploy": "npm run deploy --workspace infra -- SynapseDeck-Foundation-dev SynapseDeck-Auth-dev SynapseDeck-Data-dev SynapseDeck-Api-dev",
