@@ -285,7 +285,29 @@ wildcard `sub` on a public repository is the whole vulnerability.**
 deployment human-triggered; a self-deploying branch is a Phase F conversation once there is
 something worth continuously delivering.
 
-### 9. The first deploy — owner-assisted, no files
+### ✅ 9. The first deploy — done 2026-09-06
+
+Deployed to account `513774291123`, `us-east-1`, stack `SynapseDeck-Foundation-dev`.
+Bootstrapped, deployed, and verified against AWS rather than against the source:
+
+| Check | Result |
+| ----- | ------ |
+| Version endpoint returns the deployed SHA | ✅ matches `aws-native` HEAD exactly |
+| Log retention, read from AWS | ✅ 7 days |
+| Budgets | ✅ all four ($2/$5/$10/$15), ACTUAL + FORECASTED |
+| Tags on the deployed Lambda | ✅ `project`, `env`, `owner` |
+| SNS subscription | ✅ confirmed by the owner |
+| **Error alarm actually fires and delivers** | ✅ 3 deliberate failures → ALARM, email sent, reset to OK |
+
+**Still open, and neither is a session's to close:** cost-allocation tag *activation*
+(AWS rejects activation until it has observed the keys in a billing cycle — retry after
+2026-09-07), and the first real cost figure, which needs the same billing lag.
+
+The function URL and account id are deliberately not repeated here; they are in the
+owner's notes and in the CloudFormation outputs.
+
+<details>
+<summary>Original task text</summary>
 
 The first call that spends money. In order:
 
@@ -311,6 +333,8 @@ Then, and this is the acceptance evidence rather than a formality:
 
 Record the function URL and the account ID **in the owner's notes, not the repository.** An
 account ID in a public repo is not a credential, but it is free reconnaissance.
+
+</details>
 
 ### ✅ 10. Two ADRs — `docs/adr/0006-…`, `docs/adr/0007-…`
 
@@ -439,7 +463,21 @@ them rather than re-deriving them:
    (queue + alarm on depth) and will have a real story to put in it.
 7. **Anything the first deploy cost**, actually observed. The brief's §6 is estimates; the
    first real number is worth more than all of them and is the beginning of the cost
-   case-study artifact D9 wants.
+   case-study artifact D9 wants. **Not readable yet** — billing data lags roughly a day.
+   Check Cost Explorer from 2026-09-07 and record the figure here.
+
+8. ✅ **Stack descriptions — and any string CDK round-trips — are ASCII.** An em dash in the
+   stack description came back from the Windows console as `?` when `cdk diff` read the
+   deployed template, so every diff reported a phantom change. Cosmetic in the cloud and
+   corrosive here: `cdk diff` is the only correctness guard behind CDK (ADR 0005), and a
+   diff that is never empty is a diff nobody reads.
+
+9. ✅ **Pin the deploy SHA to a named ref, never `HEAD`.** Found the hard way — another
+   session switched the checkout mid-deploy and `git rev-parse HEAD` resolved to a different
+   branch's commit, which would have stamped the version endpoint with unrelated work. Use
+   `git rev-parse aws-native`. This is a standing hazard of the long-lived-branch model
+   (ADR 0003 clause 2) rather than a one-off, and it applies to every later phase that
+   deploys.
 
 ---
 
