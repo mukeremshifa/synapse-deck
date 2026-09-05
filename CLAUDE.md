@@ -95,8 +95,42 @@ phase's plan, not into the current commit — even when it would take five minut
   still records the expected Postgres major and `npm run db:pg-version` still compares it
   against the live project, but the test that enforced it is gone — run it by hand when
   anything about the environment changes.
-- RLS is the entire security boundary. Every table gets an owner-only policy set plus
-  `force row level security`. A new table without RLS is a bug, not a TODO.
+- **RLS is the security boundary on Supabase, and Supabase only.** Every table there keeps
+  its owner-only policy set plus `force row level security`. That project is still live
+  and still serves `/progress` and generation until Phase F, so this rule still binds
+  anything you add there.
+
+### Tenancy on RDS — weaker than what it replaced, and say so
+
+**RLS is retired on the AWS side** (P9, [ADR 0008](docs/adr/0008-application-level-tenancy.md)).
+`services/api/migrations/` has no policies, because RDS has no `auth.uid()` and no
+`authenticated` role to write them against.
+
+Understand what changed before you write a query:
+
+> On Supabase, a query that forgets `where user_id = …` returns **nothing** — the database
+> refuses. On RDS, that same query returns **every user's rows**.
+
+The boundary moved into `services/api/src/data/`. Four rules hold it up. All four are
+mandatory, and none is a style preference:
+
+1. **`userId` is the required first parameter** of every exported data-access function.
+   Never optional, never defaulted — a default is how a bug becomes silent.
+2. **Every statement includes `where user_id = $1`**, including single-row fetches by
+   primary key. A card id is not a capability.
+3. **No SQL outside `services/api/src/data/`.** Handlers read `sub` from the authorizer,
+   call the data layer, and map errors. They never build a query.
+4. **`userId` comes only from the verified JWT.** Never a request body, never a query
+   parameter, never a client-set header.
+
+`scripts/check-data-access.mjs` enforces 1 and 3 in `verify`. It **cannot** enforce 2 or
+4: it checks the shape of the code, not its meaning, so a function that takes `userId` and
+ignores it passes every gate in this repository.
+
+**This is weaker than RLS and you should not treat it as equivalent.** RLS was a guarantee;
+this is a discipline with a linter behind it. Nothing proves cross-tenant isolation holds —
+the test that did was deleted with the suite. **A new table on RDS without a data-access
+module that follows all four rules is a cross-tenant leak, not a TODO.**
 
 ## AWS — `infra/`
 

@@ -1,11 +1,40 @@
 # `infra/` — CDK stacks
 
-The AWS side of the project. TypeScript CDK, two stacks (`dev` and `prod`), deployed by
-hand or by a manually-triggered GitHub Actions workflow.
+The AWS side of the project. TypeScript CDK, **three stacks per environment** (`dev` and
+`prod`), deployed by hand or by a manually-triggered GitHub Actions workflow.
 
-Executed against [docs/plans/P8-aws-foundation.md](../docs/plans/P8-aws-foundation.md).
-The decisions behind it are in [AWS-NATIVE-BRIEF.md](../docs/plans/AWS-NATIVE-BRIEF.md) —
-D7 (CDK from the first resource), D8 (Actions + OIDC), D9 (observability ships first).
+| Stack | Holds | Phase |
+| ----- | ----- | ----- |
+| `SynapseDeck-Foundation-<env>` | Version endpoint, alarms, dashboard, budgets | P8 |
+| `SynapseDeck-Auth-<env>` | Cognito user pool and app client | P9 |
+| `SynapseDeck-Data-<env>` | VPC (no NAT), RDS Postgres, SSM parameters | P9 |
+
+**Three stacks rather than one, deliberately.** Identity and data have different
+lifecycles from observability: a mistake in a user pool should not force a redeploy of the
+alarms that would tell you about it, and an RDS change should not risk the budgets.
+
+Executed against [docs/plans/P8-aws-foundation.md](../docs/plans/P8-aws-foundation.md) and
+[P9-aws-slice.md](../docs/plans/P9-aws-slice.md). The decisions behind it are in
+[AWS-NATIVE-BRIEF.md](../docs/plans/AWS-NATIVE-BRIEF.md) — D7 (CDK from the first
+resource), D8 (Actions + OIDC), D9 (observability ships first) — plus
+[ADR 0006](../docs/adr/0006-rds-dynamodb-split.md) and
+[ADR 0007](../docs/adr/0007-cognito-for-identity.md).
+
+---
+
+## 💸 The Data stack costs real money, continuously
+
+Everything in P8 was free-tier or near it. **RDS is not.** A `db.t4g.micro` with 20 GB of
+gp3 storage is roughly **$12-15/month**, billed whether or not anyone signs in.
+
+The budgets from P8 are set at **$2 / $5 / $10 / $15**. Deploying the Data stack will
+trip the upper two within the first month — **by design, not by surprise**. A budget that
+fires when you deliberately provision a database is a budget working correctly. Do not
+"fix" it by raising the thresholds; the number it is reporting is true.
+
+The way to stop paying it is `cdk destroy` on the Data stack, which is **owner-only** like
+every other destroy. On `dev` that is safe by construction (`deletionProtection: false`,
+`RemovalPolicy.DESTROY`); on `prod` it is deliberately blocked.
 
 ---
 
@@ -35,10 +64,14 @@ Run from the repository root:
 
 | Command                    | What it does                                        |
 | -------------------------- | --------------------------------------------------- |
-| `npm run infra:synth`      | Synthesise both stacks to `infra/cdk.out/`. No credentials needed |
+| `npm run infra:synth`      | Synthesise all six stacks to `infra/cdk.out/`. No credentials needed |
 | `npm run infra:diff`       | Diff against what is deployed. **Read this before deploying**     |
-| `npm run infra:deploy`     | Deploy the **dev** stack                            |
-| `npm run infra:deploy:prod`| Deploy the **prod** stack — owner only              |
+| `npm run infra:deploy`     | Deploy all three **dev** stacks                     |
+| `npm run infra:deploy:prod`| Deploy all three **prod** stacks — owner only       |
+
+To act on one stack, name it: `npm run infra:diff -- SynapseDeck-Data-dev`. Worth doing
+for the Data stack in particular — an RDS diff is where a replacement hides, and a
+replacement means a new, empty database.
 
 `npm run check` and `npm run verify` already cover this directory: `infra/tsconfig.json` is
 a project reference from the root `tsconfig.json`, and `eslint.config.js` has an
@@ -76,10 +109,57 @@ One trivial deployed thing, wrapped in the governance every later phase inherits
 | 4 budgets ($2/$5/$10/$15)  | ACTUAL **and** FORECASTED at each                                 |
 | X-Ray active tracing       | D9                                                                |
 
-**No VPC, deliberately.** A VPC without a NAT Gateway needs interface endpoints, and
-endpoint selection is a Phase A decision made against real data paths. The brief's §6 trap
-1 is a ~$32/mo NAT Gateway; the way not to pay it is not to create the VPC until something
-needs one.
+### The Auth stack (P9)
+
+| Resource | Why |
+| -------- | ---- |
+| Cognito user pool | Email sign-in, self-service signup. Replaces Supabase Auth |
+| App client, **no secret** | A browser SPA cannot hold one |
+| SRP + refresh auth flows | `USER_PASSWORD_AUTH` is deliberately absent |
+| `preventUserExistenceErrors` | Otherwise a public signup is a user-enumeration oracle |
+
+**No hosted UI and no Cognito domain** ([ADR 0007](../docs/adr/0007-cognito-for-identity.md)).
+The app's own screens in `src/features/auth/` stay; Cognito sits behind them as a plain
+OIDC provider. **No pre-token-generation Lambda** either — `sub` is already the claim we
+want, and a Lambda there would be a cold start on the login path to add nothing.
+
+### The Data stack (P9)
+
+| Resource | Why |
+| -------- | ---- |
+| VPC, 2 AZs, **`natGateways: 0`** | The single most important line in the directory |
+| Private **isolated** subnets only | `PRIVATE_WITH_EGRESS` would silently create a NAT |
+| S3 **gateway** endpoint | Free, and Phase B's ingestion will want it |
+| RDS `db.t4g.micro`, gp3, single-AZ | ~$12-15/mo. See the cost warning above |
+| Two security groups | The database accepts traffic from one SG, not a CIDR range |
+| SSM parameters (host/port/name) | Not Secrets Manager — see below |
+
+**The NAT Gateway trap, and the trap behind it.** A NAT is ~$32/mo, more than double the
+database it would serve. `natGateways: 0` avoids it, and the consequence is that Lambdas
+in this VPC have **no internet route at all** — not a slow one, none. Every AWS service
+call must go through a VPC endpoint, and a missing endpoint presents as a *mysteriously
+slow function* (the SDK call hangs until timeout), not as a connection error.
+
+Endpoint prices differ enormously and this drives real design decisions:
+
+- **Gateway** endpoints (S3, DynamoDB) are **free**. Always add them.
+- **Interface** endpoints are **~$7.20/mo each, per AZ** — at two AZs, more than the
+  database. **None are created.** Each future one needs its price in the commit message.
+
+**Credentials are in SSM Parameter Store, not Secrets Manager.** Secrets Manager is
+$0.40/secret/month *and* a VPC Lambda reading one needs an interface endpoint — about
+$15/mo to store one password. SSM standard parameters are free. What is genuinely given up
+is **automatic rotation**, which for a single-database project with one credential would
+never fire. The password itself still lives in the CDK-generated Secrets Manager secret
+(RDS requires it) but nothing reads it at runtime, so no endpoint is needed.
+
+**Migrations do not live here.** They are in
+[`services/api/migrations/`](../services/api/migrations/), next to the data-access layer
+that mirrors them. `npm run db:migrate:status` before `npm run db:migrate`, every time.
+
+**Note on RDS log retention:** `cloudwatchLogsExports` creates its log group with
+never-expire retention, which P8's `logRetention` config does **not** cover. A known gap,
+named here rather than silently inherited; worth closing in Phase F.
 
 ### Region: `us-east-1`
 

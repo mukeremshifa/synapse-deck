@@ -10,6 +10,8 @@ import { App } from 'aws-cdk-lib';
 import { configFor, REGION, type EnvName } from '../lib/config.ts';
 import { applyTags } from '../lib/tags.ts';
 import { FoundationStack } from '../lib/foundation-stack.ts';
+import { AuthStack } from '../lib/auth-stack.ts';
+import { DataStack } from '../lib/data-stack.ts';
 
 const app = new App();
 
@@ -46,22 +48,41 @@ const gitSha =
 for (const envName of ['dev', 'prod'] as const satisfies readonly EnvName[]) {
   const config = configFor(envName, alertEmail);
 
-  const stack = new FoundationStack(app, `SynapseDeck-Foundation-${envName}`, {
+  // Account comes from CDK_DEFAULT_ACCOUNT at synth time, never hardcoded.
+  // Leaving it undefined keeps the stacks environment-agnostic, which is what
+  // lets CI synth without credentials.
+  const env = { account: config.account, region: REGION };
+
+  // ASCII only in every description below, deliberately. An em dash here
+  // round-trips through the Windows console as '?' when cdk diff reads the
+  // deployed template back, so every diff reports a phantom description change
+  // forever. Cosmetic in the cloud, corrosive in the one guard this project
+  // has: a diff that is never empty is a diff nobody reads.
+  const foundation = new FoundationStack(app, `SynapseDeck-Foundation-${envName}`, {
     config,
     gitSha,
-    // Account comes from CDK_DEFAULT_ACCOUNT at synth time, never hardcoded.
-    // Leaving it undefined keeps the stack environment-agnostic, which is what
-    // lets CI synth without credentials.
-    env: { account: config.account, region: REGION },
-    // ASCII only, deliberately. An em dash here round-trips through the Windows
-    // console as '?' when cdk diff reads the deployed template back, so every
-    // diff reports a phantom description change forever. Cosmetic in the cloud,
-    // corrosive in the one guard this project has: a diff that is never empty is
-    // a diff nobody reads.
+    env,
     description: `SynapseDeck AWS foundation (${envName}) - see docs/plans/P8-aws-foundation.md`,
   });
 
-  applyTags(stack, config);
+  // P9. Separate stacks rather than additions to the foundation, because
+  // identity and data have different lifecycles from observability: a mistake
+  // in either should not force a redeploy of the alarms that would report it.
+  const auth = new AuthStack(app, `SynapseDeck-Auth-${envName}`, {
+    config,
+    env,
+    description: `SynapseDeck Cognito identity (${envName}) - see docs/plans/P9-aws-slice.md`,
+  });
+
+  const data = new DataStack(app, `SynapseDeck-Data-${envName}`, {
+    config,
+    env,
+    description: `SynapseDeck RDS Postgres and VPC (${envName}) - see docs/plans/P9-aws-slice.md`,
+  });
+
+  for (const stack of [foundation, auth, data]) {
+    applyTags(stack, config);
+  }
 }
 
 app.synth();

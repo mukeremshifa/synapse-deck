@@ -7,15 +7,21 @@
  *
  *   typecheck            whole project
  *   lint                 whole repo, not just changed files
+ *   data-access rules    the lint that replaced RLS (ADR 0008)
  *   build                production build actually succeeds
  *   deno check           the Edge Function, which tsc and eslint both skip
  *
  * ── There are no tests here ────────────────────────────────────────────────
  *
  * The suite was deleted on 2026-09-05 (ADR 0005). Until a new one is written at
- * a checkpoint, nothing in this repo verifies behaviour — these four steps prove
+ * a checkpoint, nothing in this repo verifies behaviour — these five steps prove
  * the code compiles, lints and builds, and nothing more. A green `verify` means
  * "it builds", not "it works".
+ *
+ * The data-access step is the one partial exception, and only just: it checks
+ * the *shape* of the code that replaced row level security — that ownership
+ * checks are where they are supposed to be — not that they are correct. See
+ * scripts/check-data-access.mjs.
  *
  * When the suite comes back, add the step here rather than in `check`; the
  * per-commit gate stays fast on purpose.
@@ -43,6 +49,20 @@ function step(label, entry, args) {
 
 step('typecheck', TSC, ['-b', '--noEmit']);
 step('lint (whole repo)', ESLINT, ['.']);
+
+/*
+ * The data-access lint (P9 task 11). Here rather than in `check` on purpose:
+ * the per-commit gate stays fast (ADR 0002), and this runs on every push, which
+ * is where the guarantee actually lives.
+ *
+ * It is a third of a second and it is load-bearing. Since P9 retired Row Level
+ * Security (ADR 0008), cross-tenant isolation is no longer a Postgres
+ * guarantee — it is a convention in services/api/src/data/, and this is the
+ * only thing that checks the convention is being followed. See the script's
+ * header for what it cannot check, which is more than it can.
+ */
+step('data-access rules', 'scripts/check-data-access.mjs', []);
+
 step('build', VITE, ['build']);
 
 /*

@@ -41,6 +41,38 @@ export interface EnvConfig {
   readonly alertEmail: string | undefined;
   /** Applied at App level so no future resource can forget them. */
   readonly tags: Readonly<Record<string, string>>;
+  /** P9. RDS: the instance is the single largest line item in this project. */
+  readonly database: DatabaseConfig;
+}
+
+export interface DatabaseConfig {
+  /**
+   * `db.t4g.micro` on both, and the reason is worth stating: Graviton is
+   * cheaper per hour than the t3 equivalent for identical specs, and at this
+   * size prod has no more load than dev. When prod genuinely needs more, this
+   * is the one line that changes.
+   */
+  readonly instanceClass: 'micro' | 'small';
+  readonly allocatedStorageGb: number;
+  /**
+   * Refuses `cdk destroy` and any stack operation that would replace the
+   * instance. True on prod because the data is the product; false on dev
+   * because a dev database that cannot be torn down is a permanent bill.
+   */
+  readonly deletionProtection: boolean;
+  /**
+   * Single-AZ on both (§8 constraint 3). Multi-AZ doubles the instance cost to
+   * buy an availability guarantee that a portfolio project does not need — and
+   * the brief's §6 budget has no room for it. Named here rather than inlined so
+   * that turning it on for prod later is a config change, not a stack rewrite.
+   */
+  readonly multiAz: boolean;
+  /**
+   * Backup retention in days. Snapshots within the allocated-storage size are
+   * free, so 7 days on prod costs nothing; 1 day on dev keeps the restore path
+   * exercised without accumulating snapshots nobody will read.
+   */
+  readonly backupRetentionDays: number;
 }
 
 /**
@@ -77,5 +109,14 @@ export function configFor(envName: EnvName, alertEmail: string | undefined): Env
     budgetThresholdsUsd: [2, 5, 10, 15],
     alertEmail,
     tags: { ...BASE_TAGS, env: envName },
+    database: {
+      instanceClass: 'micro',
+      // The RDS minimum for gp3 is 20 GB, so this is the floor rather than an
+      // estimate. Five tables of flashcards will not approach it.
+      allocatedStorageGb: 20,
+      deletionProtection: envName === 'prod',
+      multiAz: false,
+      backupRetentionDays: envName === 'prod' ? 7 : 1,
+    },
   };
 }
