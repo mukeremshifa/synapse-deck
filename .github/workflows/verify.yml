@@ -1,9 +1,13 @@
 # The checkpoint gate, enforced.
 #
 # `npm run check` runs locally before every commit and is deliberately fast and
-# partial (ADR 0002). This is the other half of that trade: the full suite has to
-# run *somewhere* automatically, or "we'll catch it at the checkpoint" quietly
-# becomes "nobody ran it".
+# partial (ADR 0002). This is the other half of that trade: the whole-repo pass
+# has to run *somewhere* automatically, or "we'll catch it at the checkpoint"
+# quietly becomes "nobody ran it".
+#
+# There are no tests. The suite was deleted on 2026-09-05 (ADR 0005) and this
+# workflow proves the code typechecks, lints and builds — not that it works.
+# When a suite is written, add it to `npm run verify` and it runs here too.
 #
 # Deployment is not here. Vercel builds from its own GitHub integration; this
 # workflow only verifies.
@@ -38,8 +42,9 @@ jobs:
 
       - run: npm ci
 
-      # Runs typecheck, repo-wide lint, both test groups, and the production
-      # build. The test split is sequential on purpose — see ADR 0002.
+      # Typecheck, repo-wide lint, production build. The Edge Function check
+      # runs in the job below instead, because branch protection requires it as
+      # a separate context — verify skips it here when Deno is absent.
       - run: npm run verify
 
   # Keep this as a separate job because branch protection requires its check
@@ -52,6 +57,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       # The Edge Function is Deno, so tsc and eslint both skip it by config.
+      #
+      # Run from supabase/functions, not the repo root. Deno walks up to the
+      # nearest package.json, finds the app's, and then demands a node_modules/
+      # to match — which this job has no reason to install. From here its own
+      # deno.json governs, and the npm: specifiers there resolve on their own.
+      # --frozen holds it to deno.lock so CI cannot silently drift to a newer
+      # transitive dependency than the one that was tested.
       - name: typecheck edge function
-        run: npx --yes deno@2 check supabase/functions/generate-cards/index.ts
+        working-directory: supabase/functions
+        run: deno check --frozen generate-cards/index.ts
