@@ -37,7 +37,10 @@ export function QuestionNavigator({
     >
       {questions.map((question, index) => {
         const answer = answers.get(question.id);
-        const answered = answer?.selectedOption !== null && answer !== undefined;
+        // `answer?.selectedOption !== null` alone would be true for a question
+        // never visited, where the optional chain yields undefined rather than
+        // null — marking every untouched question as answered.
+        const answered = answer !== undefined && answer.selectedOption !== null;
         const flagged = answer?.flagged ?? false;
         const isCurrent = index === currentIndex;
 
