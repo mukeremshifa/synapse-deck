@@ -98,6 +98,34 @@ phase's plan, not into the current commit — even when it would take five minut
 - RLS is the entire security boundary. Every table gets an owner-only policy set plus
   `force row level security`. A new table without RLS is a bug, not a TODO.
 
+## AWS — `infra/`
+
+Added at P8, the first phase of the AWS-native build
+([the brief](docs/plans/AWS-NATIVE-BRIEF.md)). `infra/` is CDK in TypeScript, two stacks,
+region `us-east-1`.
+
+| Action                                          | Who               |
+| ----------------------------------------------- | ----------------- |
+| `npm run infra:synth` / `infra:diff`            | ✅ Claude         |
+| `npm run infra:deploy` (the **dev** stack)      | ✅ Claude         |
+| `npm run infra:deploy:prod`                     | ❌ **Owner only** |
+| `cdk destroy`, anything deleting infrastructure | ❌ **Owner only** |
+| `cdk bootstrap`, IAM roles, the OIDC provider   | ❌ **Owner only** |
+
+`infra:deploy` on dev is allowed the way `db:push` is allowed: a phase that writes a stack
+is not finished while it exists only on disk. **`cdk diff` first, every time, and read what
+it lists** — there is no test suite behind CDK either, so `check` proving the code compiles
+says nothing about whether the template is right. If the diff is destructive or you are
+unsure, ask.
+
+**No AWS credential ever enters the repository.** CI assumes a role via GitHub OIDC; there
+are no long-lived access keys to leak. The account id and the deployed function URL stay in
+the owner's notes, not in git.
+
+Nothing in `infra/` may declare a TypeScript `enum` — CDK runs under
+`--experimental-strip-types`, which rejects it. Consuming CDK's own enums is fine. See
+`infra/README.md`.
+
 ## Keys
 
 - Modern Supabase key mode only: `sb_publishable_…` client-side, never `sb_secret_…`.

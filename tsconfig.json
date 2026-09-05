@@ -1,6 +1,12 @@
 {
   "files": [],
-  "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" },
+    /* CDK. A reference rather than a separate gate, so one `npm run check`
+       covers infra/ too — see infra/tsconfig.json. */
+    { "path": "./infra" }
+  ],
   /* Duplicated from tsconfig.app.json purely so tooling that reads only the root
      config (the shadcn CLI, some editor plugins) can resolve the @/* alias.
      tsconfig.app.json remains the one tsc actually uses for src/. */

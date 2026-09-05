@@ -1,0 +1,46 @@
+{
+  /* The third project reference, alongside tsconfig.app.json (src/) and
+     tsconfig.node.json (vite.config.ts). Being a reference is the whole point:
+     it is what makes `npm run check` and `npm run verify` cover infra/ without
+     a third gate. A CDK codebase that tsc and eslint both skip is exactly the
+     gap that let the Edge Function break CI while verify stayed green locally —
+     see the comment in scripts/verify.mjs. */
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    /* Required for a project reference. tsc still emits nothing (noEmit below);
+       composite only makes this project referenceable. */
+    "composite": true,
+    "noEmit": true,
+
+    /* Matches tsconfig.app.json rather than the looser node config. CDK code
+       provisions real infrastructure — it earns the same strictness the app has,
+       and noUncheckedIndexedAccess in particular is what stops a config lookup
+       silently returning undefined and synthesising a stack with a missing
+       value. */
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    /* Node's type stripping resolves a relative import only with its extension,
+       so bin/app.ts imports './lib/config.ts' literally. Same reason
+       tsconfig.app.json sets this for the four files the Deno Edge Function
+       shares — a runtime that does not bundle needs the real specifier. */
+    "allowImportingTsExtensions": true,
+
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["bin", "lib"]
+}

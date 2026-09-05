@@ -112,7 +112,7 @@ these is real work that belongs somewhere specific:
 Ordered so the repo builds after every one, and so all the AWS-free work happens before
 the first call that needs credentials.
 
-### 1. Create the long-lived branch — no files
+### ✅ 1. Create the long-lived branch — no files
 
 Per D1 and [ADR 0003](../adr/0003-branching-model.md) clause 2, this work spans many
 sessions and gets a branch:
@@ -126,7 +126,7 @@ git push -u origin aws-native
 back to `dev` is a decision for the end of Phase F, not this phase — but the branch is
 pushed from the first task so CI runs on it and the work is never only on one machine.
 
-### 2. The CDK workspace — `infra/`
+### ✅ 2. The CDK workspace — `infra/`
 
 A **separate npm workspace**, not new dependencies in the root `package.json`. The frontend
 does not need `aws-cdk-lib` in its lockfile resolution, and the root `package.json` is the
@@ -153,7 +153,7 @@ make trustworthy.
 fewer dependency. **Verify this actually works with the pinned CDK before building on it**;
 if CDK's bootstrapping fights it, `ts-node` is the fallback and the reason goes in a comment.
 
-### 3. Configuration and tagging — `infra/lib/config.ts`, `infra/lib/tags.ts`
+### ✅ 3. Configuration and tagging — `infra/lib/config.ts`, `infra/lib/tags.ts`
 
 Two environments, `dev` and `prod`, differing in name and in nothing else yet. That is
 correct and worth stating: **the point is that the difference is expressed in one place from
@@ -180,7 +180,7 @@ The alert email comes from CDK context (`-c alertEmail=…`) or an environment v
 **is not committed**. A personal email in a public repo is a spam magnet, and the repo is
 the owner's public portfolio piece.
 
-### 4. The trivial deployed thing — `infra/lib/foundation-stack.ts`
+### ✅ 4. The trivial deployed thing — `infra/lib/foundation-stack.ts`
 
 One Node.js Lambda with a function URL, returning JSON: the stack's environment name, the
 CDK version it was synthesised with, and the git SHA passed in at build time.
@@ -201,7 +201,7 @@ actually live".
   a comment that this is the _only_ resource in the project with unauthenticated access and
   that Phase A's API Gateway is not to copy it.
 
-### 5. Observability — in the same stack, not a later one
+### ✅ 5. Observability — in the same stack, not a later one
 
 D9's list, all of it, in this phase:
 
@@ -217,7 +217,7 @@ D9's list, all of it, in this phase:
   without an explicit retention; if that is not enforceable in code, it goes in the ADR as
   a review rule.
 
-### 6. Budgets — `infra/lib/foundation-stack.ts` or its own construct
+### ✅ 6. Budgets — `infra/lib/foundation-stack.ts` or its own construct
 
 `AWS::Budgets::Budget` at **$2 / $5 / $10 / $15** (D9), notifying the same SNS topic and the
 owner's email. Both `ACTUAL` and `FORECASTED` at each threshold — forecast is what gives
@@ -232,7 +232,7 @@ Lambda in task 4 is billable, the deploy in task 9 is the first time anything co
 and the budget goes up in the same `cdk deploy`. Deploying the Lambda in one session and the
 budget in the next violates the constraint even though both land in this phase.
 
-### 7. Tooling integration — the repo's gates must cover `infra/`
+### ✅ 7. Tooling integration — the repo's gates must cover `infra/`
 
 This is the task that is easy to skip and expensive to skip. **`npm run check` and
 `npm run verify` must typecheck and lint `infra/`**, or the CDK code is a second codebase
@@ -256,7 +256,7 @@ stayed green locally (see the comment in `verify.mjs`).
 
 `npm run build` must be unaffected — Vite still builds only `src/`.
 
-### 8. CI — `.github/workflows/infra.yml`, a new file
+### ✅ 8. CI — `.github/workflows/infra.yml`, a new file
 
 A **separate workflow**, for the same reason `typecheck-edge-function` is a separate job:
 branch protection requires contexts independently, and `verify.yml`'s comment says
@@ -407,17 +407,36 @@ Observable, in order of what they prove:
 Written back into this file or `SPEC.md` by the executing session, so the next one inherits
 them rather than re-deriving them:
 
-1. **The region**, and whether the brief's §6 costs still hold if it is not `us-east-1`.
-2. **Whether `--experimental-strip-types` drives `cdk.json` cleanly**, or `ts-node` was
-   needed after all, and why.
-3. **The exact CDK version pinned**, and the intended cadence for moving it.
+1. ✅ **Region: `us-east-1`**, settled 2026-09-05 with the owner working from the UAE.
+   `me-central-1` (Dubai) was considered rather than defaulted past — it would cut ~300 ms
+   of round-trip latency and lost on **Bedrock model availability**, which is materially
+   broader in `us-east-1` and which D6 makes the project depend on. The brief's §6 costs
+   hold unchanged. Two UAE-specific notes that do not change the decision: AWS charges 5%
+   UAE VAT on the bill, and credits generally cover the service charge rather than the tax,
+   so a small real charge inside the credit window is expected rather than a misfire. Tax
+   settings go in the Billing console. Recorded in `infra/lib/config.ts` and
+   `infra/README.md`.
+2. ✅ **`--experimental-strip-types` drives `cdk.json` cleanly**, verified on Node 24.19.0
+   against `aws-cdk-lib` 2.268.0 — no `ts-node`. **One constraint follows and it is now a
+   rule in `CLAUDE.md`: nothing in `infra/` may _declare_ a TypeScript `enum`**, because
+   strip-only mode rejects it with `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`. _Consuming_ CDK's
+   own enums is fine (`aws-cdk-lib` ships compiled JS), which is the distinction that makes
+   this liveable. Escape hatch if it is ever needed: `--experimental-transform-types`, also
+   verified working. A second finding: `infra/tsconfig.json` needs
+   `allowImportingTsExtensions`, for the same reason `tsconfig.app.json` does — a runtime
+   that does not bundle needs the real `.ts` specifier.
+3. ✅ **CDK pinned exactly**: `aws-cdk-lib` 2.268.0, `constructs` 10.8.1, `aws-cdk` 2.1140.0.
+   No carets, so a local synth and a CI synth cannot produce different templates. Cadence:
+   move it deliberately at a phase boundary, never incidentally.
 4. **The repo restructure is deferred** (D1's `infra/` `services/` `web/`): `infra/` lands
    now; the rest waits for a `services/` with content. Record this so the next planner reads
    it as a decision rather than an oversight.
 5. **The OIDC trust policy's `sub` condition** as actually deployed, and whether it is pinned
    to the branch or the repository.
-6. **What the DLQ story is** for a version endpoint, in one sentence, so Phase B inherits a
-   convention rather than inventing one.
+6. ✅ **The DLQ story**, in one sentence: nothing should ever land in the version endpoint's
+   DLQ, because the function has no dependencies and no async invoker — which is exactly
+   what makes an alarm at `> 0` meaningful rather than noise. Phase B inherits the shape
+   (queue + alarm on depth) and will have a real story to put in it.
 7. **Anything the first deploy cost**, actually observed. The brief's §6 is estimates; the
    first real number is worth more than all of them and is the beginning of the cost
    case-study artifact D9 wants.

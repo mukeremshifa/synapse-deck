@@ -1,0 +1,120 @@
+# CDK synth, and a manual deploy.
+#
+# A separate workflow from verify.yml for the same reason typecheck-edge-function
+# is a separate job there: branch protection requires each context independently,
+# and verify.yml's own comment says deployment is deliberately not in it.
+#
+# There are no tests (ADR 0005), and CDK is no exception — nothing here proves the
+# synthesised template is correct. `cdk synth` proves it *synthesises*. The guard
+# on correctness is `cdk diff`, read by a human before every deploy. See
+# infra/README.md.
+
+name: infra
+
+on:
+  push:
+    branches: [aws-native, dev]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/infra.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
+    branches: [aws-native, dev]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/infra.yml'
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Deploy the dev stack after synth'
+        type: boolean
+        default: false
+
+concurrency:
+  group: infra-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Least privilege by default. The deploy job widens this to id-token: write for
+# OIDC; nothing else needs more than read.
+permissions:
+  contents: read
+
+jobs:
+  synth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # Deliberately no AWS credentials. The stacks resolve account from
+      # CDK_DEFAULT_ACCOUNT and are otherwise environment-agnostic, so synth is a
+      # genuine offline check — which is the property that lets this run on every
+      # push with no secret in the repository.
+      #
+      # If synth ever starts needing credentials, that means a stack added a
+      # context lookup (Vpc.fromLookup and friends). The fix is to remove the
+      # lookup, not to add credentials here.
+      - name: cdk synth
+        run: npm run infra:synth
+
+  # Manual only, and gated on the input rather than running on every dispatch.
+  # Automatic deploy on push stays off in this phase: the brief keeps main frozen
+  # and deployment human-triggered, and a self-deploying branch is a Phase F
+  # conversation once there is something worth continuously delivering.
+  deploy-dev:
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy
+    needs: synth
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: dev
+
+    permissions:
+      id-token: write # OIDC. This is the whole point — see below.
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # D8: no long-lived AWS access keys, ever. GitHub mints a short-lived OIDC
+      # token, AWS trades it for temporary credentials via a role whose trust
+      # policy names this repository and this branch. There is no secret to leak
+      # because there is no secret.
+      #
+      # AWS_DEPLOY_ROLE_ARN is a repository variable (not a secret — a role ARN
+      # is not a credential, and it is useless without the trust relationship).
+      - name: Assume deploy role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: gha-synapsedeck-${{ github.run_id }}
+
+      # Read before it applies. The diff is the only correctness guard this
+      # phase has, so it is printed in the log where it can be read after the
+      # fact rather than swallowed.
+      - name: cdk diff
+        run: npm run infra:diff
+        continue-on-error: true
+        env:
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+
+      - name: cdk deploy (dev)
+        run: npm run infra:deploy -- --require-approval never -c gitSha=${{ github.sha }}
+        env:
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}

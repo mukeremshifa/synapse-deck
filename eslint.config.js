@@ -39,6 +39,19 @@ export default tseslint.config(
       ],
     },
   },
+  // CDK. Node globals rather than browser ones — the base block above sets
+  // globals.browser, so without this every `process` reference is a lint error.
+  //
+  // Deliberately NOT an `ignores` entry. Ignoring infra/ is the tempting fix and
+  // the wrong one: it would leave a second TypeScript codebase that nothing
+  // lints, which is exactly the gap that let the Edge Function break CI while
+  // `verify` stayed green locally.
+  {
+    files: ['infra/**/*.ts'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
   // Deno-based Edge Functions have their own globals and are typechecked by Deno,
   // not by tsc/eslint here.
   { ignores: ['supabase/functions/**'] },

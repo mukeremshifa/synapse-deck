@@ -39,3 +39,6 @@ dist-ssr/
 
 # TypeScript incremental build info
 *.tsbuildinfo
+
+# CDK synth output
+infra/cdk.out/
