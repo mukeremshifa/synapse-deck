@@ -42,7 +42,16 @@ jobs:
       # build. The test split is sequential on purpose — see ADR 0002.
       - run: npm run verify
 
+  # Keep this as a separate job because branch protection requires its check
+  # independently from the application verification job.
+  typecheck-edge-function:
+    name: typecheck edge function
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
       # The Edge Function is Deno, so tsc and eslint both skip it by config.
-      # Without this step nothing typechecks it at all.
       - name: typecheck edge function
         run: npx --yes deno@2 check supabase/functions/generate-cards/index.ts
