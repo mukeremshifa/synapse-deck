@@ -34,17 +34,70 @@
 import pg from 'pg';
 
 /**
- * `timestamptz` comes back as a JavaScript `Date` by default, which then
- * serialises through `JSON.stringify` in whatever format the runtime picks.
- * The client sends `updated_at` back as the optimistic-concurrency token and it
- * must match byte for byte, so timestamps are handed through as the strings
- * Postgres produced.
+ * Timestamps leave this API as ISO 8601, in UTC, with Postgres's full
+ * microsecond precision.
  *
- * 1184 is `timestamptz`, 1114 is `timestamp`. Set once at module scope, before
- * any pool exists.
+ * Two constraints meet here and only one shape satisfies both.
+ *
+ * **The client parses these with `new Date()`.** `src/lib/fsrs.ts` reads
+ * `card.due` and `card.last_review` to compute the next interval, and
+ * `src/lib/queue.ts` reads `due` to order the session. Postgres's own output
+ * format — `2026-09-06 03:43:16.065206+04`, a space instead of `T` — is
+ * **not** a format the ECMAScript specification requires any engine to parse.
+ * V8 accepts it, so it works in Chrome and in Node; that is a property of the
+ * engine, not a guarantee, and it has historically failed in Safari. A date
+ * that silently becomes `Invalid Date` in one browser is a wrong FSRS interval,
+ * which is the kind of bug that looks like the algorithm is broken.
+ *
+ * **`updated_at` is the optimistic-concurrency token.** The client sends it
+ * back and `review_card` compares it as `$5::timestamptz` — a timestamp
+ * comparison, not a string one, so the format may change but the *instant* must
+ * survive exactly. Postgres stores microseconds; `Date` holds milliseconds. So
+ * parsing to a `Date` and re-serialising would truncate `.065206` to `.065`
+ * and every rating would start failing with PT409.
+ *
+ * Hence a pure string transform on the wire text: the offset is applied to the
+ * date and time, and the fractional seconds are carried across untouched. No
+ * `Date` is constructed for the fraction, so nothing is truncated, and
+ * Postgres re-parses the result to the identical instant.
+ *
+ * 1184 is `timestamptz`, 1114 is `timestamp`. Set once at module scope,
+ * before any pool exists.
  */
-pg.types.setTypeParser(1184, (value: string) => value);
-pg.types.setTypeParser(1114, (value: string) => value);
+const PG_TIMESTAMPTZ =
+  /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(\.\d+)?([+-]\d{2})(?::?(\d{2}))?$/;
+
+export function pgTimestampToIso(value: string): string {
+  const match = PG_TIMESTAMPTZ.exec(value);
+  // Anything unrecognised is handed through rather than mangled: returning the
+  // original is always at least as good as returning a guess.
+  if (!match) return value;
+
+  const [, date, time, fraction = '', offsetHours, offsetMinutes = '00'] = match;
+  const sign = offsetHours!.startsWith('-') ? 1 : -1;
+  const shiftMinutes =
+    sign * (Math.abs(Number(offsetHours)) * 60 + Number(offsetMinutes));
+
+  // Seconds and coarser only — the fraction is never part of this arithmetic,
+  // which is what keeps the microseconds intact.
+  const utc = new Date(`${date}T${time}Z`);
+  utc.setUTCMinutes(utc.getUTCMinutes() + shiftMinutes);
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${utc.getUTCFullYear()}-${pad(utc.getUTCMonth() + 1)}-${pad(utc.getUTCDate())}` +
+    `T${pad(utc.getUTCHours())}:${pad(utc.getUTCMinutes())}:${pad(utc.getUTCSeconds())}` +
+    `${fraction}Z`
+  );
+}
+
+pg.types.setTypeParser(1184, pgTimestampToIso);
+// `timestamp` without a zone carries no offset to apply. No column in this
+// schema is one; the parser is set so that adding one cannot silently
+// reintroduce the space-separated format.
+pg.types.setTypeParser(1114, (value: string) =>
+  value.includes(' ') ? `${value.replace(' ', 'T')}Z` : value,
+);
 
 /**
  * `int8` (count(*)) parses to a string by default, because a 64-bit integer
