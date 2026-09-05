@@ -14,6 +14,22 @@ wrong is instructive.
 **The app runs on Supabase and Vercel today and keeps working until a phase plan says
 otherwise.**
 
+> **Amendment, 2026-09-05, after this brief was written: the test suite no longer exists.**
+> All 31 suites (359 tests) were deleted to keep iteration fast through this build — see
+> [ADR 0005](../adr/0005-no-test-suite.md). Two passages below are now counterfactual and
+> the planning session must not read past them:
+>
+> - §4 counts "5,694 lines of tests" among the 78% of code that survives the migration.
+>   That code is gone. The surviving-value argument still holds on the rest — `fsrs.ts`,
+>   `progress.ts`, the schemas, the design system — but the tests are no longer part of it.
+> - §6 replaces RLS with a data-access layer whose safety rests on "cross-tenant tests that
+>   assert user A cannot read user B, per table." **Those tests are not merely unwritten;
+>   the harness that would run them was deleted.** That bullet is now the most important
+>   unbuilt thing in this document, and any phase plan that drops RLS must schedule the
+>   testing capability *before* the cutover, not after it.
+>
+> Everything else in the brief stands.
+
 ---
 
 ## 1. The goal, stated plainly

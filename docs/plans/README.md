@@ -22,9 +22,14 @@ Each plan contains, in this order:
 3. **Tasks** — ordered, each naming the files it touches. Ordered so the app builds and
    runs after every task, never only at the end.
 4. **Acceptance criteria** — observable checks, not vibes.
-5. **Tests to write** — named, with the specific failure each one catches.
+5. ~~**Tests to write**~~ — **suspended.** The suite was deleted on 2026-09-05
+   ([ADR 0005](../adr/0005-no-test-suite.md)); new plans omit this section until the owner
+   asks for a suite. Completed plans below still carry it, describing tests that existed
+   when they ran.
 6. **Decisions to record** — things the executing session must write back into `SPEC.md`
    or this file, so the next session inherits them.
+7. **What went unverified** — replaces (5) while there are no tests. Name the paths the
+   phase changed that nothing checks, so the owner knows where to look by hand.
 
 ## Why these are written one at a time
 
@@ -92,9 +97,10 @@ to the app because the landing page is out of its scope now. This is not a phase
 get a plan file — a change to one screen that a session can hold in its head does not need
 one, and pretending otherwise would reopen a board that is legitimately closed.
 
-The split that still matters day to day: schema and RLS changes are testable locally
-against PGlite (`npm test`), but anything touching Supabase Auth needs the real project,
-because the harness only stubs `auth.users`.
+The split that used to matter day to day — schema and RLS testable locally against PGlite,
+Supabase Auth only against the real project — is moot: **the suite was deleted on
+2026-09-05** (ADR 0005). Nothing verifies a migration or a policy before it reaches the
+live database now. Dry-run and read the SQL.
 
 All five migrations are applied and `src/types/database.ts` is generated from the live
 schema. P1 pushed `…_review_card.sql` and `…_revoke_anon_rpc.sql`; **P2 added none** — the
@@ -153,8 +159,9 @@ GitHub, so connecting it today would deploy the scaffold, not the product. Every
 to here has to be pushed first. Per the project rules that is not something a session does.
 
 Fourth, new since P5: the visual system is `src/styles/globals.css` and nothing else — no
-component hardcodes a colour, and `src/test/tokens.test.ts` enforces three invariants about
-that file (theme parity, chroma-0 neutrals, and the grade ramp's lightness ordering). The
+component hardcodes a colour. A test enforced three invariants about that file (theme
+parity, chroma-0 neutrals, and the grade ramp's lightness ordering) until the suite was
+deleted (ADR 0005); they are now conventions, not guarantees. The
 shipped icons and social cards in `public/` are **generated** by `npm run brand:assets` from
 `assets/brand/*.svg`; edit the masters, re-run, and commit the result. Re-running must leave
 `git status --porcelain public/` empty.
@@ -167,9 +174,9 @@ feature. Two tests hold it: `LandingPage.test.tsx` walks that graph transitively
 `WebSocket` stubbed to fail, so "makes zero network requests" is an assertion rather than
 something somebody once saw in a network panel.
 
-Fifth, new since P6: that closure is now enforced from the other direction too.
-`src/test/palette.test.ts` walks every `.ts`, `.tsx` and `.css` file under `src/` and fails on
-a numbered Tailwind palette class or a literal colour outside a comment, so "just this one
-green" cannot get back in. P6 also settled the typographic rules a later session would
+Fifth, new since P6: that closure was enforced from the other direction too — a test walked
+every `.ts`, `.tsx` and `.css` file under `src/` and failed on a numbered Tailwind palette
+class or a literal colour outside a comment, so "just this one green" could not get back
+in. That test went with the suite (ADR 0005), so the closure now depends on review. P6 also settled the typographic rules a later session would
 otherwise re-litigate — where the serif may appear, that numbers are mono, and what "one
 accent per screen" excludes — all recorded in SPEC §12 under _Closed at P6_.

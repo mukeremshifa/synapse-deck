@@ -635,7 +635,7 @@ Controls, all enforced in the Edge Function, never client-side:
 | Icons          | `lucide-react`                                        | replaces `react-icons`                              |
 | SRS            | `ts-fsrs`                                             |                                                     |
 | Backend client | `@supabase/supabase-js`                               | replaces `axios` + `json-server`                    |
-| Tests          | Vitest + Testing Library                              | see §10                                             |
+| Tests          | _none — suite deleted 2026-09-05_                     | ADR 0005; rebuild at a checkpoint                   |
 | Type           | DM Serif Display · Plus Jakarta Sans · JetBrains Mono | self-hosted via `@fontsource`; no CDN (P5)          |
 | Brand assets   | `@resvg/resvg-js` + `png-to-ico` + `wawoff2`          | dev-only; `npm run brand:assets` (P5)               |
 
@@ -971,8 +971,9 @@ edited into those sections, so the reasoning that was replaced is still readable
   white produces olive, which is a different colour wearing the same name. `--ring` is
   therefore ink in light and accent in dark, because one ring colour cannot serve both.
 - **Neutrals are chroma 0 in both themes.** Black, white, and one wavelength of green. A grey
-  tinted toward the accent muddies the only colour allowed to carry meaning, and
-  `src/test/tokens.test.ts` fails if one drifts.
+  tinted toward the accent muddies the only colour allowed to carry meaning. A test used to
+  fail if one drifted; it was deleted with the suite (ADR 0005), so this is now a
+  convention rather than an enforced invariant.
 - **The four grade colours are one ramp ending on the accent.** Not four unrelated hues:
   again → hard → good → easy sweeps red to `#D0F861`, and rating Easy _is_ the brand colour
   because Easy is what the product exists to produce. Lightness climbs 0.60 → 0.72 → 0.82 →
@@ -995,9 +996,9 @@ edited into those sections, so the reasoning that was replaced is still readable
 - **Where the day bucketing lives** — in both places, and proven equal. `studyDayKey`
   stays the client's only answer; `review_day_counts` transcribes it as
   `(reviewed_at at time zone tz - interval '4 hours')::date` because aggregating a year
-  of reviews in the browser is the wrong shape. `src/test/stats.test.ts` asserts the two
-  agree across DST transitions in both directions, which is the only thing that keeps a
-  second implementation honest.
+  of reviews in the browser is the wrong shape. A test asserted the two agree across DST
+  transitions in both directions — the only thing that kept a second implementation honest.
+  It was deleted with the suite (ADR 0005); the duplication remains and is now unguarded.
 - **Heatmap intensity is relative, not absolute** — the five buckets are scaled to the
   90th percentile of the user's own active days. Fixed thresholds cannot serve both a
   fifteen-a-day user and a three-hundred-a-day user; one gets a blank year and the other

@@ -29,7 +29,7 @@ project is connected. Both are written out in [Deploying](#deploying).
 ## Stack
 
 React 19 · TypeScript · Vite · Tailwind v4 + shadcn/ui · TanStack Query · Zod ·
-react-router 7 · Supabase (Postgres + Auth + RLS + Edge Functions) · ts-fsrs · Vitest
+react-router 7 · Supabase (Postgres + Auth + RLS + Edge Functions) · ts-fsrs
 
 ## Getting started
 
@@ -45,8 +45,13 @@ than failing later as an opaque 401.
 Before saying any change is done:
 
 ```bash
-npm run typecheck && npm run lint && npm test && npm run build
+npm run check     # ~15s — typecheck + eslint on changed files. Every commit.
+npm run verify    # ~35s — whole-repo lint, typecheck, build, Edge Function. Checkpoints.
 ```
+
+**There are no tests.** The suite was deleted on 2026-09-05 to keep iteration fast through
+the AWS-native rebuild — see [ADR 0005](docs/adr/0005-no-test-suite.md). Both commands
+prove the code compiles, lints and builds; neither proves it works.
 
 ## Scripts
 
@@ -56,7 +61,8 @@ npm run typecheck && npm run lint && npm test && npm run build
 | `npm run build`         | Typecheck (`tsc -b`) then production build                            |
 | `npm run typecheck`     | Types only                                                            |
 | `npm run lint`          | ESLint                                                                |
-| `npm test`              | Vitest — unit tests plus RLS/schema tests against in-process Postgres |
+| `npm run check`         | Fast gate — typecheck + eslint on changed files (every commit)        |
+| `npm run verify`        | Full gate — whole-repo lint, typecheck, build, Edge Function check    |
 | `npm run db:push`       | Apply `supabase/migrations` to the linked project                     |
 | `npm run db:types`      | Regenerate `src/types/database.ts` from the linked project            |
 | `npm run db:pg-version` | Compare the live Postgres major against `supabase/pg-version.json`    |
@@ -104,8 +110,8 @@ For this project those values are `https://synapsedeck.mukeremshifa.com` and
 
 That origin is also written into `public/sitemap.xml`, `public/robots.txt` and the `og:url` /
 `og:image` / `twitter:image` tags in `index.html` — three files repeating one string, which
-`src/test/brand-assets.test.ts` asserts agree. If the domain ever moves, change it in
-`index.html` and run `npm test`; the failure tells you the other two.
+a test used to assert agree. That test is gone, so if the domain ever moves, change all
+three by hand: `index.html`, `public/sitemap.xml` and `public/robots.txt`.
 
 ### 2. Vercel
 
@@ -209,32 +215,35 @@ Other failures worth telling apart:
 | Confirmation email lands on the 404   | Supabase Redirect URLs do not include `/auth/callback`               |
 | A recovery card with **Try again**    | A render threw; the boundary caught it. The reason is in the console |
 
-## Tests without Docker
+## Migrations are no longer verified before they ship
 
-`npm test` runs the real files in `supabase/migrations` against
-[PGlite](https://github.com/electric-sql/pglite) — Postgres compiled to WASM, in
-process. That means schema constraints and every RLS policy are verified on every test
-run with no container and no cloud project. The harness
-([src/test/pg-harness.ts](src/test/pg-harness.ts)) stubs only Supabase's `auth` schema:
-`auth.users` and an `auth.uid()` that reads the same JWT-subject setting the real one
-does.
+This project used to run the real files in `supabase/migrations` against
+[PGlite](https://github.com/electric-sql/pglite) — Postgres compiled to WASM, in process —
+so schema constraints and every RLS policy were checked on every test run, with no
+container and no cloud project. **That harness was deleted on 2026-09-05**
+([ADR 0005](docs/adr/0005-no-test-suite.md)).
 
-Because superusers bypass RLS, the harness switches to a non-superuser `authenticated`
-role before asserting anything — otherwise the tests would pass no matter what the
-policies said.
+Nothing now checks a migration before `npm run db:push` applies it to the live database.
+Until a suite is rebuilt:
 
-What this cannot cover is Supabase Auth itself: sign-up, confirmation emails, and
-therefore `/auth/callback` are only verifiable against the real project.
+- `npx supabase db push --linked --dry-run` first, every time, and read what it lists.
+- Re-read your own SQL. There is no second opinion.
+- If it is destructive, or you are unsure, ask before pushing.
+
+**RLS is still the entire security boundary, and nothing proves it holds.** Policies are
+still defined and still forced; what is gone is the proof that they isolate one user's
+decks from another's. Treat any change touching policies, `auth.uid()`, or the
+`authenticated` role as unverified until a human has checked it.
 
 ## Postgres versions must match
 
-The Supabase project runs **Postgres 17**; `npm test` runs the migrations on PGlite, which
-must therefore also be Postgres 17. If they drift, a migration can pass locally and fail on
-`db push`.
+The Supabase project runs **Postgres 17**. This mattered most when PGlite ran the
+migrations locally and had to match; with the suite gone, what remains is keeping the
+recorded major honest against the live project.
 
 - `supabase/pg-version.json` records the expected major — the single source of truth.
-- `src/test/pg-version.test.ts` fails the suite if PGlite reports a different major.
-- `npm run db:pg-version` compares that number against the live project.
+- `npm run db:pg-version` compares that number against the live project. The test that
+  enforced it automatically is gone, so run this by hand when the environment changes.
 
 The mapping, measured rather than assumed: **PGlite 0.4.x ships PG 17.5, PGlite 0.5.x ships
 PG 18.3.** So `@electric-sql/pglite` is pinned to `^0.4.6` on purpose. Do not accept a
@@ -280,8 +289,8 @@ frame. The pipeline is SPEC §7; the client half is `src/features/generate/`.
 `src/lib/schemas.ts`, `ndjson.ts`, `sse.ts`, `quota.ts`, `generate.ts` and `fsrs.ts` by
 relative path. Deno needs the `.ts` extension on those imports, which is why
 `tsconfig.app.json` sets `allowImportingTsExtensions` — Vite resolves both forms, Deno only
-one. `npm test` therefore covers the parser and the policy the _function_ runs, not a
-sibling of it.
+one. The Edge Function therefore runs the same parser and schemas as the browser, not a
+sibling copy of them; `npm run fn:check` typechecks it under Deno.
 
 `--use-api` on `fn:deploy` is not optional: it is the supported way to bundle a function
 that imports files from outside `supabase/`, which this one does by design.
@@ -299,7 +308,8 @@ as the `anon` or `authenticated` Postgres role and RLS decides what they can see
 The **secret key is never used anywhere in v1.** It maps to `service_role`, which holds
 `BYPASSRLS`, so a single copy of it in a client bundle would expose every user's data to
 anyone who reads the shipped JavaScript. `src/lib/env-schema.ts` refuses to start the app
-if it finds one, and that refusal is covered by tests.
+if it finds one. The test that proved this is gone, so that file is now the only thing
+enforcing it.
 
 The generation provider key is likewise not a client value — it is set as an Edge Function
 secret (`supabase secrets set GROQ_API_KEY=…`) and never reaches the browser. The Edge
