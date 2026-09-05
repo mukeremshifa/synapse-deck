@@ -31,7 +31,8 @@
     "infra:deploy:prod": "npm run deploy --workspace infra -- SynapseDeck-Foundation-prod SynapseDeck-Auth-prod SynapseDeck-Data-prod SynapseDeck-Api-prod",
     "brand:assets": "node scripts/build-brand-assets.mjs",
     "hero:images": "node scripts/build-hero-images.mjs",
-    "check:data-access": "node scripts/check-data-access.mjs"
+    "check:data-access": "node scripts/check-data-access.mjs",
+    "check:routes": "node scripts/check-routes.mjs"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.3.0",

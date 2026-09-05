@@ -8,13 +8,14 @@
  *   typecheck            whole project
  *   lint                 whole repo, not just changed files
  *   data-access rules    the lint that replaced RLS (ADR 0008)
+ *   route parity         dev-api.mjs and api-stack.ts agree (P10 1b)
  *   build                production build actually succeeds
  *   deno check           the Edge Function, which tsc and eslint both skip
  *
  * ── There are no tests here ────────────────────────────────────────────────
  *
  * The suite was deleted on 2026-09-05 (ADR 0005). Until a new one is written at
- * a checkpoint, nothing in this repo verifies behaviour — these five steps prove
+ * a checkpoint, nothing in this repo verifies behaviour — these six steps prove
  * the code compiles, lints and builds, and nothing more. A green `verify` means
  * "it builds", not "it works".
  *
@@ -62,6 +63,20 @@ step('lint (whole repo)', ESLINT, ['.']);
  * header for what it cannot check, which is more than it can.
  */
 step('data-access rules', 'scripts/check-data-access.mjs', []);
+
+/*
+ * Route parity (P10 task 1b). `scripts/dev-api.mjs` mirrors the routes in
+ * `infra/lib/api-stack.ts` by hand, because the local server runs the real
+ * handlers without deploying RDS. That mirror is the one failure mode this
+ * development setup introduces that production does not have: a route added
+ * to one file and forgotten in the other works all through development and
+ * 404s the first time it runs behind API Gateway — weeks later, at a deploy.
+ *
+ * Here rather than in `check` for the same reason as the data-access lint:
+ * the per-commit gate stays fast (ADR 0002), and this runs on every push,
+ * which is where the guarantee actually lives.
+ */
+step('route parity', 'scripts/check-routes.mjs', []);
 
 step('build', VITE, ['build']);
 
