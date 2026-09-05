@@ -55,7 +55,7 @@ authored against the codebase it will actually run in.
 | P7 — Landing     | [P7-landing.md](P7-landing.md)             | ✅ Complete — 2026-08-13                                             |
 | Post-v1          | [POST-V1.md](POST-V1.md)                   | 📋 Backlog, not a phase                                              |
 | AWS-native + v2  | [AWS-NATIVE-BRIEF.md](AWS-NATIVE-BRIEF.md) | 🧭 Decisions made 2026-09-05 — 8 phases scoped                        |
-| P8 — AWS founda. | [P8-aws-foundation.md](P8-aws-foundation.md) | 📋 Planned 2026-09-05 — not started, no code yet                   |
+| P8 — AWS founda. | [P8-aws-foundation.md](P8-aws-foundation.md) | 🟡 In progress — CDK synthesises and is gated; nothing deployed yet |
 
 **P7 was the last phase of v1, and the v1 board is closed.** SPEC §11 lists nothing between
 P7 and Post-v1, so for two days there was deliberately no P8 file: writing one would have
@@ -83,6 +83,13 @@ with a blueprint generator, a timed exam runner, and a diagnostic that turns exa
 scheduled cards. Eight phases are scoped in the brief's §5, roughly 25–35 sessions.
 `SPEC.md` §1 carries a pointer to that direction but **still describes v1**, deliberately:
 it is rewritten by the phase that first implements the new loop, not in advance.
+
+**Two ADRs landed ahead of the code they justify**, as the brief's §8 constraint 6
+requires: [0006](../adr/0006-rds-dynamodb-split.md) on the RDS/DynamoDB split and
+[0007](../adr/0007-cognito-for-identity.md) on Cognito. Both are Phase A decisions written
+during Phase 0 so Phase A opens with its reasoning already settled rather than arguing
+about data stores while also migrating one. A third for the D11 schema is deferred to
+Phase B, where the schema is actually written and its contention (if any) is visible.
 
 The convention below still holds, so each phase gets a real plan file when it is actually
 started, written against the codebase it will run in — which is why only Phase 0 has one.

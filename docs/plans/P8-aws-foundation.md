@@ -312,7 +312,7 @@ Then, and this is the acceptance evidence rather than a formality:
 Record the function URL and the account ID **in the owner's notes, not the repository.** An
 account ID in a public repo is not a credential, but it is free reconnaissance.
 
-### 10. Two ADRs — `docs/adr/0006-…`, `docs/adr/0007-…`
+### ✅ 10. Two ADRs — `docs/adr/0006-…`, `docs/adr/0007-…`
 
 §8 constraint 6 requires two ADRs **before the code they justify**. Both are about Phase A
 decisions, which is why they are written here — Phase A should open with the reasoning
