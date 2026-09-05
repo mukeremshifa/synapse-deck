@@ -1,6 +1,18 @@
 # AWS-native — the direction, not yet a phase
 
-**Status:** Direction agreed 2026-09-05 · **No execution plan written yet** · **No code changed**
+> **⚠️ SUPERSEDED 2026-09-05 by [AWS-NATIVE-BRIEF.md](AWS-NATIVE-BRIEF.md). Do not plan
+> from this file.**
+>
+> This was written before the owner's goal was stated: a portfolio project consuming AWS
+> SBGL and Community Builder privileges, requiring at least one major division to be
+> genuinely AWS-native. It applied a *product* test to that *portfolio* goal, optimised
+> for lowest idle cost and least migration risk, and so reached the opposite conclusion on
+> four decisions — RLS, the database, Aurora's cost, and Cognito. The brief's §10 records
+> each and why.
+>
+> It is kept because confident, coherent, wrong reasoning is worth being able to re-read.
+
+**Status:** Superseded · **No execution plan written** · **No code changed**
 
 This file is not a phase plan. `docs/plans/README.md` explains why only the next phase gets
 one: a plan written against a codebase that does not exist yet is fiction. This is the
