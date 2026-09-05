@@ -737,8 +737,11 @@ concrete payoff of the TypeScript decision.
   the legacy `anon` / `service_role` JWTs, which are deprecated at the end of 2026.
 - **The secret key is never used.** It maps to `service_role` (`BYPASSRLS`), so it would
   void every policy in §5.7. `src/lib/env-schema.ts` fails startup if a client env value
-  starts with `sb_secret_`, and a test asserts that.
-- RLS on every table, verified by a test that queries as user B for user A's rows.
+  starts with `sb_secret_`. A test asserted that until the suite was deleted
+  ([ADR 0005](adr/0005-no-test-suite.md)), so that file is now the only thing enforcing it.
+- RLS on every table. A test queried as user B for user A's rows until the suite was
+  deleted; nothing verifies the boundary now, which is why it must be read rather than
+  assumed.
 - Card content is rendered as **text, never via `dangerouslySetInnerHTML`** — generated
   content is untrusted input. Markdown support, if added later, needs sanitisation.
 - Zod-validate every Edge Function input; never trust a client-sent `user_id`.
@@ -749,7 +752,10 @@ concrete payoff of the TypeScript decision.
 - Rating → next card under 100ms perceived (optimistic update).
 - Time-to-first-card in generation under 5s. This is what streaming buys.
 
-**Testing** — thin, but aimed at what breaks silently:
+**Testing** — **suspended, and none of the below currently exists.** The suite was deleted on
+2026-09-05 ([ADR 0005](adr/0005-no-test-suite.md)); `check` and `verify` prove the code
+compiles, lints and builds and nothing verifies behaviour. This stays as the shape a rebuilt
+suite should take — it was aimed at what breaks silently — not as a description of the repo:
 
 - Unit: the FSRS wrapper (each rating from each state), cloze parser/renderer, Zod schemas
   against real and malformed LLM output, streak and retention math across timezone
@@ -897,8 +903,10 @@ edited into those sections, so the reasoning that was replaced is still readable
   drawing is cosmetic, a marketing page that 401s in the console is not.
 - **The `h1` is bound to the social card.** `public/og-image.png` was rasterised at P5 with
   "Forgetting is the schedule." set in the serif. The page and the image every shared link
-  renders must not disagree, and nobody would find out until a link was posted somewhere, so
-  a test asserts the heading and the string in `scripts/build-brand-assets.mjs` still match.
+  renders must not disagree, and nobody would find out until a link was posted somewhere. A
+  test asserted that the heading and the string in `scripts/build-brand-assets.mjs` still
+  match; it went with the suite ([ADR 0005](adr/0005-no-test-suite.md)), so the pairing is
+  now a convention to check by hand.
   Changing the headline means changing both and re-running `npm run brand:assets`.
 - **`robots.txt` is a blanket `Disallow` plus an exact-match `Allow: /$`.** P5's per-route
   list had already drifted — `/account`, `/login` and `/signup` were never in it — which is
