@@ -53,7 +53,12 @@ for (const envName of ['dev', 'prod'] as const satisfies readonly EnvName[]) {
     // Leaving it undefined keeps the stack environment-agnostic, which is what
     // lets CI synth without credentials.
     env: { account: config.account, region: REGION },
-    description: `SynapseDeck AWS foundation (${envName}) — see docs/plans/P8-aws-foundation.md`,
+    // ASCII only, deliberately. An em dash here round-trips through the Windows
+    // console as '?' when cdk diff reads the deployed template back, so every
+    // diff reports a phantom description change forever. Cosmetic in the cloud,
+    // corrosive in the one guard this project has: a diff that is never empty is
+    // a diff nobody reads.
+    description: `SynapseDeck AWS foundation (${envName}) - see docs/plans/P8-aws-foundation.md`,
   });
 
   applyTags(stack, config);
