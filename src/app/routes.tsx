@@ -63,6 +63,11 @@ const PracticePage = lazy(() =>
     default: module.PracticePage,
   })),
 );
+const ExamPage = lazy(() =>
+  import('@/features/exam/ExamPage').then(module => ({
+    default: module.ExamPage,
+  })),
+);
 const ProgressPage = lazy(() =>
   import('@/features/progress/ProgressPage').then(module => ({
     default: module.ProgressPage,
@@ -170,6 +175,15 @@ export function AppRoutes() {
           element={
             <Lazy>
               <PracticePage />
+            </Lazy>
+          }
+        />
+
+        <Route
+          path="exam"
+          element={
+            <Lazy>
+              <ExamPage />
             </Lazy>
           }
         />
