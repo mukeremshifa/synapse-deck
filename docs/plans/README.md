@@ -201,11 +201,20 @@ note: the three files carry the real origin now.
 level with local `dev`, so the remote now carries P1 through the test-suite deletion.
 Connecting Vercel would deploy the product rather than the scaffold.
 
-**What still blocks the deploy is the deploy itself, and it is the owner's.** Vercel has
-never been connected, so there is no origin serving the app and no "before" state to compare
-the AWS migration against. The brief's §9 asks for one before Phase A begins — not to keep,
-but so the case study has a first half. [P8](P8-aws-foundation.md) does not need it and does
-not touch the frontend; Phase A does.
+**Deployment is deferred to a checkpoint, by the owner's decision on 2026-09-06.** Vercel
+has never been connected and will not be connected on a phase's schedule; production
+deployment happens when the owner decides it does, not because a plan wants an artifact.
+
+**What that does not defer** is narrow and worth keeping straight: P9 task 4 migrates
+identities, and after it the pre-migration app cannot be run against real data again. So
+the "before" has to be *captured* first — a local screen recording of the working loop and
+a `pre-aws-migration` tag are enough, and cost minutes. That is not a deployment and
+commits to nothing. The brief's §9 carries the amendment; P9's preconditions carry the
+detail.
+
+The trade, stated once: without a live "before", the case study's first half is a
+recording rather than something a reviewer can click. Weaker, not broken — and recoverable
+at any later checkpoint, since the pre-migration code is tagged and `dev` still runs it.
 
 Fourth, new since P5: the visual system is `src/styles/globals.css` and nothing else — no
 component hardcodes a colour. A test enforced three invariants about that file (theme

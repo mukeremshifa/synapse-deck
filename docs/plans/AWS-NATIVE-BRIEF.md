@@ -586,6 +586,21 @@ Per `CLAUDE.md` this is the owner's alone: no session pushes, merges, or opens a
 > frontend — so this is no longer a blocker on starting, but it remains one on **Phase A**,
 > which is where a missing "before" stops being cosmetic.
 
+> **Amended 2026-09-06: the owner has deferred production deployment to a real
+> checkpoint.** That is a legitimate call and this section overstated what the deploy is
+> for. What genuinely expires is not "a deployment" but **the ability to run the
+> pre-migration app against real data**, and P9 task 4 is what ends it.
+>
+> So the requirement is now the narrower one: **capture the "before" before P9 task 4** —
+> a local screen recording of the working loop and a `pre-aws-migration` git tag are
+> enough, and cost minutes. A Vercel deploy remains the strongest version of the artifact
+> and is available at any checkpoint the owner chooses, including after the migration.
+>
+> The cost of deferring, stated so it is a choice rather than a discovery: without a live
+> "before", the case study's first half is a recording rather than something a reviewer
+> can click. That is a weaker artifact, not a broken one. See
+> [P9's preconditions](P9-aws-slice.md).
+
 ---
 
 ## 10. Deliberately not doing

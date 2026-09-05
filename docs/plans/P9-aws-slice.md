@@ -73,11 +73,33 @@ npx cdk diff SynapseDeck-Foundation-dev   # empty
 - **Two P8 items may still be open** and neither blocks this phase: cost-allocation tag
   activation and the first cost figure, both waiting on AWS's billing lag. Chase them; do
   not wait on them.
-- **§8 constraint 7 — the Vercel deploy — is still outstanding and this one DOES block.**
-  The brief wants a deployed "before" state, and this is the phase that makes "before"
-  meaningful: it is the last moment at which the pre-migration app can be captured
-  running. **Deploy the current app to Vercel before task 4.** Tasks 1–3 are safe to do
-  first, which is why the order below puts them there.
+- **§8 constraint 7 — the "before" state.** The brief asks for the current app deployed to
+  Vercel before Phase A, "not to keep it — to have a 'before' that exists."
+
+  **The owner has deferred production deployment to a real checkpoint (2026-09-06), and
+  that is respected here.** What actually expires is narrow, so this precondition is
+  narrow too:
+
+  > **Before task 4, capture the pre-migration app.** Task 4 migrates identities and is
+  > the first irreversible step; after it, the pre-migration app cannot be run again
+  > against real data.
+
+  A deploy is *one* way to satisfy that and is no longer required. Cheaper options that
+  close the same window, in ascending order of effort:
+
+  1. **A local capture** — run `npm run dev` against the current Supabase project and
+     record a short screen capture of the working loop (sign in → deck → practise →
+     progress), plus screenshots. Costs ten minutes and no infrastructure.
+  2. ✅ **A tagged commit** — **done 2026-09-06.** `pre-aws-migration` points at `45af283`,
+     the last purely Supabase + Vercel commit: RLS forced on five tables, Supabase Auth,
+     the Deno Edge Function, no `infra/`. Pushed. Run it with
+     `git switch --detach pre-aws-migration && npm ci && npm run dev`.
+  3. **A Vercel deploy**, if and when the owner wants a live before/after at a checkpoint.
+     Still available *after* the migration — the tag is what keeps it possible.
+
+  **Option 1 is the one still outstanding, and it is minutes of work.** Do it before task
+  4. It is the difference between a case study that shows the migration and one that
+  describes it. It is not a production deployment and commits to nothing.
 - **The parallel sessions are finished and their work is merged.** Resolved 2026-09-06:
   `feat/exam-runner-shell` is merged into `aws-native` and deleted, local and remote.
   `git status` is clean, `npm run verify` is green, and everything lives on one branch.
@@ -113,6 +135,11 @@ npx cdk diff SynapseDeck-Foundation-dev   # empty
 - **The `services/` and `web/` restructure.** Still deferred, per P8's decision 4.
 - **pgvector.** Phase G.
 - **Re-litigating RLS.** Settled above.
+- **Deploying the `prod` stack, or anything to Vercel.** The owner deferred production
+  deployment to a checkpoint (2026-09-06). P9 builds and deploys the **dev** stack only.
+  The `prod` stack is defined in CDK — it must stay synthesisable and its config correct —
+  but it is not deployed by this phase, and `infra:deploy:prod` remains owner-only per
+  `CLAUDE.md`. A phase that ends with dev working is a complete phase.
 
 ---
 
@@ -204,7 +231,10 @@ The five tables, ported from `supabase/migrations/` — **without the RLS polici
 
 ### 4. Cognito ↔ existing identities — the cutover
 
-**Do the Vercel deploy first** (see preconditions). This is the first irreversible step.
+**Capture the "before" first** (see preconditions) — a local recording and a
+`pre-aws-migration` tag, or a deploy if the owner has chosen one by then. This is the
+first irreversible step in the phase, and the last moment the pre-migration app can be run
+against real data.
 
 - Export existing Supabase users. Import into Cognito **preserving `sub`**, so every
   `user_id` in the ported data still joins.
