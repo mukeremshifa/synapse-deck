@@ -54,11 +54,18 @@ authored against the codebase it will actually run in.
 | P6 — Surface     | [P6-surface.md](P6-surface.md)             | ✅ Complete — 2026-08-13                                             |
 | P7 — Landing     | [P7-landing.md](P7-landing.md)             | ✅ Complete — 2026-08-13                                             |
 | Post-v1          | [POST-V1.md](POST-V1.md)                   | 📋 Backlog, not a phase                                              |
-| AWS-native + v2  | [AWS-NATIVE-BRIEF.md](AWS-NATIVE-BRIEF.md) | 🧭 Decisions made 2026-09-05 — 8 phases scoped, no plan, no code yet |
+| AWS-native + v2  | [AWS-NATIVE-BRIEF.md](AWS-NATIVE-BRIEF.md) | 🧭 Decisions made 2026-09-05 — 8 phases scoped                        |
+| P8 — AWS founda. | [P8-aws-foundation.md](P8-aws-foundation.md) | 📋 Planned 2026-09-05 — not started, no code yet                   |
 
 **P7 was the last phase of v1, and the v1 board is closed.** SPEC §11 lists nothing between
-P7 and Post-v1, so there is no P8 plan file and this is not an omission: writing one would
-mean inventing a phase to fill a row.
+P7 and Post-v1, so for two days there was deliberately no P8 file: writing one would have
+meant inventing a phase to fill a row.
+
+**P8 exists now, and it is not a v1 phase.** It is the first phase of the AWS-native
+direction below — the brief's Phase 0 — written on 2026-09-05 from
+[AWS-NATIVE-BRIEF.md](AWS-NATIVE-BRIEF.md) §12, which names `P8-aws-foundation.md` as the
+planning session's first output. It reuses the P-number sequence because the sequence is
+just an ordering, not a claim that v1 reopened.
 
 **Reopened 2026-09-05, one row only.** The owner set a new direction — AWS-native — and
 [AWS-NATIVE-BRIEF.md](AWS-NATIVE-BRIEF.md) records the decisions. That file is deliberately
@@ -78,8 +85,10 @@ scheduled cards. Eight phases are scoped in the brief's §5, roughly 25–35 ses
 it is rewritten by the phase that first implements the new loop, not in advance.
 
 The convention below still holds, so each phase gets a real plan file when it is actually
-started, written against the codebase it will run in. Until then the board stays closed in
-practice. Everything that remains is either in
+started, written against the codebase it will run in — which is why only Phase 0 has one.
+The seven phases after it (A–G in the brief's §5) are scoped there and nowhere else; each
+gets its plan as the last task of the one before, per the convention. Everything left over
+from v1 is either in
 [POST-V1.md](POST-V1.md), each entry with the condition that should start it, or on the
 owner's list below — and the owner's list is not work a session can plan its way out of.
 
@@ -153,10 +162,15 @@ to be **DNS-only, not proxied** — an orange-cloud record in front of Vercel pu
 series and breaks certificate issuance. POST-V1 item 11 is closed by the same commit as this
 note: the three files carry the real origin now.
 
-**What actually blocks the deploy is git, and it is the owner's.** Local `dev` is 16 commits
-ahead of both `origin/dev` and `origin/main`; `origin/dev` is still at P0. Vercel builds from
-GitHub, so connecting it today would deploy the scaffold, not the product. Everything from P1
-to here has to be pushed first. Per the project rules that is not something a session does.
+**The git half of that is resolved, as of 2026-09-05.** `origin/dev` is at `45af283` and
+level with local `dev`, so the remote now carries P1 through the test-suite deletion.
+Connecting Vercel would deploy the product rather than the scaffold.
+
+**What still blocks the deploy is the deploy itself, and it is the owner's.** Vercel has
+never been connected, so there is no origin serving the app and no "before" state to compare
+the AWS migration against. The brief's §9 asks for one before Phase A begins — not to keep,
+but so the case study has a first half. [P8](P8-aws-foundation.md) does not need it and does
+not touch the frontend; Phase A does.
 
 Fourth, new since P5: the visual system is `src/styles/globals.css` and nothing else — no
 component hardcodes a colour. A test enforced three invariants about that file (theme

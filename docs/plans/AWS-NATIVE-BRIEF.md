@@ -1,6 +1,6 @@
 # AWS-native — the brief
 
-**Status:** Decisions made 2026-09-05 · **No plan written · No code changed**
+**Status:** Decisions made 2026-09-05 · **Phase 0 planned 2026-09-05 · No code changed**
 
 This is a **brief**, not a phase plan. It exists to be handed to a planning session:
 everything below is settled, and the planning session's job is to turn it into phase
@@ -579,6 +579,13 @@ return to.
 
 Per `CLAUDE.md` this is the owner's alone: no session pushes, merges, or opens a PR.
 
+> **Half-resolved, 2026-09-05, when P8 was planned.** The push happened: `origin/dev` is at
+> `45af283` and level with local `dev`, so §8 constraint 7 is satisfied on the git half.
+> **The Vercel deploy has not happened** and there is still no "before" state.
+> [P8-aws-foundation.md](P8-aws-foundation.md) does not need one — Phase 0 touches no
+> frontend — so this is no longer a blocker on starting, but it remains one on **Phase A**,
+> which is where a missing "before" stops being cosmetic.
+
 ---
 
 ## 10. Deliberately not doing
@@ -632,3 +639,9 @@ the convention in [README.md](README.md).
 
 Until that plan exists and the owner says go, this file is a decision record. The app runs
 on Supabase and it works.
+
+> **Done, 2026-09-05.** [P8-aws-foundation.md](P8-aws-foundation.md) exists and is on the
+> board. **No code has changed and none should until the owner says go** — the plan's own
+> preconditions list four things only the owner can do, starting with an AWS account, and
+> tasks 1–7 are the only ones a session can execute unassisted. Phases A–G remain scoped in
+> §5 and unplanned by design: each gets its plan as the last task of the phase before it.
