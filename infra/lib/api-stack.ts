@@ -52,6 +52,7 @@ import type { UserPool, UserPoolClient } from 'aws-cdk-lib/aws-cognito';
 import type { Construct } from 'constructs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import type { ITableV2 } from 'aws-cdk-lib/aws-dynamodb';
 import type { EnvConfig } from './config.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -59,6 +60,12 @@ const HANDLERS = join(HERE, '..', '..', 'services', 'api', 'src', 'handlers');
 
 export interface ApiStackProps extends StackProps {
   readonly config: EnvConfig;
+  /**
+   * P10's job-state table, from PipelineStack. Passed by object reference like
+   * the user pool above, so the grant below is a real IAM policy rather than a
+   * cross-stack ARN export that would couple the two stacks' deployments.
+   */
+  readonly jobTable: ITableV2;
   readonly vpc: IVpc;
   readonly database: DatabaseInstance;
   readonly databaseSecurityGroup: ISecurityGroup;
@@ -132,6 +139,9 @@ export class ApiStack extends Stack {
       // endpoint costs more than it protects. Phase F revisits it if the
       // account ever has more than one human in it.
       PGPASSWORD: secret.secretValueFromJson('password').unsafeUnwrap(),
+      // P10. Read by services/api/src/data/jobs.ts, which throws at the first
+      // call if it is missing rather than failing deeper in the SDK.
+      JOB_TABLE_NAME: props.jobTable.tableName,
     };
 
     const makeHandler = (name: string, entry: string) =>
@@ -177,6 +187,20 @@ export class ApiStack extends Stack {
     const decksFn = makeHandler('DecksFn', 'decks');
     const cardsFn = makeHandler('CardsFn', 'cards');
     const reviewsFn = makeHandler('ReviewsFn', 'reviews');
+
+    // ── The job table's grant ───────────────────────────────────────────────
+    //
+    // P10 task 2 creates the table; tasks 3-5 add the routes that use it. The
+    // grant is deliberately **not** given to all four handlers: every one of
+    // them receives JOB_TABLE_NAME through commonEnvironment, but only the one
+    // that owns ingestion jobs gets permission to touch it, so a mistake in an
+    // unrelated handler cannot reach job state.
+    //
+    // `cards` is the holder because the review gate - accepting drafts into
+    // real cards - is where job state and card state meet. When task 5 gives
+    // the pipeline its own Lambdas, they take their own grants; this one does
+    // not widen to cover them.
+    props.jobTable.grantReadWriteData(cardsFn);
 
     // ── The migration runner ────────────────────────────────────────────────
     //

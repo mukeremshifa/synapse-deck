@@ -135,6 +135,20 @@ export class DataStack extends Stack {
       service: GatewayVpcEndpointAwsService.S3,
     });
 
+    // DynamoDB, added at P10 for the job-state table in PipelineStack. Also a
+    // gateway endpoint, therefore also free.
+    //
+    // This is the trap in the header made concrete. The ingestion Lambdas write
+    // job state on every state transition, from inside this VPC, which has no
+    // NAT and so no route to the public DynamoDB endpoint. Without this line the
+    // SDK call does not fail — it hangs until the socket times out, and the
+    // symptom is a pipeline that appears merely slow while it burns Lambda
+    // duration. The endpoint belongs to the VPC, so it lives here rather than in
+    // PipelineStack even though the table it serves does not.
+    this.vpc.addGatewayEndpoint('DynamoDbEndpoint', {
+      service: GatewayVpcEndpointAwsService.DYNAMODB,
+    });
+
     // No interface endpoints. Each is ~$7.20/mo per AZ, which at two AZs is more
     // than the database. If a later phase needs one, add it with the price in
     // the commit message.

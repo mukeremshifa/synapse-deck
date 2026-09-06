@@ -52,6 +52,17 @@ process.env['PGDATABASE'] ??= 'synapsedeck';
 process.env['PGUSER'] ??= 'synapsedeck_app';
 process.env['CORS_ORIGIN'] ??= 'http://localhost:5173';
 
+// P10. The job-state table, mirroring api-stack.ts's commonEnvironment.
+//
+// Left unset unless .env.local names one, and that is deliberate: there is no
+// local DynamoDB here, so a made-up table name would turn "this route is not
+// wired up locally yet" into a confusing SDK error against a table that does
+// not exist. `data/jobs.ts` throws a sentence explaining itself when the
+// variable is missing, which is the better failure. Point this at a real table
+// (or DynamoDB Local) when a route that needs it is being worked on.
+// (No assignment here on purpose: .env.local is loaded just below, and setting
+// JOB_TABLE_NAME there is all that is needed.)
+
 /*
  * The password comes from .env.local as LOCAL_PGPASSWORD rather than
  * PGPASSWORD, so that loading that file does not silently repoint every

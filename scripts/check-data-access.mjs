@@ -22,9 +22,16 @@
  * ── What it checks, and what it cannot ────────────────────────────────────
  *
  * Checks:
- *   1. No SQL in `handlers/`. Handlers call the data layer; the data layer is
- *      the only place that writes SQL. This is what makes rule 2 auditable by
- *      reading one directory.
+ *   1. No SQL **and no DynamoDB call** in `handlers/`. Handlers call the data
+ *      layer; the data layer is the only place that reaches a datastore. This is
+ *      what makes rule 2 auditable by reading one directory.
+ *
+ *      DynamoDB was added at P10, when job state stopped being a Postgres table.
+ *      The rule is about *where the tenancy boundary is enforced*, not about
+ *      which engine enforces it - so a `DynamoDBDocumentClient.send(...)` in a
+ *      handler is exactly as wrong as a SELECT, and for the same reason. The
+ *      lint had never been taught about it, which is the kind of gap that turns
+ *      a rule back into a convention.
  *   2. Every exported function in `data/` takes `userId` as its first parameter.
  *      Not optional, not defaulted — a caller that forgets does not compile.
  *   3. No `user_id` string in a handler. It should only ever appear in the data
@@ -159,7 +166,7 @@ function report(file, line, rule, message) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 1 & 3 — handlers hold no SQL and no user_id
+// Rule 1 & 3 — handlers hold no SQL, no DynamoDB call, and no user_id
 // ---------------------------------------------------------------------------
 
 /**
@@ -179,6 +186,30 @@ const SQL_PATTERNS = [
   { re: /\b(?:client|pool|db|tx|conn)\s*\.\s*query\s*\(/i, what: 'a database query call' },
   { re: /\bsql\s*`/, what: 'a SQL template tag' },
   { re: /\.\s*from\s*\(\s*['"`]/, what: 'a query-builder call' },
+  // ── DynamoDB, added at P10 ───────────────────────────────────────────────
+  //
+  // The client constructors are unambiguous: their presence in a handler means
+  // that handler is talking to DynamoDB directly.
+  {
+    re: /\b(?:DynamoDBClient|DynamoDBDocumentClient)\b/,
+    what: 'a DynamoDB client',
+  },
+  // The command classes, which is what a handler would reach for even if it
+  // somehow obtained a client from elsewhere.
+  {
+    re: /\bnew\s+(?:Get|Put|Update|Delete|Query|Scan|BatchGet|BatchWrite|TransactGet|TransactWrite)(?:Item)?Command\b/,
+    what: 'a DynamoDB command',
+  },
+  // `.send(` is the SDK's universal dispatch call - the DynamoDB equivalent of
+  // `client.query(`. Deliberately narrower than a bare `send(`: an unqualified
+  // `send(...)` is an ordinary word a handler may legitimately use (an email, a
+  // message, a response), and a lint that fires on it would be disabled rather
+  // than obeyed. Requiring the receiver keeps it specific to an SDK client
+  // without needing to know that client's variable name.
+  {
+    re: /\b(?:client|ddb|dynamo|docClient|documentClient)\s*(?:\(\s*\))?\s*\.\s*send\s*\(/i,
+    what: 'an AWS SDK client send() call',
+  },
 ];
 
 async function checkHandlers() {
@@ -204,9 +235,11 @@ async function checkHandlers() {
           report(
             file,
             lineNo,
-            'no-sql-in-handlers',
+            'no-datastore-in-handlers',
             `${what} in a handler. Handlers call ${DATA_DIR.split(sep).join('/')}; ` +
-              'only the data layer writes SQL.',
+              'only the data layer reaches a datastore. This holds for DynamoDB ' +
+              'exactly as it does for SQL (P10) - the rule is about where the ' +
+              'tenancy boundary lives, not which engine sits behind it.',
           );
           break;
         }

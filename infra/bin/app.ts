@@ -13,6 +13,7 @@ import { FoundationStack } from '../lib/foundation-stack.ts';
 import { AuthStack } from '../lib/auth-stack.ts';
 import { DataStack } from '../lib/data-stack.ts';
 import { ApiStack } from '../lib/api-stack.ts';
+import { PipelineStack } from '../lib/pipeline-stack.ts';
 
 const app = new App();
 
@@ -82,6 +83,18 @@ for (const envName of ['dev', 'prod'] as const satisfies readonly EnvName[]) {
   });
 
   /**
+   * P10. Ingestion job state, in its own stack because its lifecycle differs
+   * from the API's: the table holds live job state, and a redeploy of a handler
+   * should never be able to replace it. It is also the one P10 resource that is
+   * free at idle, so it can be deployed well before DataStack's RDS instance.
+   */
+  const pipeline = new PipelineStack(app, `SynapseDeck-Pipeline-${envName}`, {
+    config,
+    env,
+    description: `SynapseDeck ingestion job state (${envName}) - see docs/plans/P10-ingestion.md`,
+  });
+
+  /**
    * The API. Depends on both of the above by object reference — same app, same
    * account — which is what lets the JWT authorizer take the user pool directly
    * instead of through a cross-stack export that would pin the two together at
@@ -105,12 +118,13 @@ for (const envName of ['dev', 'prod'] as const satisfies readonly EnvName[]) {
     databaseName: data.databaseName,
     userPool: auth.userPool,
     userPoolClient: auth.userPoolClient,
+    jobTable: pipeline.jobTable,
     corsOrigin,
     env,
     description: `SynapseDeck API Gateway and Lambdas (${envName}) - see docs/plans/P9-aws-slice.md`,
   });
 
-  for (const stack of [foundation, auth, data, api]) {
+  for (const stack of [foundation, auth, data, api, pipeline]) {
     applyTags(stack, config);
   }
 }
