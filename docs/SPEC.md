@@ -285,24 +285,52 @@ that fails with a message the user can act on rather than a deck generated from 
 `.txt` and `.md` were added to `UPLOAD_LIMITS` at DS1 for exactly this reason: the accepted
 set had been *only* the one format that could not work.
 
-**Which infrastructure runs is configuration, not code** — four seams, no defaults, no
-branching above the data layer ([ADR 0010](adr/0010-runtime-seams.md)). Bedrock, DynamoDB
-and Step Functions return as environment variables plus one new provider file.
+**Which infrastructure runs is configuration, not code** — **five** seams as of DS2, no
+defaults, no branching above the data layer ([ADR 0010](adr/0010-runtime-seams.md)).
+Bedrock, DynamoDB and Step Functions return as environment variables plus one new provider
+file. **The fifth, `EMBEDDING_PROVIDER`, is the exception to that sentence**: switching it on
+a populated corpus requires re-embedding every chunk, because two models occupy different
+vector spaces ([ADR 0012](adr/0012-embedding-provider-seam.md)).
 
 Each is shown rather than hidden, and says what it needs. A disabled control that explains
 itself shows a reviewer where the loop goes; a hidden one reads as a missing feature, and a
 control that navigates somewhere approximate is worse than either.
 
-**Three surfaces from the reference products were considered and not built.** The AI tutor
-chat is the significant one: it is the headline feature of the products in this space and
-it is refused for the reason `WorkspacePane` already records — **chunks are not persisted
-retrievably.** `chunking.ts` produces `{ index, text }` for pipeline fan-out and nothing
-stores them for lookup, so grounded chat would need an embedding store, a retrieval path
-and a citation path built from nothing. Shipping the box before that means a chat that
-answers from nothing, which is the worst failure mode available in a study product. A
-learning-path visual and a quiz-with-hints variant were also declined: the first is a graph
-that impresses briefly and informs never, and the second duplicates the exam runner without
-the timing that makes it worth sitting.
+**The AI tutor chat was refused at P11 and shipped at DS2.** This paragraph used to say
+that chunks are not persisted retrievably and that grounded chat would therefore have to be
+built from nothing. **That stopped being true at migration `0006`**, which gave
+`job_chunks` a `source_text` column, and it is doubly untrue since `0007` added a vector per
+chunk. The refusal is recorded here rather than deleted because the reasoning is what
+governed the decision to lift it: the box was withheld until there was something real
+behind it, not until it looked finished.
+
+What grounds an answer today, stated precisely:
+
+- **The corpus is the user's own chunks.** `job_chunks.source_text` holds every chunk of
+  every ingestion, and `chunk_embeddings` holds one vector per chunk. Both carry `user_id`,
+  and every statement in `data/chunks.ts` filters on it — on all three tables it joins. A
+  similarity search that forgot that filter would return other users' passages as this
+  user's answer, which is the worst version of the tenancy bug ADR 0008 admits to.
+- **No answer is produced without a retrieval hit.** If nothing clears the distance floor,
+  the endpoint returns that and **does not call the model at all**. There is no fallback to
+  the model's own knowledge, because a correct answer from pretraining is still ungrounded
+  and the reader cannot tell which they got.
+- **A citation resolves to a chunk** — `(jobId, chunkIndex)`, a few paragraphs as
+  `chunking.ts` split them, shown in full in the pane. **It is not a page number and not a
+  character offset**, and the UI does not imply otherwise: chunking produces flat text with
+  no page dimension and the original upload is not retained as text. Claiming a precision
+  the data does not have would be the same failure as answering from nothing, one layer
+  down.
+- **Chunk expiry is now load-bearing.** `job_chunks.expires_at` was "intent, nothing sweeps
+  it" while chunks were pipeline scratch. They are the knowledge base now, so the column is
+  **retained deliberately and must not be swept** — a sweep would silently empty every
+  notebook's retrieval corpus, with chat answering "your sources don't cover that" about
+  documents still visible in the sources rail and no error anywhere to explain it. The
+  column's comment says this in the database itself.
+
+Two surfaces from the reference products are still declined. A learning-path visual and a
+quiz-with-hints variant: the first is a graph that impresses briefly and informs never, and
+the second duplicates the exam runner without the timing that makes it worth sitting.
 
 ---
 
@@ -604,6 +632,53 @@ the weaker match rather than pulling pgvector forward.
 The unique constraint is `(user_id, slug)` and **not** `(slug)`: topics are per-user, and a
 global unique index would leak the existence of another user's topic through a constraint
 violation.
+
+### 5.9 `chunk_embeddings` — the retrieval corpus (DS2, Neon/RDS only)
+
+Added at DS2 (`services/api/migrations/0007_chunk_embeddings.sql`), alongside `jobs` and
+`job_chunks` from `0006`. Postgres-side only; the Supabase schema does not have it.
+
+```sql
+create extension if not exists vector;   -- pgvector 0.8.6 on Neon
+
+create table chunk_embeddings (
+  job_id      uuid not null,
+  user_id     uuid not null,             -- denormalised: the tenancy filter, not a join
+  chunk_index int not null,
+  embedding   vector(1536) not null,     -- OpenAI text-embedding-3-small
+  model       text not null,             -- which model wrote this vector
+  created_at  timestamptz not null default now(),
+  primary key (job_id, chunk_index),
+  foreign key (job_id, chunk_index)
+    references job_chunks (job_id, chunk_index) on delete cascade
+);
+
+create index chunk_embeddings_user_idx   on chunk_embeddings (user_id);
+create index chunk_embeddings_vector_idx on chunk_embeddings using hnsw (embedding vector_cosine_ops);
+```
+
+**A separate table rather than a column on `job_chunks`**, for two reasons that are not
+about purity. A vector column would make every read in `jobs-postgres.ts` drag 6 KB of float
+through a pipeline with no use for it — that module already excludes `source_text` for the
+same reason. And an embedding's lifecycle is genuinely not a chunk's: re-embedding against
+a new model rewrites this table and leaves pipeline state alone.
+
+**`user_id` is denormalised onto it, and every query filters on it.** This is the sharpest
+instance of ADR 0008's admitted weakness. `order by embedding <=> $1 limit k` without the
+filter does not error and does not look wrong — it returns the most relevant passages from
+**every user in the system** and hands them to a language model as the answer to this user's
+question. `data/chunks.ts` filters on all three tables it joins, redundantly and on purpose:
+a filter that is load-bearing only in combination with another is one a refactor silently
+removes.
+
+**The `hnsw` index accelerates the distance ordering, not the tenancy filter, and it is not
+a security boundary.** On a demo corpus the planner may ignore it entirely; nothing here
+measures whether it does.
+
+**Changing the vector width is a re-embedding, not a migration.** Two models embed into
+different spaces, so a corpus written by one and queried by another returns real rows in a
+plausible order with no error and no meaning. `model` is the column that lets you discover a
+table holding two models' vectors.
 
 ## 6. Scheduling (FSRS)
 

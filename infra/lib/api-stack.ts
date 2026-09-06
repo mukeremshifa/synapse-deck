@@ -197,6 +197,18 @@ export class ApiStack extends Stack {
     const reviewsFn = makeHandler('ReviewsFn', 'reviews');
     const uploadsFn = makeHandler('UploadsFn', 'uploads');
     const jobsFn = makeHandler('JobsFn', 'jobs');
+    /*
+     * Grounded chat (DS2). Its own function rather than a route on `decksFn`,
+     * because it is the only handler that calls two model vendors on the
+     * request path: a question costs an embedding plus a completion, so its
+     * latency profile and its timeout are unlike anything else here, and giving
+     * it its own function keeps a slow answer from shaping the memory and
+     * timeout settings of the deck list.
+     *
+     * It needs no AWS grant. Everything it touches is Postgres and two HTTPS
+     * endpoints, and the keys for those arrive through the environment.
+     */
+    const chatFn = makeHandler('ChatFn', 'chat');
 
     // ── The job table's grant ───────────────────────────────────────────────
     //
@@ -369,6 +381,13 @@ export class ApiStack extends Stack {
       'DeckInt',
     );
     route('/decks/{deckId}/finish-gate', [HttpMethod.POST], decksFn, 'FinishGateInt');
+
+    /*
+     * Grounded chat (DS2 task 6). `/decks/…`, not `/notebooks/…`: the P11
+     * rename stops at the frontend adapter and the wire says deck. See the
+     * header of src/lib/notebooks.ts and of services/api/src/handlers/chat.ts.
+     */
+    route('/decks/{deckId}/ask', [HttpMethod.POST], chatFn, 'AskInt');
 
     route(
       '/decks/{deckId}/cards',

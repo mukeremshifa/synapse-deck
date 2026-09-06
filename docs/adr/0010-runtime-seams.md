@@ -39,7 +39,9 @@ about *where the tenancy boundary is enforced*, not about which engine sits behi
 **A seam is a module in `services/api/src/data/` that resolves one of several
 implementations from an environment variable, and there is no branching above it.**
 
-Four seams exist:
+Four seams existed at DS1. **A fifth was added at DS2** — see the row marked below and
+[ADR 0012](0012-embedding-provider-seam.md), which records that the pattern was reused
+deliberately and where it does *not* hold.
 
 | Seam | Variable | Implementations | Interface size |
 | ---- | -------- | --------------- | -------------- |
@@ -47,6 +49,15 @@ Four seams exist:
 | Job store | `JOB_STORE` | `data/jobs-postgres.ts`, `data/jobs-dynamo.ts` | 8 functions |
 | Fan-out runner | `PIPELINE_RUNNER` | `data/pipeline-local.ts`, `data/pipeline-sfn.ts` | **1 function** |
 | Document store | `UPLOAD_STORE` | `data/uploads-local.ts`, `data/uploads-s3.ts` | 4 functions |
+| **Embedder** (DS2) | `EMBEDDING_PROVIDER` | `lib/embeddings/openai.ts` — **and no stub, ever** | 1 method |
+
+**The fifth row breaks one of this ADR's own promises and it is worth reading
+[0012](0012-embedding-provider-seam.md) before touching it.** The other four seams can be
+flipped between deploys because a job row means the same thing in either store. Embeddings
+do not: two models occupy different vector spaces, so switching that variable on a populated
+corpus requires re-embedding every chunk. It is a data migration wearing a configuration
+variable's clothes. It also may not have a stub implementation, because fake vectors ground
+an answer in noise while looking perfect.
 
 Three properties make this a decision rather than a naming convention.
 

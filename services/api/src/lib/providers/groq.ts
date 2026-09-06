@@ -49,11 +49,19 @@
 
 import { ProviderRetryableError } from './types.ts';
 import type {
+  AnswerRequest,
+  AnswerResult,
+  AnsweringProvider,
   CardProvider,
   GenerateChunkRequest,
   GenerateChunkResult,
 } from './types.ts';
-import { CARD_SYSTEM_PROMPT, buildUserTurn } from './prompt.ts';
+import {
+  CARD_SYSTEM_PROMPT,
+  CHAT_SYSTEM_PROMPT,
+  buildChatUserTurn,
+  buildUserTurn,
+} from './prompt.ts';
 
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 
@@ -159,7 +167,48 @@ function readTopics(value: unknown): string[] {
     .slice(0, 5);
 }
 
-export class GroqProvider implements CardProvider {
+/**
+ * The passage numbers the answer cited, as 1-based indices.
+ *
+ * ── Parsed out of the prose, and why that is not as fragile as it looks ───
+ *
+ * The prompt asks for citations inline as `[1]` or `[2][3]`, so they are read
+ * back out of the answer text with a regex rather than requested as a separate
+ * JSON field. Two reasons, and the second is the real one:
+ *
+ * 1. The reader needs to know *which sentence* rests on which passage, so the
+ *    markers have to be in the text regardless. A parallel array would be a
+ *    second copy of the same information, free to disagree with the markers the
+ *    user is actually looking at.
+ * 2. A model that writes `[2]` after a sentence has committed to it in the
+ *    place a reader will check. A model filling in a separate `citations` field
+ *    is doing bookkeeping it has no reason to get right, and gets it right less
+ *    often.
+ *
+ * ── Out-of-range markers are dropped, deliberately ────────────────────────
+ *
+ * A `[7]` in a five-passage prompt is a hallucination. It is *detectable* only
+ * because the model was shown numbers rather than ids — a fabricated uuid would
+ * look exactly like a real one and would resolve to nothing, or worse, to
+ * something. Numbering the passages is what makes this check possible at all.
+ *
+ * The marker is left in the answer text when it is dropped here. Stripping it
+ * would silently rewrite the model's output, and a reader seeing `[7]` with no
+ * corresponding source has been told something true about the answer's
+ * reliability.
+ */
+function parseCitations(answer: string, passageCount: number): number[] {
+  const found = new Set<number>();
+  for (const match of answer.matchAll(/\[(\d{1,2})\]/g)) {
+    const n = Number(match[1]);
+    if (Number.isInteger(n) && n >= 1 && n <= passageCount) found.add(n);
+  }
+  // Sorted so the order is the passages' rank order rather than the order the
+  // model happened to mention them, which is what the pane renders.
+  return [...found].sort((a, b) => a - b);
+}
+
+export class GroqProvider implements CardProvider, AnsweringProvider {
   readonly name = 'groq' as const;
 
   async generateChunk(request: GenerateChunkRequest): Promise<GenerateChunkResult> {
@@ -292,4 +341,138 @@ export class GroqProvider implements CardProvider {
       outputTokens: completion.usage?.completion_tokens ?? null,
     };
   }
+
+  /**
+   * Answer a question from retrieved passages. DS2 task 6.
+   *
+   * ── Why this is a second method rather than a second provider ───────────
+   *
+   * It is the same vendor, the same endpoint, the same key and the same error
+   * classification as `generateChunk` — only the prompt and the reply shape
+   * differ. A separate `GroqAnsweringProvider` class would duplicate the retry
+   * rules, the timeout, and the `retry-after` handling that DS1 measured, and
+   * two copies of a cost decision are two places for it to drift.
+   *
+   * The *interfaces* stay separate (see `types.ts`), which is what keeps the
+   * stub from acquiring this capability. One class implementing both is fine;
+   * one interface obliging both is not.
+   *
+   * ── This method does not decide whether to answer ───────────────────────
+   *
+   * By the time it is called, `handlers/chat.ts` has already found passages
+   * above the relevance floor. If retrieval found nothing, **this is never
+   * reached** — DS2 §3 corollary 1 is enforced there, in the handler, and not
+   * here. A provider that could be asked to answer with no passages would be a
+   * second place that rule has to hold.
+   */
+  async answer(request: AnswerRequest): Promise<AnswerResult> {
+    let response: Response;
+    try {
+      response = await fetch(GROQ_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${apiKey()}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: model(),
+          messages: [
+            { role: 'system', content: CHAT_SYSTEM_PROMPT },
+            { role: 'user', content: buildChatUserTurn(request) },
+          ],
+          response_format: { type: 'json_object' },
+          // Lower than the card call's 0.3. Answering from a passage is
+          // extraction, not composition: there is nothing here that variation
+          // improves, and every degree of it is a chance to drift away from
+          // what the passage actually said.
+          temperature: 0.1,
+        }),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (error) {
+      throw new ProviderRetryableError(
+        `The answerer could not be reached: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        { cause: error },
+      );
+    }
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      const message = `Groq returned ${response.status}: ${detail.slice(0, 300)}`;
+
+      if (response.status === 429 || response.status >= 500) {
+        const retryAfter = Number(response.headers.get('retry-after'));
+        throw new ProviderRetryableError(message, {
+          retryAfterMs:
+            Number.isFinite(retryAfter) && retryAfter > 0
+              ? Math.min(retryAfter * 1000, MAX_RETRY_AFTER_MS)
+              : undefined,
+        });
+      }
+      throw new Error(message);
+    }
+
+    let completion: ChatCompletion;
+    try {
+      completion = (await response.json()) as ChatCompletion;
+    } catch (error) {
+      throw new Error(
+        `Groq returned a 200 that was not JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    const content = completion.choices?.[0]?.message?.content;
+    if (typeof content !== 'string' || content.trim() === '') {
+      throw new Error('The answerer returned an empty response.');
+    }
+
+    let reply: { answer?: unknown; grounded?: unknown };
+    try {
+      reply = JSON.parse(content) as { answer?: unknown; grounded?: unknown };
+    } catch (error) {
+      throw new Error(
+        `The answerer's reply was not valid JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    const answer = typeof reply.answer === 'string' ? reply.answer.trim() : '';
+    if (answer === '') {
+      // Not retryable, and not silently converted into a refusal either. An
+      // empty answer field is a broken call; presenting it as "your sources do
+      // not cover this" would report a vendor failure as a product outcome,
+      // which is the same class of lie as a stub answer.
+      throw new Error('The answerer returned no answer text.');
+    }
+
+    /*
+     * ── `grounded` is read strictly, and defaults to false ─────────────────
+     *
+     * Only a literal `true` counts. A missing field, a string "true", anything
+     * else — all false. The asymmetry is deliberate: being wrong in the false
+     * direction shows the reader a "not covered" message about material that
+     * was in fact covered, which is a visible, complainable annoyance. Being
+     * wrong in the true direction presents an ungrounded answer as a grounded
+     * one, which is invisible and is the failure DS2 §3 exists to prevent.
+     *
+     * When the two error directions have different costs, the default belongs
+     * on the cheap side.
+     */
+    const grounded = reply.grounded === true;
+
+    return {
+      answer,
+      grounded,
+      citations: parseCitations(answer, request.passages.length),
+      provider: this.name,
+      inputTokens: completion.usage?.prompt_tokens ?? null,
+      outputTokens: completion.usage?.completion_tokens ?? null,
+    };
+  }
+
 }

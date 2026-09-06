@@ -191,6 +191,7 @@ const handlers = {
   reviews: (await import('../services/api/src/handlers/reviews.ts')).handler,
   uploads: (await import('../services/api/src/handlers/uploads.ts')).handler,
   jobs: (await import('../services/api/src/handlers/jobs.ts')).handler,
+  chat: (await import('../services/api/src/handlers/chat.ts')).handler,
 };
 
 /**
@@ -205,6 +206,9 @@ const ROUTES = [
   { method: 'GET', pattern: /^\/decks$/, fn: 'decks' },
   { method: 'POST', pattern: /^\/decks$/, fn: 'decks' },
   { method: 'POST', pattern: /^\/decks\/([^/]+)\/finish-gate$/, fn: 'decks', params: ['deckId'] },
+  // Grounded chat (DS2). `decks`, not `notebooks` -- the P11 rename stops at the
+  // frontend adapter. See src/lib/notebooks.ts.
+  { method: 'POST', pattern: /^\/decks\/([^/]+)\/ask$/, fn: 'chat', params: ['deckId'] },
   { method: 'GET', pattern: /^\/decks\/([^/]+)\/cards$/, fn: 'cards', params: ['deckId'] },
   { method: 'POST', pattern: /^\/decks\/([^/]+)\/cards$/, fn: 'cards', params: ['deckId'] },
   { method: 'GET', pattern: /^\/decks\/([^/]+)$/, fn: 'decks', params: ['deckId'] },

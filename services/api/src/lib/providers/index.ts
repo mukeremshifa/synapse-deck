@@ -14,7 +14,7 @@
 
 import { GroqProvider } from './groq.ts';
 import { StubProvider } from './stub.ts';
-import type { CardProvider, ProviderName } from './types.ts';
+import type { AnsweringProvider, CardProvider, ProviderName } from './types.ts';
 
 const PROVIDER_NAMES = ['stub', 'bedrock', 'groq'] as const;
 
@@ -86,5 +86,49 @@ export function resetProviderCache(): void {
   cached = undefined;
 }
 
-export type { CardProvider, GenerateChunkRequest, GenerateChunkResult, ProviderName } from './types.ts';
+export type {
+  AnswerRequest,
+  AnswerResult,
+  AnsweringProvider,
+  CardProvider,
+  GenerateChunkRequest,
+  GenerateChunkResult,
+  ProviderName,
+} from './types.ts';
 export { ProviderRetryableError } from './types.ts';
+
+/**
+ * The provider, if it can answer questions. DS2 task 6.
+ *
+ * ── Why this can return null, and what that means at the endpoint ─────────
+ *
+ * `resolveProvider()` above always returns something or throws: every
+ * configured provider writes cards, so failing to get one is a configuration
+ * error. Answering is different — it is a capability a provider may not have,
+ * and exactly one of the three deliberately does not.
+ *
+ * **`CARD_PROVIDER=stub` returns null here, and that is the feature.** A
+ * deployment with no real model has nothing honest to say about a user's
+ * documents, so the chat endpoint refuses rather than answering. The
+ * alternative — a stub that produces fluent placeholder prose about someone's
+ * study material — is precisely what DS2 §3 forbids, and the type system is
+ * what prevents it: `StubProvider` does not implement `AnsweringProvider`, so
+ * there is no implementation to accidentally reach.
+ *
+ * Returning `null` rather than throwing because the caller has a genuinely
+ * different response for it: a 503 saying chat is unavailable in this
+ * deployment, not a 500. Card generation still works with the stub selected,
+ * and one unavailable feature should not read as a broken server.
+ */
+export function resolveAnsweringProvider(): AnsweringProvider | null {
+  const provider = resolveProvider();
+
+  // A structural check, not a name check. `provider.name === 'groq'` would
+  // have to be edited every time a provider gains the capability — including
+  // when BedrockProvider lands — and forgetting to would silently disable chat
+  // on a provider that supports it. Asking whether the method exists cannot
+  // drift from whether the method exists.
+  return 'answer' in provider && typeof provider.answer === 'function'
+    ? (provider as AnsweringProvider)
+    : null;
+}

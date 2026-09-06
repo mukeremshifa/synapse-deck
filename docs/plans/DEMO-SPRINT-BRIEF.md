@@ -206,7 +206,8 @@ fails in the room.
 
 ## 8. When AWS returns
 
-Not a migration. Four environment variables and two new files:
+Not a migration. Environment variables and two new files — **with one exception, added at
+DS2, that is a real migration and is marked as such:**
 
 | Seam      | Demo                 | AWS                                             |
 | --------- | -------------------- | ----------------------------------------------- |
@@ -214,8 +215,21 @@ Not a migration. Four environment variables and two new files:
 | Postgres  | `PG*` → Neon         | `PG*` → RDS. No code change                     |
 | Jobs      | `JOB_STORE=postgres` | `JOB_STORE=dynamo`. Module already written      |
 | Fan-out   | in-process           | Step Functions. Module already written          |
+| **Embedder** (DS2) | `EMBEDDING_PROVIDER=openai` | `EMBEDDING_PROVIDER=bedrock` + `embeddings/bedrock.ts` — **plus a re-embedding of the whole corpus. Not a config change.** |
 | Identity  | Cognito              | Cognito. Unchanged                              |
 | Frontend  | Vercel               | Unchanged, or CloudFront                        |
 
+**The embedder row is the one that costs money and time.** Two models embed into different
+vector spaces, so a corpus written by OpenAI and queried by Titan returns real rows in a
+plausible order that means nothing — no error, no symptom except wrong answers.
+`scripts/backfill-embeddings.mjs` is the tool; `chunk_embeddings.model` is how you check.
+See [ADR 0012](../adr/0012-embedding-provider-seam.md).
+
 **If any row of that table stops being true, the seam has been violated** — that is the
-check to run at each phase boundary, and it is cheaper than discovering it in a month.
+check to run at each phase boundary, and it is cheaper than discovering it in a month. The
+grep is now five variables:
+
+```
+grep -rn 'JOB_STORE\|PIPELINE_RUNNER\|UPLOAD_STORE\|CARD_PROVIDER\|EMBEDDING_PROVIDER' \
+  src/ services/api/src/handlers/
+```

@@ -351,6 +351,32 @@ export type StartJobRequest = z.infer<typeof StartJobRequest>;
 export type StartJobRequestInput = z.input<typeof StartJobRequest>;
 
 /**
+ * A question asked of a notebook's sources. DS2 task 6.
+ *
+ * ── The bounds are not decoration ─────────────────────────────────────────
+ *
+ * The floor is one character short of nothing: an empty question embeds to a
+ * meaningless vector, and the nearest neighbours of meaninglessness are
+ * arbitrary passages that retrieval would then report as a successful hit. That
+ * is DS2 §3's failure arrived at through an empty input box.
+ *
+ * The ceiling is 1,000 characters. A question is a question; a "question" the
+ * length of a chapter is either a paste accident or an attempt to use the
+ * embedding endpoint as free compute, and both cost money per call. It is well
+ * above any real question and well below anything worth paying for by mistake.
+ *
+ * **`deckId` is deliberately not in this schema.** It is a path parameter, read
+ * from the URL by the handler. A deck id in a request body is one a client
+ * chose, and while the data layer would still scope it to the caller, keeping
+ * identity and addressing in one place means there is only ever one value to
+ * check.
+ */
+export const AskRequest = z.object({
+  question: z.string().trim().min(1, 'Ask a question.').max(1000),
+});
+export type AskRequest = z.infer<typeof AskRequest>;
+
+/**
  * One NDJSON line as emitted by the model (SPEC §7.3). Deliberately *not* the
  * same shape as a stored card: the model supplies content plus provenance, the
  * server supplies ids and scheduling state.

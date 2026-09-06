@@ -468,45 +468,85 @@ Observable, in order of what they prove:
 
 ---
 
-## 6. Decisions to record
+## 6. Decisions recorded
 
-Write these back into SPEC or this file, so the next session inherits them rather than
-re-deriving them:
+**Filled in 2026-09-07 by the session that executed this plan.** Each was a real decision;
+the reasoning lives in the file named beside it, and this is the index.
 
-- **Where embeddings live** — separate table or a column on `job_chunks`, and why (task 1.1).
-- **What happens to `expires_at`** now that chunks are the corpus, and the explicit decision
-  not to sweep it (task 1.2).
-- **What deleting a deck does to its chat corpus** (task 1.3).
-- **The embedding vendor and model**, its dimension, and why that vendor.
-- **The distance floor**, the number, and how it was picked.
-- **`k`** — how many passages the prompt gets, and what that costs per question.
-- **Whether asking costs a quota unit**, with the reasoning either way.
-- **Whether pre-DS2 chunks were backfilled**, or notebooks from DS1 are not searchable.
-- **What a citation resolves to**, and — stated plainly — that it is a chunk and not a page
-  or a character offset.
+| Decision | What was decided | Where the reasoning lives |
+| -------- | ---------------- | ------------------------- |
+| **Where embeddings live** | A **separate `public.chunk_embeddings` table**, keyed `(job_id, chunk_index)`, `user_id` denormalised onto it. Not a column on `job_chunks`. | `0007_chunk_embeddings.sql` header, SPEC §5.9 |
+| **`expires_at`** | **Kept, never swept.** The column's comment was rewritten in the database from "intent, nothing sweeps this" to `RETAINED DELIBERATELY -- DO NOT SWEEP`, naming the consequence. | `0007` header + `comment on column`, SPEC §4.6 |
+| **Deleting a deck** | **Does nothing to its chat corpus.** `jobs.deck_id` has no FK, so chunks and embeddings survive — they become *unreachable* (the search joins through `jobs.deck_id` to a deck that no longer exists) rather than deleted. A storage and privacy consideration, not a leak; a real delete belongs with the sweep this phase did not write. | `0007` header |
+| **Embedding vendor** | **OpenAI `text-embedding-3-small`, 1536 dimensions.** One `fetch`, no SDK, as `groq.ts` deliberately does. Chosen because Groq has no embedding model at all and this is the cheapest OpenAI-compatible option — a demo corpus costs cents. | ADR 0012, `.env.example` |
+| **Distance floor** | **0.60** cosine distance. Picked from `text-embedding-3-small`'s observed bands: a direct answer lands ≈0.25–0.45, same-document-different-subject ≈0.55–0.70, unrelated text >0.75. Deliberately at the permissive end of the middle band. **Unmeasured** — one person's judgement, no golden set. | `handlers/chat.ts`, §7 below |
+| **`k`** | **6 passages.** Enough for an answer spanning two sections; few enough that one relevant passage is not diluted. ≈5,000 input tokens per question, under Groq's 8,000 TPM so one question does not rate-limit the next. | `handlers/chat.ts` |
+| **Does asking cost a quota unit?** | **No.** Units price *generation*; a shared meter would make asking a question eat a document's budget, and the two are not substitutes. **This is a real exposure, taken deliberately** — an unmetered model endpoint, bounded today only by the pool having no open sign-up and the per-call cost being fractions of a cent. **A rate limit on this route is DS5's**, and it is named here rather than left to be discovered. | `handlers/chat.ts` header |
+| **Backfill** | **Not backfilled.** The only pre-DS2 chunks were 10 rows across 4 abandoned DS1 test jobs, belonging to Cognito accounts that no longer exist. `scripts/backfill-embeddings.mjs` was written anyway — its durable purpose is repairing chunks whose embedding failed transiently, and it dry-runs by default because it spends money per row. | `scripts/backfill-embeddings.mjs` |
+| **What a citation resolves to** | **A chunk** — `(jobId, chunkIndex)`, a few paragraphs, shown in full in the pane. **Not a page number and not a character offset**, and the UI does not imply either: chunking produces flat text with no page dimension and the upload is not retained as text. | `handlers/chat.ts`, `WorkspacePane.tsx`, SPEC §4.6 |
 
----
+**One decision this plan did not anticipate**, made because the code forced it: **answering
+is a separate interface from `CardProvider`.** Adding `answer()` to the existing provider
+interface would oblige `StubProvider` to implement it, and a stub answer is exactly what §3
+forbids. So `AnsweringProvider` is a second, narrower interface that `GroqProvider`
+implements and the stub does not — `CARD_PROVIDER=stub` makes the chat endpoint report
+itself unavailable rather than answer. The type system enforces §3, not a convention.
+See ADR 0012.
 
-## 7. What will go unverified
+## 7. What went unverified
 
-There are no tests (ADR 0005), so name these honestly in the closing report rather than
-letting a confident summary imply more:
+**Written 2026-09-07, after execution.** The plan predicted these; what follows is what
+actually held and what did not, because the difference matters more than the list.
 
-- **Retrieval quality is unmeasured.** "It cited the right chunk" for a handful of questions
-  is an impression, not a number. There is no recall@k, no golden set, and no eval harness —
-  that is Phase E and it does not exist.
-- **The cross-tenant probe is a handful of questions, not a proof.** It is the strongest
-  evidence available here and it is still one path through one query.
-  `check-data-access.mjs` checks shape, not meaning: a `searchChunks` that took `userId` and
-  ignored it would pass every gate in this repository.
-- **The distance floor is one person's judgement on one corpus.** Too high refuses answerable
-  questions; too low is §3's failure with extra steps. Nothing measures which.
-- **Nothing proves the embedding seam's two sides agree**, because there is only one side.
-  When Bedrock's Titan embeddings arrive, the vectors are in a *different space* — a corpus
-  embedded by one model and queried by another returns confident nonsense. **Say this in the
-  seam's header**: switching `EMBEDDING_PROVIDER` on a populated corpus requires a
-  re-embedding, and that is not a configuration change like the other four seams are.
-- **The `hnsw` index is unproven as used.** Postgres may ignore it at this corpus size, and
-  nothing here measures whether it does.
-- **The no-answer path is verified by asking a few questions**, which is the same method that
-  makes criterion 2 the most likely thing in this plan to regress unnoticed.
+**The blocking one, stated first: there is no embedding API key on this machine.** §1 named
+an owner-supplied key as the one precondition that blocks, and it was never supplied. So the
+following were **not run** and are not claimed:
+
+- Task 8 steps 2, 3, 4 and 7 — ingesting a real document, asking a question it answers,
+  asking one it does not, and forcing an embedding failure. **The single most important
+  criterion in this plan (§5 criterion 2, "a question the sources do not support returns
+  *not covered* rather than a fluent fabrication") has not been observed end to end.** The
+  code path that enforces it was read and its structure verified; it has never run against a
+  real model.
+- Any judgement about answer quality, citation accuracy, or whether 0.60 is a sensible floor.
+
+**What *was* run, and it is more than the key's absence suggests:**
+
+- **The cross-tenant probe (task 8 step 6, criteria 3 and 4) passed against live Neon**, with
+  hand-written vectors instead of embedded ones. Two users, two decks, and a query vector
+  deliberately *nearest to the other user's chunk* — so distance ordering alone would have
+  returned the wrong row. Each user got only their own; user A naming user B's deck id got
+  zero rows. That is the strongest evidence available here and it is still one query, three
+  paths.
+- **Task 8 step 5 found a real bug** — a notebook with no sources returned **500**, because
+  the question was embedded before the corpus was checked. Fixed: `countDeckEmbeddings` runs
+  first, and the empty case now returns `200 {"reason":"no_sources"}` without calling any
+  vendor. This is exactly the class of bug DS1 §7 said only running it finds.
+- **The seam refusals (criterion 7).** `EMBEDDING_PROVIDER` unset, `=stub` and `=bogus` each
+  throw a named error; a model whose dimension disagrees with `vector(1536)` throws at
+  resolution naming both numbers; `CARD_PROVIDER=stub` yields `null` from
+  `resolveAnsweringProvider()`, so chat reports itself unavailable rather than answering.
+- **Criteria 8, 9, 10.** The five-variable grep returns comments only; `verify` is green
+  including `check:data-access` and `check:routes` (25 routes, both files); `jobs-dynamo.ts`
+  and `pipeline-sfn.ts` are byte-identical to `46a80ec`.
+
+**The limits that remain, and would remain even with a key:**
+
+- **Retrieval quality is unmeasured.** No recall@k, no golden set, no eval harness. That is
+  Phase E and it does not exist.
+- **The cross-tenant probe is three paths, not a proof.** `check-data-access.mjs` checks
+  shape, not meaning: a `searchChunks` that took `userId` and ignored it would pass every
+  gate in this repository.
+- **The distance floor is one person's judgement on a corpus nobody has queried.** Too high
+  refuses answerable questions; too low is §3's failure with extra steps. The handler logs
+  the nearest distance on every refusal, which is the crumb a later measurement starts from.
+- **Nothing proves the embedding seam's two sides agree, because there is only one side** —
+  and when a second arrives its vectors are in a *different space*, so switching requires
+  re-embedding. Said in the seam's header, the migration, `.env.example` and ADR 0012.
+- **The `hnsw` index is unproven as used.** Postgres may ignore it at this corpus size.
+- **`npm run infra:synth` fails on this machine**, with `EPERM` renaming a bundling temp
+  directory under `cdk.out` — a Windows filesystem issue in CDK's asset bundling on the
+  *pipeline* stack. **Verified pre-existing**: the failure reproduces identically on an
+  unmodified tree at `787ab69`. `verify` does not run synth, which is why it stayed green.
+  The new `/decks/{deckId}/ask` route and `ChatFn` therefore **typecheck but have never been
+  synthesised**, so the CDK half of task 6 is unproven.

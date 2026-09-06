@@ -88,7 +88,7 @@ export function NotebookPage() {
           onAddText={() => void navigate('/create/text')}
         />
       }
-      workspace={<WorkspacePane />}
+      workspace={<WorkspacePane notebookId={notebookId} />}
       studio={
         <StudioRail
           notebook={notebook}

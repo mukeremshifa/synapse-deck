@@ -62,7 +62,8 @@ authored against the codebase it will actually run in.
 | P12 — Grounded chat | [P12-grounded-chat.md](P12-grounded-chat.md) | 📋 Planned 2026-09-06. Fills P11's empty workspace pane. **Blocked on Bedrock model access**, embeddings included |
 | Demo sprint | [DEMO-SPRINT-BRIEF.md](DEMO-SPRINT-BRIEF.md) | 🧭 **Decisions made 2026-09-06.** AWS unavailable; 5 phases scoped (DS1–DS5) |
 | DS1 — Portable spine | [DS1-portable-spine.md](DS1-portable-spine.md) | ✅ **Complete — 2026-09-07.** The pipeline generates real cards for the first time. Neon + Groq + jobs in Postgres + in-process fan-out, all four seams with no defaults. **Executed, not just typechecked** — five findings in §7 |
-| DS2 — Grounded chat | [DS2-grounded-chat.md](DS2-grounded-chat.md) | 📋 **Planned 2026-09-07, next to execute.** pgvector on Neon, a second provider seam for embeddings, retrieval with citations, the chat pane. P12 re-aimed at portable infrastructure; its no-stub-answers rule inherited verbatim. **Read [DS1-HANDOFF.md](DS1-HANDOFF.md) first** |
+| DS2 — Grounded chat | [DS2-grounded-chat.md](DS2-grounded-chat.md) | ⚠️ **Built 2026-09-07, unproven end to end.** pgvector on Neon, a fifth seam for embeddings, retrieval with citations, the chat pane. Migration applied, cross-tenant probe passed against live Neon, one 500 found and fixed. **No embedding API key was supplied, so no question has ever been answered** — see [§7](DS2-grounded-chat.md#7-what-went-unverified) |
+| DS3 — Real blueprint & exam | [DS3-real-blueprint-exam.md](DS3-real-blueprint-exam.md) | 📋 **Planned 2026-09-07, next to execute.** Take the blueprint, diagnostic and exam off fixtures and onto the user's own cards and topics |
 | P13 — Exam-half UI | _(executed without a plan file — see below)_ | ✅ **Frontend closed — 2026-09-06.** Dashboard, blueprint with citations, diagnostic, exam-date study plan, answer explanations, pipeline stages. Backend deliberately untouched; four inert affordances tabulated in SPEC §4.6 |
 
 **DS1 is done, and the headline is that the pipeline has now actually run.** As of
@@ -87,20 +88,39 @@ rather than requests, which made a request-shaped backoff reliably fail; the pro
 honours `retry-after` and concurrency is 2, configurable, because the right value belongs to
 the account's tier and not to this code.
 
-**Four seams now decide which infrastructure runs, and none has a default**
-([ADR 0010](../adr/0010-runtime-seams.md)). `CARD_PROVIDER`, `JOB_STORE`, `PIPELINE_RUNNER`,
-`UPLOAD_STORE` — each throws when unset, because a job written to one store and polled from
-the other reports 404 forever. `jobs-dynamo.ts` and `pipeline-sfn.ts` are **byte-identical**
+**Five seams now decide which infrastructure runs, and none has a default**
+([ADR 0010](../adr/0010-runtime-seams.md), extended by [0012](../adr/0012-embedding-provider-seam.md)).
+`CARD_PROVIDER`, `JOB_STORE`, `PIPELINE_RUNNER`, `UPLOAD_STORE` and — from DS2 —
+`EMBEDDING_PROVIDER`. Each throws when unset, because a job written to one store and polled
+from the other reports 404 forever. **The fifth is not like the other four**: switching it on
+a populated corpus requires re-embedding every chunk, because two models occupy different
+vector spaces. It is a data migration wearing a configuration variable's clothes. `jobs-dynamo.ts` and `pipeline-sfn.ts` are **byte-identical**
 to what P10 wrote; the brief's §8 table still holds in full, which is the check that matters
 at every phase boundary.
 
-**One thing DS2 should know before it plans anything.** P12 and SPEC §4.6 both refused the
-AI tutor on the grounds that chunks are not persisted retrievably. **That is no longer true**:
-`job_chunks.source_text` holds every chunk's text, scoped by `user_id`, as of migration 0006.
-The retrieval corpus DS2 needs is half-built — what is missing is an embedding column, an
-index and the query. It also means `job_chunks.expires_at`, a column nothing currently
-sweeps, stops being harmless the moment chunks become the knowledge base.
-[DS1-HANDOFF.md](DS1-HANDOFF.md) §6 lists the three decisions that shape that schema.
+**DS2 built grounded chat, and the honest status is "built, not proven".** Migration `0007`
+added `chunk_embeddings` — pgvector on Neon, one vector per chunk, `user_id` denormalised
+onto it — and it is applied. `data/chunks.ts` searches it with the tenancy filter on all
+three tables it joins; `POST /decks/{deckId}/ask` refuses to call a model when nothing
+clears the distance floor; `WorkspacePane` has an input box for the first time, because
+there is finally something behind it.
+
+**What was verified: a cross-tenant probe against live Neon**, adversarially constructed so
+that distance ordering alone would have returned the wrong user's chunk — it did not. And
+running it found a real 500: a notebook with no sources embedded the question before
+checking whether there was anything to search. Fixed.
+
+**What was not: any question has ever been answered.** No embedding API key was supplied, so
+the phase's single most important criterion — that a question the sources do not support is
+refused rather than fabricated — has been read and never observed. Add `OPENAI_API_KEY` to
+`.env.local` and work through [DS2 task 8](DS2-grounded-chat.md#task-8--run-it-this-is-the-task-the-phase-exists-for)
+before believing the feature works.
+
+**Two rules DS2 established that later phases must not undo.** `job_chunks.expires_at` is
+now **load-bearing and must never be swept** — chunks are the knowledge base, and a sweep
+would silently empty every notebook's retrieval corpus with no error anywhere. And the
+embedding seam **may not have a stub**: fake vectors ground an answer in noise while looking
+perfect, with nothing on screen saying it is fake ([ADR 0012](../adr/0012-embedding-provider-seam.md)).
 
 **Nothing proves the two sides of a seam agree.** DynamoDB and Step Functions were not
 reachable, so `JOB_STORE=dynamo` typechecks and has not run. Card quality is likewise one

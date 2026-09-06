@@ -20,6 +20,7 @@
  */
 
 export {
+  AskRequest,
   CardPayload,
   DeckInput,
   GradeSchema,

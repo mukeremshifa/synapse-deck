@@ -104,3 +104,83 @@ export class ProviderRetryableError extends Error {
     this.retryAfterMs = options?.retryAfterMs;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * ANSWERING. DS2 task 6, and a deliberately separate interface.
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Grounded chat needs a chat completion, and `CardProvider` above is already a
+ * chat client. The obvious move was to add `answer()` to it. That was rejected,
+ * and the reason is a safety property rather than a taste in interfaces:
+ *
+ *   **`StubProvider` implements `CardProvider`.** Adding `answer()` to that
+ *   interface obliges the stub to implement it — and a stub answer is the one
+ *   thing DS2 §3 forbids outright. A stub *card* announces itself in its own
+ *   text and passes a review gate before it becomes anything; a stub *answer* is
+ *   fluent prose about the reader's own study material with no gate in front of
+ *   it, and nothing on screen says it is fake.
+ *
+ * So answering is a second, narrower interface that a provider may or may not
+ * implement, and `StubProvider` does not. That is not a convention: it is the
+ * type system. `resolveAnsweringProvider()` returns one only if the configured
+ * provider actually has the capability, so `CARD_PROVIDER=stub` makes the chat
+ * endpoint refuse rather than answer — which is the correct behaviour, since a
+ * deployment with no real model has nothing honest to say.
+ *
+ * `BedrockProvider` will implement both when model access is granted. Nothing
+ * about this shape prevents that; it prevents only the stub from acquiring a
+ * capability it must not have.
+ */
+
+export interface AnswerRequest {
+  /** The user's question, verbatim. */
+  question: string;
+  /**
+   * The retrieved passages, in rank order, as text.
+   *
+   * **Untrusted.** They are the user's own documents, but that user pasted them
+   * from somewhere: material to answer *about*, never instructions to follow.
+   * `prompt.ts` delimits them and repeats the rule after them, which is where
+   * the ordering argument in that file matters most.
+   */
+  passages: string[];
+}
+
+export interface AnswerResult {
+  /** The answer text, or the model's own statement that it cannot answer. */
+  answer: string;
+  /**
+   * Whether the model claims it answered from the passages.
+   *
+   * **A claim, not a proof, and the handler treats it as one.** A model that
+   * answered from pretraining and set this to `true` is not detectable here —
+   * nothing in this codebase verifies groundedness, and DS2 §7 says so. What
+   * this buys is the honest case: a model that knows it could not answer says
+   * so, and the pane renders that as the first-class outcome it is rather than
+   * as an error.
+   */
+  grounded: boolean;
+  /**
+   * Which passages the model cited, as 1-based indices into `passages`.
+   *
+   * Parsed out of the answer text by the provider. Indices outside the range
+   * are dropped rather than trusted: a `[7]` in a five-passage prompt is a
+   * hallucination, and it is detectable precisely because the model was never
+   * shown an id it could invent a plausible version of.
+   */
+  citations: number[];
+  provider: ProviderName;
+  inputTokens: number | null;
+  outputTokens: number | null;
+}
+
+/**
+ * A provider that can answer a question from passages.
+ *
+ * Deliberately not extended by `CardProvider`. See the block comment above —
+ * the separation is what stops `StubProvider` from being obliged to answer.
+ */
+export interface AnsweringProvider {
+  readonly name: ProviderName;
+  answer(request: AnswerRequest): Promise<AnswerResult>;
+}
