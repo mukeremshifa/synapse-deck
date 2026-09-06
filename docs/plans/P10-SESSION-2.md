@@ -83,6 +83,46 @@ Amazon Nova is not an Anthropic model and it failed *differently* — so this is
 independent blocker sitting underneath the first. It may well have cleared by the time you
 read this; **re-run the Nova invoke to find out** before assuming anything.
 
+### ⟳ Re-tested 2026-09-06 (session 2). One blocker cleared, one did not.
+
+**Account verification is done.** Nova no longer returns `AccessDeniedException: Your
+account is currently being verified`. That blocker is gone.
+
+**What replaced it is smaller and is the owner's to clear.** Nova now fails with:
+
+```
+ValidationException: Operation not allowed
+```
+
+and `get-foundation-model-availability` explains it — `authorizationStatus: NOT_AUTHORIZED`,
+with `agreementAvailability: AVAILABLE`. That is an ordinary **model access grant** that
+has not been requested: Bedrock console → Model access → enable Amazon Nova. It needs the
+console, not code, and it is not a decision — just a click the owner has to make.
+
+**The Anthropic restriction is unchanged and is not a grant problem.** Both
+`anthropic.claude-haiku-4-5-…` and the `us.` inference profile still return:
+
+```
+ValidationException: Access to Anthropic models is not allowed from unsupported
+countries, regions, or territories.
+```
+
+Calls still originate from `217.165.20.44` (UAE). Haiku 4.5 additionally shows
+`agreementAvailability: NOT_AVAILABLE` / `authorizationStatus: NOT_AUTHORIZED`, but the
+country check fires first, so granting access would not change the outcome.
+
+**This is exactly the branch the plan said to stop at.** Nova's blocker is a grant the
+owner can click; Anthropic's is geographic and routing around it is a policy question, not
+a coding one. So, unchanged and stated plainly:
+
+| Provider | Status | Who clears it |
+| -------- | ------ | ------------- |
+| Amazon Nova | `NOT_AUTHORIZED` — needs a model-access grant | **Owner**, in the console |
+| Anthropic | Country restriction, before any grant applies | **Owner's decision**, not a code change |
+
+Until one of those moves, `GROQ_API_KEY` remains what keeps the pipeline demonstrable, and
+D6's provider interface remains the reason that is a swap rather than a rewrite.
+
 ### The owner's decision, and what it means for you
 
 **The owner has said to keep Bedrock in `us-east-1`.** The region is not the variable being

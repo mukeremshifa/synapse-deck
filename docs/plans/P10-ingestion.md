@@ -286,6 +286,51 @@ is idle almost always).
   times out, which presents as a mysteriously slow function rather than a connection error
   (`infra/lib/data-stack.ts` already warns about this trap).
 
+**✅ Done 2026-09-06** (`4457c03`). `SynapseDeck-Pipeline-{dev,prod}`, wired into
+`bin/app.ts` before the Api stack so the table can be passed by object reference.
+
+Built as specified: `userId` partition key, compound `sk` (`job#<id>` and
+`job#<id>#chunk#<n>`), on-demand billing, TTL on `expiresAt`, and the free DynamoDB
+gateway endpoint added to the Data stack beside S3's.
+
+Three things decided while building, worth having on the record:
+
+- **Chunk indexes are zero-padded** (`chunk#000007`). DynamoDB sorts sort keys
+  lexicographically, so unpadded `chunk#10` sorts before `chunk#2` and a `Query` returns
+  the chunks shuffled. Cheap to get right now, confusing to diagnose later.
+- **The TTL is computed in exactly one place**, because the milliseconds version of that
+  bug is silent rather than loud: a millisecond timestamp is a date ~50,000 years out, so
+  items simply never expire and the table grows exactly as it would with no TTL at all.
+  There is no error and no symptom until a bill.
+- **`grantReadWriteData` went to the cards handler alone**, not to all four. Every handler
+  gets `JOB_TABLE_NAME` through `commonEnvironment`, but only the one that owns the review
+  gate can touch job state. Confirmed against the synthesised template: exactly one IAM
+  policy carries `dynamodb:*` and it is attached to `CardsFn`'s role only.
+
+**The lint was extended, and the extension was tested in both directions.**
+`scripts/check-data-access.mjs` matched SQL shapes only, so a `DynamoDBDocumentClient`
+call in a handler passed every gate in the repository. It now also catches the client
+constructors, the command classes, and a client-shaped `.send(`.
+
+The `.send(` pattern deliberately requires a receiver (`client`, `ddb`, `docClient`, …)
+rather than matching bare `send(`: `res.send()` and `notifier.send()` are ordinary code,
+and a lint that fires on them is one that gets disabled instead of obeyed. Verified with
+throwaway probe handlers — a direct client and an indirectly obtained one are both
+caught, while `res.send()` and `notifier.send()` still pass — then the probes were
+deleted. The rule id is now `no-datastore-in-handlers`.
+
+**What is not proven: the data layer has never executed.** `services/api/src/data/jobs.ts`
+typechecks and lints, and nothing has run a single one of its functions against a real
+table — nothing is deployed, and there is no local DynamoDB. Every claim about the
+condition expressions, the atomic `add` on `chunksCompleted`, and the `begins_with` query
+is a claim about code that has been read, not run. Task 5 is where they first execute.
+
+*(Environment note: `cdk synth` into the default `infra/cdk.out` fails on this machine with
+an `EPERM` renaming a bundling temp directory. It is pre-existing and environmental —
+identical on a clean tree at `a1a9b59` — not a fault in any stack. `--output` to a
+different directory synthesises everything fine, and that is how the IAM grant above was
+checked.)*
+
 ### 3. Upload — S3, presigned, and the scanned-PDF check
 
 §7 question 6, and the browser half is worth more than any server-side cleverness.
