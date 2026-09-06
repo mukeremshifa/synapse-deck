@@ -51,6 +51,47 @@ export const BLUEPRINT_LIMITS = {
   maxWeight: 100,
 } as const;
 
+/**
+ * One thing the model saw, and where it saw it.
+ *
+ * **Why this is a record rather than a sentence.** Evidence was `string[]` when
+ * this module was written, which let a topic explain itself but not prove
+ * anything: "the longest section of the notes" is a claim the user has no way to
+ * check without going back to the PDF and counting. Grounding an assertion in
+ * the material is the whole difference between a blueprint that is trusted and
+ * one that is merely plausible, and it is the property that separates this from
+ * a model that answers from nothing.
+ *
+ * The fields are split by who can produce them, which is the distinction that
+ * matters when this stops being a fixture:
+ *
+ * - `claim` is the model's assertion, and is required. A citation with a
+ *   location and nothing to say is not evidence.
+ * - `source` is the filename it came from. Required for a generated citation;
+ *   the UI is what refuses to render one without it.
+ * - `quote` is the material's own words. **Untrusted LLM output like any card
+ *   content — render it as text** (CLAUDE.md). It is optional because a claim
+ *   about structure ("this heading recurs in four chapters") has no single
+ *   passage to quote.
+ * - `locator` is a human-readable position: "p. 38", "§4.2". Optional, and
+ *   deliberately a display string rather than a page number, because
+ *   `chunking.ts` produces `{ index, text }` over a flat string and has no page
+ *   dimension at all. A `page: number` field would be a schema inviting the
+ *   generator to invent one.
+ * - `chunkIndex` is what the pipeline *can* honestly emit today — the chunk the
+ *   claim was drawn from. Useless to a reader on its own, which is why it is not
+ *   displayed, but it is the join back to the source text once chunks are
+ *   persisted and a source viewer exists to jump into.
+ */
+export const TopicEvidence = z.object({
+  claim: z.string().trim().min(1).max(400),
+  source: z.string().trim().min(1).max(300).optional(),
+  quote: z.string().trim().min(1).max(1000).optional(),
+  locator: z.string().trim().min(1).max(60).optional(),
+  chunkIndex: z.number().int().min(0).optional(),
+});
+export type TopicEvidence = z.infer<typeof TopicEvidence>;
+
 export const BlueprintTopic = z.object({
   id: z.string().min(1),
   name: z.string().trim().min(1).max(120),
@@ -58,7 +99,8 @@ export const BlueprintTopic = z.object({
   weight: z.number().min(BLUEPRINT_LIMITS.minWeight).max(BLUEPRINT_LIMITS.maxWeight),
   difficulty: TopicDifficulty,
   /**
-   * What the model saw that made it propose this topic at this weight.
+   * What the model saw that made it propose this topic at this weight, and
+   * where in the material it saw it.
    *
    * **Not decoration.** The "AI reasoning" drawer is the difference between a
    * blueprint the user trusts and one they merely suspect, and a system that
@@ -67,7 +109,7 @@ export const BlueprintTopic = z.object({
    * inventing some for it would be the exact failure this field exists to
    * prevent.
    */
-  evidence: z.array(z.string().min(1)).default([]),
+  evidence: z.array(TopicEvidence).default([]),
 });
 export type BlueprintTopic = z.infer<typeof BlueprintTopic>;
 
@@ -239,6 +281,37 @@ export function allocateQuestions(
     topicId: topic.id,
     questions: counts[index] ?? 0,
   }));
+}
+
+/**
+ * Whether a citation is grounded in a named source, or is only an assertion.
+ *
+ * The UI renders these two cases differently and must not blur them: a claim
+ * traced to a file the user uploaded can be checked, and a claim standing on its
+ * own cannot. Every generated citation should be grounded — a generator that
+ * emits bare claims is one prompt change away from confabulating, and this
+ * predicate is what makes that visible on the screen instead of invisible in a
+ * log.
+ */
+export function isGrounded(
+  evidence: TopicEvidence,
+): evidence is TopicEvidence & { source: string } {
+  return typeof evidence.source === 'string' && evidence.source.length > 0;
+}
+
+/**
+ * How many of a topic's citations point at real material.
+ *
+ * Returned as a pair rather than a ratio so the UI can say "3 of 4" — a
+ * proportion hides the difference between one weak citation and forty.
+ */
+export function groundedCount(topic: BlueprintTopic): {
+  grounded: number;
+  total: number;
+} {
+  let grounded = 0;
+  for (const item of topic.evidence) if (isGrounded(item)) grounded += 1;
+  return { grounded, total: topic.evidence.length };
 }
 
 /**
