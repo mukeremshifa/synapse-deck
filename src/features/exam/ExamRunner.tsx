@@ -198,9 +198,12 @@ export function ExamRunner({
       aria-label="Exam in progress"
       className={cn(
         'focus-visible:ring-ring mx-auto max-w-3xl space-y-5 rounded-xl outline-none focus-visible:ring-2',
-        // In full-screen the runner owns the whole viewport, so it supplies the
-        // padding the app layout would otherwise have given it.
-        focus.isFullscreen && 'bg-background min-h-dvh px-4 py-8',
+        // The runner always owns the viewport now. Through P6 it sat inside
+        // `AppLayout`, which supplied the padding whenever focus mode was off;
+        // P11 routes a running exam through no frame at all (see `ExamPage` for
+        // why a timed exam gets no close button), so the padding is
+        // unconditional and the min-height keeps a short exam from floating.
+        'bg-background min-h-dvh px-4 py-8',
       )}
     >
       <header className="flex flex-wrap items-center justify-between gap-3">

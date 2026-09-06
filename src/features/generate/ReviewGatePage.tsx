@@ -3,12 +3,14 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CheckCheckIcon, PlayIcon, SparklesIcon } from 'lucide-react';
 
+import { FocusFrame } from '@/app/FocusFrame';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Kbd } from '@/components/ui/kbd';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { plural } from '@/lib/format';
+import { notebookPath } from '@/lib/notebooks';
 import {
   parseCardPayload,
   useAcceptDrafts,
@@ -48,36 +50,46 @@ export function ReviewGatePage() {
 
   if (!deckId) return null;
 
+  // The exit exists in every branch, including the failed ones. A review gate
+  // you cannot leave is the worst screen in the app to strand someone on.
+  const exitTo = notebookPath.open(deckId);
+
   if (drafts.isPending || deck.isPending) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-40 w-full rounded-xl" />
-        <Skeleton className="h-40 w-full rounded-xl" />
-      </div>
+      <FocusFrame title="Review" exitTo={exitTo} width="wide">
+        <div className="space-y-3">
+          <Skeleton className="h-10 w-64" />
+          <Skeleton className="h-40 w-full rounded-xl" />
+          <Skeleton className="h-40 w-full rounded-xl" />
+        </div>
+      </FocusFrame>
     );
   }
 
   if (drafts.isError || deck.isError) {
     return (
-      <EmptyState
-        title="Could not load these drafts"
-        description={((drafts.error ?? deck.error) as Error).message}
-        action={<Button onClick={() => void drafts.refetch()}>Try again</Button>}
-      />
+      <FocusFrame title="Review" exitTo={exitTo} width="wide">
+        <EmptyState
+          title="Could not load these drafts"
+          description={((drafts.error ?? deck.error) as Error).message}
+          action={<Button onClick={() => void drafts.refetch()}>Try again</Button>}
+        />
+      </FocusFrame>
     );
   }
 
   return (
-    <ReviewGate
-      // Remount on a different deck: the gate keeps a working copy of the queue,
-      // and a working copy from another deck would be nonsense.
-      key={deckId}
-      deckId={deckId}
-      deckTitle={deck.data.title}
-      drafts={drafts.data}
-      job={job.data ?? null}
-    />
+    <FocusFrame title="Review" subtitle={deck.data.title} exitTo={exitTo} width="wide">
+      <ReviewGate
+        // Remount on a different deck: the gate keeps a working copy of the
+        // queue, and a working copy from another deck would be nonsense.
+        key={deckId}
+        deckId={deckId}
+        deckTitle={deck.data.title}
+        drafts={drafts.data}
+        job={job.data ?? null}
+      />
+    </FocusFrame>
   );
 }
 
@@ -298,7 +310,8 @@ function ReviewGate({
     >
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-serif text-3xl tracking-tight">{deckTitle}</h1>
+          {/* The frame's subtitle already names the notebook; this line is the
+              tally, which is the number that changes as you work. */}
           <p className="text-muted-foreground text-sm">
             <span className="text-foreground font-mono tabular-nums">
               {staged.length}

@@ -1,7 +1,10 @@
 import { useCallback, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
+import { FocusFrame } from '@/app/FocusFrame';
 import { prepareAttempt, type ExamResult, type PreparedAttempt } from '@/lib/exam';
+import { notebookPath } from '@/lib/notebooks';
+import { useDeck } from '@/lib/queries';
 import type { AttemptOutcome } from '@/lib/schemas';
 import { ExamResults } from './ExamResults';
 import { ExamRunner } from './ExamRunner';
@@ -29,7 +32,11 @@ type Phase =
 
 export function ExamPage() {
   const navigate = useNavigate();
+  const { notebookId } = useParams<{ notebookId?: string }>();
+  const deck = useDeck(notebookId);
   const [phase, setPhase] = useState<Phase>({ status: 'setup' });
+
+  const exitTo = notebookId ? notebookPath.open(notebookId) : notebookPath.list();
 
   const start = useCallback((exam: typeof SAMPLE_EXAM) => {
     setPhase({ status: 'running', attempt: prepareAttempt(exam) });
@@ -44,8 +51,23 @@ export function ExamPage() {
 
   switch (phase.status) {
     case 'setup':
-      return <ExamSetup exam={SAMPLE_EXAM} onStart={start} />;
+      return (
+        <FocusFrame
+          title="Exam"
+          {...(deck.data ? { subtitle: deck.data.title } : {})}
+          exitTo={exitTo}
+        >
+          <ExamSetup exam={SAMPLE_EXAM} onStart={start} />
+        </FocusFrame>
+      );
 
+    /*
+     * A running exam gets no frame at all — `bare`, and in fact not wrapped.
+     * `ExamRunner` already owns the viewport when focus mode engages, and a
+     * header with a close button on a timed exam is an invitation to lose an
+     * attempt to a stray click. The way out of a running exam is to submit it,
+     * which is what the runner's own controls do.
+     */
     case 'running':
       return (
         <ExamRunner
@@ -61,12 +83,19 @@ export function ExamPage() {
 
     case 'results':
       return (
-        <ExamResults
-          result={phase.result}
-          outcome={phase.outcome}
-          onRetake={() => setPhase({ status: 'setup' })}
-          onDone={() => void navigate('/notebooks')}
-        />
+        <FocusFrame
+          title="Results"
+          {...(deck.data ? { subtitle: deck.data.title } : {})}
+          exitTo={exitTo}
+          width="wide"
+        >
+          <ExamResults
+            result={phase.result}
+            outcome={phase.outcome}
+            onRetake={() => setPhase({ status: 'setup' })}
+            onDone={() => void navigate(exitTo)}
+          />
+        </FocusFrame>
       );
   }
 }

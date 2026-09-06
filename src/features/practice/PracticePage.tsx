@@ -1,10 +1,12 @@
 import { Link, useParams } from 'react-router-dom';
 import { CoffeeIcon, InboxIcon } from 'lucide-react';
 
+import { FocusFrame } from '@/app/FocusFrame';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { formatDurationWords } from '@/lib/format';
+import { notebookPath } from '@/lib/notebooks';
 import { useDeck, usePracticeQueue, useProfile } from '@/lib/queries';
 import { resolveTimeZone, startOfNextStudyDay } from '@/lib/day';
 import { PracticeSession } from './PracticeSession';
@@ -25,22 +27,36 @@ export function PracticePage() {
   const { data: profile } = useProfile();
   const queue = usePracticeQueue(deckId);
 
+  // Every branch below renders inside the frame, so the way out exists even
+  // when the queue failed to load — an error state you cannot leave is the
+  // worst one to ship.
+  const exitTo = deckId ? notebookPath.open(deckId) : notebookPath.list();
+  const frameProps = {
+    title: 'Practice',
+    ...(deck.data ? { subtitle: deck.data.title } : {}),
+    exitTo,
+  };
+
   if (queue.isPending || !queue.data) {
     return (
-      <div className="mx-auto max-w-2xl space-y-4">
-        <Skeleton className="h-4 w-32" />
-        <Skeleton className="h-64 w-full rounded-xl" />
-      </div>
+      <FocusFrame {...frameProps}>
+        <div className="space-y-4">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-64 w-full rounded-xl" />
+        </div>
+      </FocusFrame>
     );
   }
 
   if (queue.isError) {
     return (
-      <EmptyState
-        title="Could not load the queue"
-        description={(queue.error as Error).message}
-        action={<Button onClick={() => void queue.refetch()}>Try again</Button>}
-      />
+      <FocusFrame {...frameProps}>
+        <EmptyState
+          title="Could not load the queue"
+          description={(queue.error as Error).message}
+          action={<Button onClick={() => void queue.refetch()}>Try again</Button>}
+        />
+      </FocusFrame>
     );
   }
 
@@ -48,22 +64,26 @@ export function PracticePage() {
 
   if (cards.length === 0) {
     return (
-      <div className="mx-auto max-w-2xl">
+      <FocusFrame {...frameProps}>
         <NothingDue
           nextDueAt={nextDueAt}
           heldBackNew={heldBackNew}
           timeZone={resolveTimeZone(profile?.timezone)}
           deckId={deckId}
         />
-      </div>
+      </FocusFrame>
     );
   }
 
   return (
-    <div className="space-y-4">
-      {deck.data && (
-        <p className="text-muted-foreground text-center text-sm">{deck.data.title}</p>
-      )}
+    <FocusFrame
+      {...frameProps}
+      status={
+        <span className="text-muted-foreground text-sm tabular-nums">
+          {cards.length} in queue
+        </span>
+      }
+    >
       <PracticeSession
         // A new queue is a new session: reset the local state rather than
         // carrying a half-finished one into it.
@@ -72,7 +92,7 @@ export function PracticePage() {
         deckId={deckId}
         onRefetch={() => void queue.refetch()}
       />
-    </div>
+    </FocusFrame>
   );
 }
 
