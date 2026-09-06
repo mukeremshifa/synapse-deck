@@ -9,7 +9,24 @@ import { CardBack, CardFront } from '@/features/cards/CardFace';
 import { CardEditor } from '@/features/cards/CardEditor';
 import type { CardKind, CardPayload } from '@/lib/schemas';
 import { cn } from '@/lib/utils';
-import type { SkippedCard, StagedCard } from './useGenerateCards';
+
+/**
+ * One generated card, as the review gate holds it.
+ *
+ * Defined here rather than in a hook because the *list* is what outlived the
+ * delivery mechanism: these were exported by `useGenerateCards` when cards
+ * arrived over SSE, and P10 task 9 deleted that hook when `/create/text` moved
+ * onto the job pipeline. The shape never depended on how the cards arrived.
+ */
+export type StagedCard = {
+  id: string;
+  index: number;
+  payload: CardPayload;
+  sourceExcerpt: string | null;
+};
+
+/** A card the model produced that did not survive validation. */
+export type SkippedCard = { index: number; reason: string };
 
 /**
  * The cards, as they arrive and as they are judged.

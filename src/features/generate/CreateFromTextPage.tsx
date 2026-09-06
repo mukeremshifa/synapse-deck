@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { SparklesIcon, SquareIcon } from 'lucide-react';
+import { SparklesIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -16,10 +17,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { plural } from '@/lib/format';
 import { suggestDeckTitle } from '@/lib/generate';
 import { estimateTokens } from '@/lib/quota';
-import { useQuotaUsage } from '@/lib/queries';
+import { api } from '@/lib/api-client';
+import { queryKeys, useQuotaUsage } from '@/lib/queries';
 import {
   CARD_KINDS,
   GENERATION_LIMITS,
@@ -28,17 +29,32 @@ import {
   type GenerateRequestInput,
 } from '@/lib/schemas';
 import { cn } from '@/lib/utils';
-import { StagingList } from './StagingList';
-import { useGenerateCards } from './useGenerateCards';
+import { JobProgressPanel } from './JobProgressPanel';
+import { useJobProgress } from './useJobProgress';
 
 /**
  * `/create/text` — paste text, watch cards arrive (SPEC §4.1 steps 1–4).
  *
- * The form validates with `GenerateRequest`, the same schema the Edge Function
- * validates against, so the two cannot disagree about what a request is. That
- * check is a courtesy, not a control: the limits that matter are enforced
- * server-side, and this side only exists so a mistake costs a message instead of
- * a round trip (SPEC §7.5).
+ * ── This runs the document pipeline, not a second one (P10 task 9) ────────
+ *
+ * It used to POST to a Supabase Edge Function and read an SSE stream. It now
+ * posts to `POST /jobs` with `text` instead of an `objectKey` and polls the same
+ * job the upload page polls — the *same* path, not a parallel one that happens
+ * to share a schema (§8 constraint 8).
+ *
+ * What that buys beyond tidiness: a paste is now chunked, so a long passage no
+ * longer has to fit one model call; it is priced by the same quota; and a
+ * refresh mid-generation resumes, because the job is server-side state rather
+ * than a stream that dies with the connection.
+ *
+ * What it costs, stated plainly: cards no longer appear one at a time. They
+ * arrive a chunk at a time, which for a single-chunk paste means all at once at
+ * the end. The streaming feel was the SSE path's one genuine advantage and it
+ * does not survive the move.
+ *
+ * The form still validates with `GenerateRequest` so a mistake costs a message
+ * rather than a round trip; the limits that matter are enforced server-side
+ * (SPEC §7.5).
  */
 
 const KIND_LABELS: Record<CardKind, string> = {
@@ -55,9 +71,13 @@ const DEPTH_LABELS = {
 
 export function CreateFromTextPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const quota = useQuotaUsage();
-  const { state, start, cancel, reset } = useGenerateCards();
   const [titleTouched, setTitleTouched] = useState(false);
+  const [jobId, setJobId] = useState<string | undefined>(undefined);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  const { job, percent, isFinished } = useJobProgress(jobId);
 
   const form = useForm<GenerateRequestInput, unknown, GenerateRequest>({
     resolver: zodResolver(GenerateRequest),
@@ -86,11 +106,46 @@ export function CreateFromTextPage() {
   );
 
   const outOfQuota = quota.data ? quota.data.remaining <= 0 : false;
-  const started = state.status !== 'idle';
+  const started = jobId !== undefined;
 
   const onSubmit = form.handleSubmit(async values => {
-    await start(values);
+    setStartError(null);
+    setStarting(true);
+    try {
+      // The same endpoint the upload page calls, with `text` where it sends an
+      // `objectKey`. Everything after this point -- chunking, quota, the state
+      // machine, the review gate -- is identical (P10 task 9).
+      const started = await api.post<{ jobId: string; deckId: string; units: number }>(
+        '/jobs',
+        {
+          text: values.text,
+          deckTitle: values.deckTitle,
+          cardCount: values.cardCount,
+          kinds: values.kinds,
+          depth: values.depth,
+        },
+      );
+      setJobId(started.jobId);
+      // The job has spent its units, so the figure on screen is stale.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.quota });
+    } catch (caught) {
+      // A 402 from the quota gate lands here with the shortfall already worded
+      // by the server, which is why this renders the message rather than
+      // composing its own.
+      setStartError(
+        caught instanceof Error ? caught.message : 'The cards could not be written.',
+      );
+    } finally {
+      setStarting(false);
+    }
   });
+
+  const startOver = () => {
+    setJobId(undefined);
+    setStartError(null);
+    form.reset();
+    setTitleTouched(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -107,16 +162,24 @@ export function CreateFromTextPage() {
       </header>
 
       {started ? (
-        <GenerationPanel
-          state={state}
-          onCancel={cancel}
-          onStartOver={() => {
-            reset();
-            form.reset();
-            setTitleTouched(false);
-          }}
-          onReview={deckId => navigate(`/create/review/${deckId}`)}
-        />
+        <div className="space-y-4">
+          {job !== undefined && (
+            <JobProgressPanel
+              job={job}
+              percent={percent}
+              isFinished={isFinished}
+              busyLabel="Reading the text…"
+              onReview={deckId => navigate(`/create/review/${deckId}`)}
+              onRetry={startOver}
+              retryLabel="Start over"
+            />
+          )}
+          {isFinished && (
+            <Button variant="ghost" onClick={startOver}>
+              Start over
+            </Button>
+          )}
+        </div>
       ) : (
         <Card>
           <CardHeader>
@@ -223,8 +286,16 @@ export function CreateFromTextPage() {
                 </p>
               )}
 
-              <Button type="submit" disabled={form.formState.isSubmitting || outOfQuota}>
-                <SparklesIcon /> Generate cards
+              {/*
+                The server's own words. A 402 from the quota gate arrives with
+                the shortfall already worded ("this needs 13 units and you have
+                1 left"), and rephrasing it here would be the second place that
+                sentence lives.
+              */}
+              {startError !== null && <StreamError message={startError} />}
+
+              <Button type="submit" disabled={starting || outOfQuota}>
+                <SparklesIcon /> {starting ? 'Starting…' : 'Generate cards'}
               </Button>
             </form>
           </CardContent>
@@ -236,98 +307,6 @@ export function CreateFromTextPage() {
           Generated text is written by a language model and is wrong often enough to
           matter. Nothing reaches a deck until you accept it.
         </p>
-      )}
-    </div>
-  );
-}
-
-function GenerationPanel({
-  state,
-  onCancel,
-  onStartOver,
-  onReview,
-}: {
-  state: ReturnType<typeof useGenerateCards>['state'];
-  onCancel: () => void;
-  onStartOver: () => void;
-  onReview: (deckId: string) => void;
-}) {
-  const streaming = state.status === 'streaming';
-  const pending = streaming ? Math.max(0, state.expected - state.cards.length) : 0;
-  const hasCards = state.cards.length > 0;
-
-  const arrived = state.cards.length;
-  const progress =
-    state.expected > 0 ? Math.min(100, (arrived / state.expected) * 100) : 0;
-
-  return (
-    <div className="space-y-4">
-      {/* Sticky: the list below grows past the fold while it fills, and the count
-          and the Stop button are the two things that must not scroll away. */}
-      <Card className="bg-background/90 sticky top-20 z-30 gap-4 py-4 backdrop-blur-sm">
-        <CardContent className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="font-medium">
-              {streaming ? (
-                <>
-                  Writing cards —{' '}
-                  <span className="font-mono tabular-nums">{arrived}</span> of{' '}
-                  <span className="font-mono tabular-nums">{state.expected}</span> so far
-                </>
-              ) : (
-                `${plural(arrived, 'card')} ready`
-              )}
-            </p>
-            <p className="text-muted-foreground text-sm">
-              {streaming
-                ? 'Cards are saved as they arrive, so you can leave this page and come back.'
-                : 'Nothing is in your deck until you accept it.'}
-            </p>
-          </div>
-
-          <div className="flex gap-2">
-            {streaming ? (
-              <Button variant="outline" onClick={onCancel}>
-                <SquareIcon /> Stop
-              </Button>
-            ) : (
-              <>
-                {hasCards && state.deckId && (
-                  <Button onClick={() => onReview(state.deckId!)}>Review cards</Button>
-                )}
-                <Button variant="ghost" onClick={onStartOver}>
-                  Start over
-                </Button>
-              </>
-            )}
-          </div>
-        </CardContent>
-
-        {streaming && (
-          <CardContent>
-            <div className="bg-muted h-1 overflow-hidden rounded-full" aria-hidden>
-              <div
-                className="bg-foreground h-full rounded-full transition-[width] duration-300"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          </CardContent>
-        )}
-      </Card>
-
-      {state.error && <StreamError message={state.error.message} />}
-
-      {state.status === 'cancelled' && (
-        <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-sm">
-          Stopped. {plural(state.cards.length, 'card')} were saved as drafts and are
-          waiting for you at the review gate.
-        </p>
-      )}
-
-      <StagingList cards={state.cards} pending={pending} skipped={state.skipped} />
-
-      {!streaming && !hasCards && !state.error && (
-        <p className="text-muted-foreground text-sm">No cards were produced.</p>
       )}
     </div>
   );

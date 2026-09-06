@@ -185,16 +185,34 @@ DEMO_EMAIL=demo@example.com DEMO_PASSWORD='…' npm run demo:seed
 DEMO_EMAIL=demo@example.com DEMO_PASSWORD='…' npm run demo:seed -- --reset   # rebuild
 ```
 
-[scripts/seed-demo.mjs](scripts/seed-demo.mjs) signs in as that user with the publishable
-key and stays inside RLS — no secret key, no `service_role` — so every row it writes is a
-row the app itself could have written. It generates four decks through the real Edge
-Function (Photosynthesis, Postgres indexes, the Roman Republic, spaced repetition), accepts
-them at the gate, and then replays about 60 days of reviews through `applyGrade`, so each
-card's stability and state are what its logged ratings would actually have produced. It
-refuses to touch an account that already has decks unless you pass `--reset`.
+It reads `VITE_API_URL`, `VITE_COGNITO_USER_POOL_ID` and `VITE_COGNITO_CLIENT_ID` from
+`.env.local`, plus the Postgres variables the migration runner uses.
 
-It needs generation to be configured (above) — the decks have to contain _generated_ cards,
-because that is what the product is.
+**It cannot run against the deployed pool yet.** That app client enables
+`ADMIN_USER_PASSWORD_AUTH` rather than the unauthenticated `USER_PASSWORD_AUTH` this script
+calls — on purpose, so the SPA cannot use a flow that sends a password in the clear. The
+script says so plainly when refused, and names both ways out: a pool with the flow enabled,
+or extending it to SigV4-sign `AdminInitiateAuth`.
+
+[scripts/seed-demo.mjs](scripts/seed-demo.mjs) signs in to **Cognito** as that user and
+writes through the **API** with its token, so every row it creates is one the app itself
+could have created. It generates four decks through the real pipeline — `POST /jobs`, the
+same call `/create/text` makes (Photosynthesis, Postgres indexes, the Roman Republic,
+spaced repetition) — accepts them at the gate, and then replays about 60 days of reviews
+through `applyGrade`, so each card's stability and state are what its logged ratings would
+actually have produced. It refuses to touch an account that already has decks unless you
+pass `--reset`, and it refuses to seed placeholder cards if the pipeline is running on the
+stub provider.
+
+**The review history is the one thing it writes straight to Postgres**, so it needs
+database credentials as well as a password. That is deliberate: no API route can write a
+review dated in the past, and none should — `review_card` stamps `reviewed_at` with
+`now()`, and an endpoint that let a client backdate its own study log is exactly what the
+append-only trigger exists to prevent. The script is an operator tool, and uses the
+database only where no user-facing route exists or should.
+
+It needs generation to be configured — the decks have to contain _generated_ cards, because
+that is what the product is.
 
 Credentials live in the owner's password manager, not in this repository. The account is
 reset periodically with `--reset`; anything you change while signed into it is temporary,

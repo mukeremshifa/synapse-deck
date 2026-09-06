@@ -708,6 +708,26 @@ generation = one unit.
 - `GROQ_API_KEY` stays as the fallback provider behind D6's interface, now called from
   Lambda rather than from Deno.
 
+**✅ Done 2026-09-06 (session 3).** `/create/text` posts to `POST /jobs` with `text` where
+the upload page sends an `objectKey`, and polls the same job. One `StartJobRequest` with a
+refinement that exactly one source is given, rather than a second schema that would drift.
+`useGenerateCards.ts` is deleted; the progress UI is now `JobProgressPanel`, shared by both
+pages so the truncation notice and the stub warning cannot diverge.
+
+Two consequences worth stating:
+
+1. **Cards no longer appear one at a time.** They arrive a chunk at a time, which for a
+   single-chunk paste means all at once at the end. Streaming was the SSE path's one real
+   advantage and it does not survive the move. What replaces it is worth more: a paste is
+   now chunked (so length is not bounded by one model call), it is priced by the same
+   quota, and a refresh mid-generation resumes because the job is server-side state.
+2. **`src/lib/sse.ts` and `src/lib/ndjson.ts` are NOT deleted, and the plan's instruction
+   to delete them here was based on a false premise.** They are dead to the *client*, but
+   `supabase/functions/_shared/ingest.ts` and `_shared/sse.ts` still import them, and the
+   Edge Function stays deployed until Phase F — this task's own bullet says so. Deleting
+   them now breaks a function that must keep working. **They go with the Edge Function in
+   Phase F**, which is the "coordinated, not before" the bullet was reaching for.
+
 ### 10. Bedrock, behind the interface D6 describes
 
 - One provider interface, two implementations, sharing the Zod schemas at the boundary
@@ -735,6 +755,27 @@ generation now writes into RDS.
   half is backend-agnostic and is the hard part; do not rewrite it.
 - Restore P9's dropped acceptance criterion 2 as this phase's: `demo:seed` builds the demo
   account against the new API and its decks are visible when signed in as that account.
+
+**✅ Rewritten 2026-09-06 (session 3), and not yet run end to end.** It signs in to Cognito
+over `InitiateAuth`, then drives `POST /jobs` → poll → `POST /decks/{id}/cards` →
+`finish-gate` — the real pipeline, rule 2 intact. `applyGrade` still produces every rating,
+rule 3 untouched.
+
+**Rule 1 needed a decision and it is recorded here.** There is no API route that can write
+a review dated in the past, and there should not be: `review_card` stamps `reviewed_at`
+with `now()`, and a "replay" endpoint would let any client fabricate a study log — exactly
+what the append-only trigger prevents. So the **history is written straight to Postgres**
+and the script is honest about being an operator tool: the API wherever a user could act,
+the database only where no user-facing route exists or should. It consequently needs
+database credentials and cannot seed an environment it has no direct Postgres access to.
+
+**One thing it cannot do yet.** The deployed app client enables `ADMIN_USER_PASSWORD_AUTH`,
+not `USER_PASSWORD_AUTH` — deliberately, so the SPA cannot use it. The script calls the
+unauthenticated flow and will be refused on that pool; the error says so in as many words
+and names both ways out (a pool with the flow enabled, or extending the script to
+SigV4-sign `AdminInitiateAuth`). Deferred rather than guessed: signing SigV4 by hand is
+~80 lines, and the alternative is a dependency, and neither is worth choosing before
+anything is deployed to run it against.
 
 ### 12. The RDS checkpoint — the one deploy this phase makes
 
@@ -809,8 +850,21 @@ stops billing and storage (~$2.30/mo) continues. It is the difference between ~$
    count is unknown, so an unloaded count cannot render as "nothing failed". Not yet seen
    on a job that actually ran: nothing is deployed.
 4. `/create/text` runs through the same state machine. Nothing calls the Edge Function.
+
+   **✅ Built (task 9).** `/create/text` posts to `POST /jobs` with `text` and polls the
+   same job the upload page does; `useGenerateCards.ts` is deleted. Nothing in `src/` calls
+   the Edge Function. Not yet seen running: nothing is deployed, and no model has been
+   called.
 5. `npm run demo:seed` builds the demo account against the new API and its decks are
    visible when signed in as that account.
+
+   **⚠ Rewritten (task 11), not yet run.** It drives Cognito and the API, and its history
+   write was exercised against local PG 18 — backdated reviews landing with the right
+   timestamps, scheduling state matching the replay, and the append-only trigger still
+   refusing an update. **The end-to-end run is blocked twice over**: no model provider is
+   reachable (it refuses to seed placeholder cards on purpose), and the deployed app client
+   enables `ADMIN_USER_PASSWORD_AUTH` rather than the unauthenticated flow the script
+   calls. The criterion asks for decks visible after signing in, and that has not happened.
 6. Topics extracted from two documents on the same subject **reconcile into one set**, not
    two. Checked by hand with two real documents, and the output recorded here.
 

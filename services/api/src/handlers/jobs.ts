@@ -130,13 +130,26 @@ export async function handler(event: ApiEvent): Promise<ApiResponse> {
         throw new ApiError(400, parsed.error.issues[0]?.message ?? 'Invalid job request.');
       }
 
-      // **The object key is re-checked, not trusted.** It arrives in a request
-      // body, so a caller could name another user's object; `assertOwnedKey`
-      // rejects any key outside this user's own prefix. Rule 4: userId comes
-      // from the verified JWT and nothing else decides what may be read.
-      assertOwnedKey(userId, parsed.data.objectKey);
-
-      const text = await readDocumentText(userId, parsed.data.objectKey);
+      // Either an uploaded document or pasted text -- the schema guarantees
+      // exactly one (task 9). From here down there is no difference: the same
+      // chunker, the same quota, the same state machine, the same review gate.
+      // That is the point of moving `/create/text` here rather than keeping a
+      // second path that happens to share a schema.
+      let text: string;
+      if (parsed.data.objectKey !== undefined) {
+        // **The object key is re-checked, not trusted.** It arrives in a request
+        // body, so a caller could name another user's object; `assertOwnedKey`
+        // rejects any key outside this user's own prefix. Rule 4: userId comes
+        // from the verified JWT and nothing else decides what may be read.
+        assertOwnedKey(userId, parsed.data.objectKey);
+        text = await readDocumentText(userId, parsed.data.objectKey);
+      } else {
+        // Pasted text needs no ownership check -- it is the caller's own request
+        // body, not a reference to something stored. Zod has already bounded its
+        // length; nothing else about it is trusted, and it reaches the model as
+        // document content rather than as instructions.
+        text = parsed.data.text ?? '';
+      }
 
       // ── The quota gate ───────────────────────────────────────────────────
       //
@@ -190,7 +203,7 @@ export async function handler(event: ApiEvent): Promise<ApiResponse> {
       const deck = await createDeck(userId, {
         title: parsed.data.deckTitle,
         description: null,
-        source: 'document',
+        source: parsed.data.objectKey !== undefined ? 'document' : 'text',
         status: 'generating',
       });
 
@@ -200,7 +213,7 @@ export async function handler(event: ApiEvent): Promise<ApiResponse> {
       // mattered most.
       await createGeneration(userId, {
         deckId: deck.id,
-        source: 'document',
+        source: parsed.data.objectKey !== undefined ? 'document' : 'text',
         // The provider is resolved per chunk inside the pipeline, so the model
         // is not known here. Recorded when the job finishes rather than guessed
         // now -- a wrong name in the cost trail is worse than a pending one.

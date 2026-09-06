@@ -271,25 +271,56 @@ export type GenerateRequest = z.infer<typeof GenerateRequest>;
 export type GenerateRequestInput = z.input<typeof GenerateRequest>;
 
 /**
- * Starting an ingestion job from an uploaded document (P10 task 5).
+ * Starting an ingestion job — from an uploaded document (P10 task 5) or from
+ * pasted text (task 9).
+ *
+ * **One request shape for both, because there is one pipeline.** §8 constraint 8
+ * says no feature is built twice, and a second schema for the text path would be
+ * the first half of building it twice: the two would drift, and the drift would
+ * show up as a card that generates from a document but not from a paste.
+ *
+ * Exactly one of `objectKey` and `text` is given. That is a refinement rather
+ * than two schemas because the difference is *where the source came from*, and
+ * nothing downstream of reading it cares -- the chunker, the quota, the state
+ * machine and the review gate are identical either way.
  *
  * `objectKey` is the key returned by `POST /uploads`. It is re-derived and
  * re-checked server-side against the caller's own prefix rather than trusted:
  * a key is not a capability, and one arriving in a request body could name
- * anyone's object.
+ * anyone's object. `text` needs no such check -- it is the caller's own body.
  */
-export const StartJobRequest = z.object({
-  objectKey: z.string().trim().min(1).max(1024),
-  deckTitle: z.string().trim().min(1).max(200),
-  cardCount: z
-    .number()
-    .int()
-    .min(GENERATION_LIMITS.minCards)
-    .max(GENERATION_LIMITS.maxCards)
-    .default(20),
-  kinds: z.array(z.enum(CARD_KINDS)).min(1).default(['basic', 'cloze']),
-  depth: z.enum(['recall', 'balanced', 'deep']).default('balanced'),
-});
+export const StartJobRequest = z
+  .object({
+    objectKey: z.string().trim().min(1).max(1024).optional(),
+    /**
+     * Pasted text, bounded by the same limits the old `/create/text` form used.
+     * The floor is not decoration: a hundred characters is about a sentence, and
+     * a model asked for twenty cards from one sentence invents nineteen.
+     */
+    text: z
+      .string()
+      .trim()
+      .min(GENERATION_LIMITS.minChars)
+      .max(GENERATION_LIMITS.maxChars)
+      .optional(),
+    deckTitle: z.string().trim().min(1).max(200),
+    cardCount: z
+      .number()
+      .int()
+      .min(GENERATION_LIMITS.minCards)
+      .max(GENERATION_LIMITS.maxCards)
+      .default(20),
+    kinds: z.array(z.enum(CARD_KINDS)).min(1).default(['basic', 'cloze']),
+    depth: z.enum(['recall', 'balanced', 'deep']).default('balanced'),
+  })
+  // Exactly one source. Neither means there is nothing to generate from; both
+  // means the caller has an opinion the server would have to arbitrate, and
+  // silently preferring one is how a paste gets ignored in favour of a stale
+  // upload.
+  .refine(
+    (value) => (value.objectKey === undefined) !== (value.text === undefined),
+    { message: 'Provide either an uploaded document or some text, not both.' },
+  );
 export type StartJobRequest = z.infer<typeof StartJobRequest>;
 export type StartJobRequestInput = z.input<typeof StartJobRequest>;
 

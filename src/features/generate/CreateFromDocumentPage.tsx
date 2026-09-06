@@ -17,6 +17,7 @@ import { api } from '@/lib/api-client';
 import { queryKeys, useQuotaUsage } from '@/lib/queries';
 import { UPLOAD_LIMITS } from '@/lib/schemas';
 import { cn } from '@/lib/utils';
+import { JobProgressPanel } from './JobProgressPanel';
 import { useJobProgress } from './useJobProgress';
 import { useUploadDocument, validateFile } from './useUploadDocument';
 
@@ -306,83 +307,15 @@ export function CreateFromDocumentPage() {
           )}
 
           {jobId !== undefined && job !== undefined && (
-            <div className="space-y-3 rounded-md border px-3 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-medium">
-                  {job.status === 'pending' && 'Reading the document…'}
-                  {job.status === 'running' && 'Writing cards…'}
-                  {job.status === 'succeeded' && 'Cards are ready to review.'}
-                  {job.status === 'failed' && 'No cards could be written.'}
-                </p>
-                {!isFinished && (
-                  <span className="text-muted-foreground font-mono text-xs tabular-nums">
-                    {job.chunksCompleted}/{job.chunkCount || '…'}
-                  </span>
-                )}
-              </div>
-
-              {!isFinished && (
-                <progress
-                  value={jobPercent}
-                  max={100}
-                  className="h-2 w-full overflow-hidden rounded-full"
-                >
-                  {jobPercent}%
-                </progress>
-              )}
-
-              {/*
-                Partial failure is stated, not hidden (task 6). A deck that
-                quietly contains three quarters of a document is a product that
-                lies, so the gap gets a line of its own.
-              */}
-              {job.chunksFailed !== null && job.chunksFailed > 0 && (
-                <p className="text-muted-foreground text-sm">
-                  {job.chunksSucceeded ?? 0} of {job.chunkCount} sections produced cards;{' '}
-                  {job.chunksFailed} could not be read. The cards that did arrive are
-                  below.
-                </p>
-              )}
-
-              {job.truncated && (
-                <p className="text-muted-foreground text-sm">
-                  This document was longer than one job covers, so only the first part
-                  was used.
-                </p>
-              )}
-
-              {/*
-                The stub provider is named in the UI, not just in a log. Fake
-                cards that look real are the risk; a user seeing where they came
-                from is the cheapest possible mitigation.
-              */}
-              {job.providers.includes('stub') && (
-                <p className="text-destructive text-sm">
-                  These are placeholder cards — no language model was called. Set a real
-                  provider to generate real cards.
-                </p>
-              )}
-
-              {job.error !== null && (
-                <p className="text-destructive text-sm">{job.error}</p>
-              )}
-
-              {job.status === 'succeeded' && job.deckId !== null && (
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => navigate(`/create/review/${job.deckId!}`)}
-                >
-                  Review {job.cards.length} card{job.cards.length === 1 ? '' : 's'}
-                </Button>
-              )}
-
-              {isFinished && job.status === 'failed' && (
-                <Button type="button" variant="outline" size="sm" onClick={clear}>
-                  Try another document
-                </Button>
-              )}
-            </div>
+            <JobProgressPanel
+              job={job}
+              percent={jobPercent}
+              isFinished={isFinished}
+              busyLabel="Reading the document…"
+              onReview={(deckId) => navigate(`/create/review/${deckId}`)}
+              onRetry={clear}
+              retryLabel="Try another document"
+            />
           )}
 
           {file !== null && jobId === undefined && (

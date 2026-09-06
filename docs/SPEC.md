@@ -605,6 +605,16 @@ Notes that matter and are easy to get wrong:
 
 ### 7.3 Wire format: NDJSON in, SSE out
 
+**Superseded for the app by P10 task 9.** Nothing in `src/` reads an SSE stream any more:
+both `/create/text` and `/create/document` post to `POST /jobs` and poll `GET /jobs/{id}`,
+because a job that fans out over chunks cannot hold one request open. Cards now arrive a
+chunk at a time rather than one at a time — the streaming feel was this format's one real
+advantage, and it was traded for chunked generation, a shared quota, and a generation that
+survives a refresh.
+
+This section still describes the **Supabase Edge Function**, which stays deployed until
+Phase F, and `src/lib/sse.ts` / `src/lib/ndjson.ts` remain for it. Both go when it does.
+
 The model is instructed to emit **one JSON object per line** (NDJSON), not a single JSON
 array. The Edge Function splits on newline, Zod-validates each line, inserts it, and re-emits
 it as an SSE event.

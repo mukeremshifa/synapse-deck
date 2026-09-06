@@ -21,8 +21,7 @@ import {
 } from '@/lib/queries';
 import type { CardPayload } from '@/lib/schemas';
 import { useDeckJob, type JobProgress } from './useJobProgress';
-import { StagingList } from './StagingList';
-import type { StagedCard } from './useGenerateCards';
+import { StagingList, type StagedCard } from './StagingList';
 
 /**
  * `/create/review/:deckId` — the review gate (SPEC §4.1 step 5).
