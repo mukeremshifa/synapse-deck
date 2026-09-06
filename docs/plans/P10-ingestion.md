@@ -106,10 +106,23 @@ npm run dev:api                # the real handlers, on :8787
 - **`.env.local` holds the Cognito ids and points `VITE_API_URL` at `http://localhost:8787`.**
   It is gitignored, so a fresh clone needs it rebuilt from `.env.example` plus the Auth
   stack's outputs.
-- **Bedrock model access is granted in `us-east-1`.** Per-account and per-model, requested
-  in the console; CDK cannot grant it. **Check this before writing any code that assumes
-  it** — an unavailable model presents as an `AccessDeniedException` deep inside a Step
-  Functions execution, which is an expensive place to learn it.
+- **⚠ Bedrock model access is BLOCKED, checked 2026-09-06.** Two independent failures,
+  both found by invoking rather than by reading status fields — which matters, because
+  `get-foundation-model-availability` reports Haiku 4.5 as `AUTHORIZED` with entitlement
+  `AVAILABLE` and it still cannot be called:
+  1. **Anthropic models refuse the caller’s country.** `ValidationException: Access to
+     Anthropic models is not allowed from unsupported countries…` — the requests originate
+     from the UAE. This is about where the call comes from, so no IAM policy, model grant
+     or CDK change fixes it.
+  2. **The account is unverified**, which blocks every provider: Amazon Nova returns
+     `AccessDeniedException: Your account is currently being verified.` This one is
+     time-bounded and may have cleared — re-test it.
+
+  **The owner has decided Bedrock stays in `us-east-1`**, so the region is not a variable
+  to trade away. See [P10-SESSION-2.md](P10-SESSION-2.md) for the commands and what is
+  still buildable meanwhile — tasks 2, 3, 4, 5, 6 and 8 need no live model, and D6’s
+  provider interface exists so `GROQ_API_KEY` can stand in. **Do not write Bedrock code
+  that assumes a successful call and leave it untested.**
 - **The credits are this phase's budget, and they are finite.** $140, expiring 2027-03-03,
   $0 spent so far. The brief's §6 estimates $20–40/month for development once Bedrock is
   in play, so the runway is real but not generous. **Two consequences that are constraints,
@@ -306,10 +319,25 @@ audited write path, and the whole question is where the boundary sits:
   the shared `CardPayload` schema, and inserts into `cards` in one transaction. One path,
   in `services/api/src/data/`, under the four rules.
 - The review gate reads drafts from DynamoDB, not from `cards`. **This changes
-  `useDraftCards`**, which P9 pointed at `GET /decks/{id}/cards?status=draft`. Decide
-  whether `cards.status = 'draft'` still means anything after this phase — if drafts never
-  reach Postgres before acceptance, that enum value is dead and should be either removed
-  or documented as legacy in the same commit.
+  `useDraftCards`**, which P9 pointed at `GET /decks/{id}/cards?status=draft`.
+
+  **✅ Settled by the owner, 2026-09-06: `cards.status = 'draft'` is cut, not kept as
+  legacy.** If drafts never reach Postgres before acceptance, no row can ever hold that
+  value, and an enum member nothing can produce is worse than none — it invites code
+  handling a state that cannot occur.
+
+  Eight sites, both sides of the split: a new migration dropping the enum value,
+  `lib/rows.ts` (`CardStatus`), `data/cards.ts` (`listDraftCards`, and `acceptDrafts`’s
+  `and status = 'draft'` guard), `data/decks.ts` (`draft_count`), `handlers/cards.ts`
+  (the `?status=draft` branch — so **both route tables change**, and `check:routes`
+  enforces that), `queries.ts` (`useDraftCards`), and a regenerated `types/database.ts`.
+
+  **Three traps**, spelled out in [P10-SESSION-2.md](P10-SESSION-2.md): Postgres has no
+  `DROP VALUE` so this is a destructive migration that needs the owner’s go-ahead and
+  fails if any row still holds `'draft'`; `types/database.ts` is generated from
+  **Supabase**, which keeps the value until Phase F, so the two schemas will legitimately
+  disagree; and **`decks.status = 'draft'` is a different enum and stays** — it is the
+  resumable gate state. Only `card_status` loses a value.
 
 Write the answer into `SPEC.md`, not only into code: it is a change to what a "draft" is.
 
