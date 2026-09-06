@@ -25,8 +25,9 @@ export interface JobProgress {
   deckId: string | null;
   chunkCount: number;
   chunksCompleted: number;
-  chunksSucceeded: number;
-  chunksFailed: number;
+  /** Null when the chunk records were not read — not zero. See the API's `summarise`. */
+  chunksSucceeded: number | null;
+  chunksFailed: number | null;
   truncated: boolean;
   error: string | null;
   cards: CardPayload[];
@@ -96,4 +97,26 @@ export function useJobProgress(jobId: string | undefined) {
         ? 0
         : Math.round((data.chunksCompleted / data.chunkCount) * 100),
   };
+}
+
+
+/**
+ * The job that produced a given deck, for the review gate. P10 task 6.
+ *
+ * The gate knows a deck id and needs to say what did *not* make it in. A deck
+ * cannot carry that: the sections that failed left no rows behind, so the only
+ * record of the gap is the job.
+ *
+ * Returns `null` — not an error — for a deck with no job, which is the ordinary
+ * case for every hand-made deck.
+ */
+export function useDeckJob(deckId: string | undefined) {
+  return useQuery({
+    queryKey: ['job', 'deck', deckId],
+    enabled: Boolean(deckId),
+    queryFn: () => api.get<JobProgress | null>(`/jobs?deckId=${encodeURIComponent(deckId!)}`),
+    // A finished job does not change. This is read once when the gate opens
+    // rather than polled.
+    staleTime: 60_000,
+  });
 }

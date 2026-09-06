@@ -295,9 +295,9 @@ export function CreateFromDocumentPage() {
                 quietly contains three quarters of a document is a product that
                 lies, so the gap gets a line of its own.
               */}
-              {job.chunksFailed > 0 && (
+              {job.chunksFailed !== null && job.chunksFailed > 0 && (
                 <p className="text-muted-foreground text-sm">
-                  {job.chunksSucceeded} of {job.chunkCount} sections produced cards;{' '}
+                  {job.chunksSucceeded ?? 0} of {job.chunkCount} sections produced cards;{' '}
                   {job.chunksFailed} could not be read. The cards that did arrive are
                   below.
                 </p>

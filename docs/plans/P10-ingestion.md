@@ -619,6 +619,47 @@ brief says so.
 - **Do not hide it.** A deck that quietly contains three quarters of a document is a
   product that lies. One line at the review gate.
 
+**✅ Done 2026-09-06** (session 2). Three of the four requirements fell out of task 5; the
+fourth — "one line at the review gate" — is what this task actually added.
+
+| Requirement | Where |
+| ----------- | ----- |
+| Job record carries per-chunk status | `data/jobs.ts`, task 2 |
+| UI says how many failed, offers the cards that arrived | Upload page (task 5) **and now the gate** |
+| Retry per chunk, before the user sees a failure | State machine (task 5) |
+| **One line at the review gate** | **This task** |
+
+**The gate could not see the job, and that was the real work.** It arrives knowing only a
+deck id, and a deck cannot carry the gap — the sections that failed left no rows behind, so
+the only record is the job. `findJobForDeck` plus `GET /jobs?deckId=…` closes that.
+
+**Why a Query rather than a GSI on `deckId`.** A secondary index is the textbook answer and
+the wrong trade here: it costs a second copy of every item written, forever, to serve one
+lookup on one screen. The Query reads the user's own partition and filters in the
+application — which stays inside the tenancy boundary by construction, since `userId` is
+the partition key. The TTL is why it will not degrade: job records expire after a week.
+The filter also requires `attribute_exists(chunkCount)` so it matches only job summaries;
+without it, every chunk and text item of every job would be read to find one summary.
+
+**`chunksFailed` is `null`, not `0`, when the count is unknown**, and that distinction is
+the whole task in miniature. The deck lookup could have returned a confident `0 failed`
+from data it never loaded, which renders as "nothing went wrong" on a job where plenty
+did — exactly the lie this task exists to prevent. Both the gate and the upload page check
+for null before rendering.
+
+Exercised on the three cases that matter: 31 succeeded / 9 failed renders as **"31 of 40
+sections produced cards; 9 could not be read"** — the plan's own wording; an all-succeeded
+job suppresses the line; and an unknown count suppresses it rather than claiming zero.
+
+Two extra lines came with it, on the same principle: a truncated document says so, and
+**placeholder cards are named at the gate as well as at upload** — the gate is where
+someone decides to keep a card, so it is the last and most important place for that to be
+obvious.
+
+**Not proven:** nothing is deployed, so no real job has ever populated this. The reporting
+logic was exercised against the response shape the handler builds, not against a job that
+actually ran.
+
 ### 7. Where topics come from — §7 question 7
 
 **D11 depends on this and Phase C cannot start without it**, which is why it is here rather
@@ -762,6 +803,11 @@ stops billing and storage (~$2.30/mo) continues. It is the difference between ~$
    successfully and fails later in the pipeline — exactly the outcome this criterion
    exists to prevent.
 3. A job with failed chunks shows what failed and still offers the cards that succeeded.
+
+   **✅ Built (task 6).** Reported in two places — the upload page while the job runs, and
+   the review gate where cards are judged. `chunksFailed` is null rather than zero when the
+   count is unknown, so an unloaded count cannot render as "nothing failed". Not yet seen
+   on a job that actually ran: nothing is deployed.
 4. `/create/text` runs through the same state machine. Nothing calls the Edge Function.
 5. `npm run demo:seed` builds the demo account against the new API and its decks are
    visible when signed in as that account.

@@ -24,7 +24,13 @@
  * quarters of a document is a product that lies.
  */
 
-import { createJob, getJobWithChunks } from '../data/jobs.ts';
+import {
+  createJob,
+  findJobForDeck,
+  getJobWithChunks,
+  type ChunkRecord,
+  type JobRecord,
+} from '../data/jobs.ts';
 import { createDeck } from '../data/decks.ts';
 import { startIngestion } from '../data/pipeline.ts';
 import { readDocumentText, assertOwnedKey } from '../data/uploads.ts';
@@ -34,6 +40,7 @@ import {
   logRequest,
   noContent,
   pathParam,
+  queryParam,
   readJsonBody,
   requireUserId,
   type ApiEvent,
@@ -42,6 +49,46 @@ import {
 import { ApiError, notFound } from '../lib/rows.ts';
 import { StartJobRequest } from '../lib/schemas.ts';
 import { randomUUID } from 'node:crypto';
+
+/**
+ * One response shape for both routes, so the polling view and the review gate
+ * cannot drift into describing the same job differently.
+ *
+ * `chunksSucceeded`/`chunksFailed` are derived from the chunk records when they
+ * are available and fall back to the job's own counters when they are not — the
+ * deck lookup deliberately does not read every chunk, because it only needs the
+ * headline.
+ */
+function summarise(job: JobRecord, chunks: ChunkRecord[]) {
+  const succeeded = chunks.filter((chunk) => chunk.status === 'succeeded');
+  const failed = chunks.filter((chunk) => chunk.status === 'failed');
+
+  return {
+    jobId: job.jobId,
+    status: job.status,
+    deckId: job.deckId,
+    chunkCount: job.chunkCount,
+    chunksCompleted: job.chunksCompleted,
+    // Null, not zero, when the chunk records were not read. The deck lookup
+    // does not fetch them, and reporting a confident `0 failed` from data that
+    // was never loaded is precisely the lie this task exists to prevent -- it
+    // would render as "nothing went wrong" on a job where plenty did.
+    chunksSucceeded: chunks.length > 0 ? succeeded.length : null,
+    chunksFailed: chunks.length > 0 ? failed.length : null,
+    truncated: job.truncated,
+    error: job.error,
+    // Cards from every chunk that has finished, in chunk order. The client
+    // renders these as they arrive, which is what preserves the "watch cards
+    // appear" feel the SSE stream used to give.
+    cards: succeeded.flatMap((chunk) => chunk.cards),
+    /**
+     * Which providers produced these cards. Normally one name; it is an array
+     * because a job retried after a provider change could legitimately hold
+     * two, and because a response containing `"stub"` must be able to say so.
+     */
+    providers: [...new Set(succeeded.map((chunk) => chunk.provider).filter(Boolean))],
+  };
+}
 
 export async function handler(event: ApiEvent): Promise<ApiResponse> {
   const { method } = event.requestContext.http;
@@ -91,6 +138,24 @@ export async function handler(event: ApiEvent): Promise<ApiResponse> {
 
     if (method !== 'GET') throw new ApiError(405, `${method} is not allowed here.`);
 
+    // `GET /jobs?deckId=…` — the review gate's lookup (task 6). It knows the
+    // deck it is showing and needs the job that produced it, so that it can say
+    // what did *not* make it in. A deck cannot carry that itself: the sections
+    // that failed left no rows behind.
+    const deckId = queryParam(event, 'deckId');
+    if (deckId !== undefined) {
+      const found = await findJobForDeck(userId, deckId);
+      // Null rather than 404: a deck with no job is the ordinary case for every
+      // hand-made deck, not a missing resource.
+      if (found === null) return json(200, null);
+
+      // A second read for the chunk records. The gate's whole purpose here is to
+      // report what failed, and that count only exists per chunk -- returning
+      // the summary alone would leave it null and the gate silent.
+      const { job, chunks } = await getJobWithChunks(userId, found.jobId);
+      return json(200, job === null ? null : summarise(job, chunks));
+    }
+
     const jobId = pathParam(event, 'jobId');
     const { job, chunks } = await getJobWithChunks(userId, jobId);
 
@@ -100,32 +165,7 @@ export async function handler(event: ApiEvent): Promise<ApiResponse> {
     // filtered out.
     if (job === null) throw notFound('Job');
 
-    const succeeded = chunks.filter((chunk) => chunk.status === 'succeeded');
-    const failed = chunks.filter((chunk) => chunk.status === 'failed');
-
-    // Cards from every chunk that has finished, in chunk order. The client
-    // renders these as they arrive, which is what preserves the "watch cards
-    // appear" feel the SSE stream used to give.
-    const cards = succeeded.flatMap((chunk) => chunk.cards);
-
-    return json(200, {
-      jobId: job.jobId,
-      status: job.status,
-      deckId: job.deckId,
-      chunkCount: job.chunkCount,
-      chunksCompleted: job.chunksCompleted,
-      chunksSucceeded: succeeded.length,
-      chunksFailed: failed.length,
-      truncated: job.truncated,
-      error: job.error,
-      cards,
-      /**
-       * Which providers produced these cards. Normally one name; it is an array
-       * because a job retried after a provider change could legitimately hold
-       * two, and because a response containing `"stub"` must be able to say so.
-       */
-      providers: [...new Set(succeeded.map((chunk) => chunk.provider).filter(Boolean))],
-    });
+    return json(200, summarise(job, chunks));
   } catch (error) {
     return errorResponse(error, event.requestContext.requestId, userId);
   }

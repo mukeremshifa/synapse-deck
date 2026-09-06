@@ -20,6 +20,7 @@ import {
   type CardRow,
 } from '@/lib/queries';
 import type { CardPayload } from '@/lib/schemas';
+import { useDeckJob, type JobProgress } from './useJobProgress';
 import { StagingList } from './StagingList';
 import type { StagedCard } from './useGenerateCards';
 
@@ -42,6 +43,9 @@ export function ReviewGatePage() {
   const { deckId } = useParams<{ deckId: string }>();
   const deck = useDeck(deckId);
   const drafts = useDraftCards(deckId);
+  // What did *not* make it into this deck (P10 task 6). Deliberately not
+  // gated on `isPending`: a slow job lookup must never delay the cards.
+  const job = useDeckJob(deckId);
 
   if (!deckId) return null;
 
@@ -73,6 +77,7 @@ export function ReviewGatePage() {
       deckId={deckId}
       deckTitle={deck.data.title}
       drafts={drafts.data}
+      job={job.data ?? null}
     />
   );
 }
@@ -83,10 +88,12 @@ function ReviewGate({
   deckId,
   deckTitle,
   drafts,
+  job,
 }: {
   deckId: string;
   deckTitle: string;
   drafts: CardRow[];
+  job: JobProgress | null;
 }) {
   const navigate = useNavigate();
   const acceptDrafts = useAcceptDrafts();
@@ -341,6 +348,46 @@ function ReviewGate({
           {plural(unreadable, 'draft')} could not be read and{' '}
           {unreadable === 1 ? 'is' : 'are'} not shown here. Delete{' '}
           {unreadable === 1 ? 'it' : 'them'} from the deck page.
+        </p>
+      )}
+
+      {/*
+        P10 task 6, and the plan's wording is the specification: "one line at the
+        review gate". A fan-out that discards 31 good chunks because 9 failed is
+        worse than one that admits the gap — but a deck that quietly contains
+        three quarters of a document is worse than both, because the user has no
+        way to know. So the gap is stated here, where the cards are being judged,
+        rather than only on the page that started the job.
+
+        `chunksFailed` is null when the count is genuinely unknown, which reads
+        differently from zero and must not be rendered as "nothing failed".
+      */}
+      {job !== null && job.chunksFailed !== null && job.chunksFailed > 0 && (
+        <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-sm">
+          <span className="text-foreground font-mono tabular-nums">
+            {job.chunksSucceeded ?? 0}
+          </span>{' '}
+          of <span className="font-mono tabular-nums">{job.chunkCount}</span> sections of
+          this document produced cards;{' '}
+          <span className="font-mono tabular-nums">{job.chunksFailed}</span> could not be
+          read. What is here is everything that was written.
+        </p>
+      )}
+
+      {job !== null && job.truncated && (
+        <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-sm">
+          This document was longer than one job covers, so only its first part was used.
+        </p>
+      )}
+
+      {/*
+        Placeholder cards say so here too. The upload page already warns, but
+        this is the screen where someone decides to keep a card — the last and
+        most important place for it to be obvious.
+      */}
+      {job !== null && job.providers.includes('stub') && (
+        <p className="text-destructive rounded-lg border border-dashed p-3 text-sm">
+          These are placeholder cards — no language model was called.
         </p>
       )}
 

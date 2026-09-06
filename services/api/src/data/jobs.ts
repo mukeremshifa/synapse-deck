@@ -277,6 +277,58 @@ export async function getJobWithChunks(
 }
 
 /**
+ * The most recent job that produced a given deck, or null. P10 task 6.
+ *
+ * The review gate arrives knowing only a deck id, and it needs the job to say
+ * honestly what did *not* make it into the deck — "31 of 40 sections produced
+ * cards" is information the deck itself cannot carry, because the failed
+ * sections left no rows behind.
+ *
+ * ── Why this is a Query and not a secondary index ─────────────────────────
+ *
+ * A GSI on `deckId` would be the textbook answer and is the wrong trade here.
+ * It costs a second copy of every item written, forever, to serve one lookup on
+ * one screen. This queries the user's own partition instead and filters in the
+ * application: a partition holds one user's jobs, each job is a handful of
+ * items, and the read stays inside the tenancy boundary by construction.
+ *
+ * If a user ever accumulates enough jobs for this to be slow, the TTL is the
+ * reason it will not — job records expire after a week.
+ *
+ * Returns the newest match, because a deck can legitimately be regenerated and
+ * the gate should describe the run the user is looking at.
+ */
+export async function findJobForDeck(
+  userId: string,
+  deckId: string,
+): Promise<JobRecord | null> {
+  const result = await client().send(
+    new QueryCommand({
+      TableName: tableName(),
+      KeyConditionExpression: 'userId = :userId and begins_with(sk, :prefix)',
+      // Only the job summaries. Chunk and text items share the `job#` prefix, so
+      // without this filter every chunk of every job would be read to find one
+      // summary -- the difference between a small read and an expensive one.
+      FilterExpression: 'deckId = :deckId and attribute_exists(chunkCount)',
+      ExpressionAttributeValues: {
+        ':userId': userId,
+        ':prefix': 'job#',
+        ':deckId': deckId,
+      },
+      ConsistentRead: true,
+    }),
+  );
+
+  const jobs = (result.Items ?? []) as JobRecord[];
+  if (jobs.length === 0) return null;
+
+  // Newest first. `createdAt` is an ISO 8601 string, which sorts correctly as
+  // text precisely because it is zero-padded and ordered largest unit first.
+  jobs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return jobs[0] ?? null;
+}
+
+/**
  * Move a job to a new status, and optionally record how many chunks it has.
  *
  * The condition expression is the important part: the update applies only to an

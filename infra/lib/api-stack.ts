@@ -381,7 +381,7 @@ export class ApiStack extends Stack {
     route('/cards/delete', [HttpMethod.POST], cardsFn, 'DeleteCardsInt');
 
     route('/uploads', [HttpMethod.POST], uploadsFn, 'UploadsInt');
-    route('/jobs', [HttpMethod.POST], jobsFn, 'JobsInt');
+    route('/jobs', [HttpMethod.GET, HttpMethod.POST], jobsFn, 'JobsInt');
     route('/jobs/{jobId}', [HttpMethod.GET], jobsFn, 'JobInt');
 
     route('/queue', [HttpMethod.GET], reviewsFn, 'QueueInt');
