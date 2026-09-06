@@ -62,8 +62,14 @@ curl -s https://api.groq.com/openai/v1/models -H "authorization: Bearer $GROQ_AP
 ### The free tier limits **tokens** per minute, not requests
 
 **8,000 TPM** on this account. One chunk costs roughly 1,000 in and 800 out, so about four
-chunks a minute is the real ceiling. This is the single most likely thing to make DS2 look
-broken, because embeddings add another call per chunk to the same budget.
+chunks a minute is the real ceiling.
+
+**Amended 2026-09-07 while planning DS2:** this section originally warned that embeddings
+would add another call per chunk to *the same* budget. They will not — **Groq has no
+embedding model at all.** The account's catalogue is chat, audio and prompt-guard only, so
+DS2's embedding provider is a second seam against a different vendor with its own separate
+limit. Groq's 8,000 TPM stays a card-generation budget. See
+[DS2-grounded-chat.md](DS2-grounded-chat.md) §0.
 
 Concurrency is `PIPELINE_CONCURRENCY` (default 2). The provider honours Groq's `retry-after`
 header, capped at 30 s. If DS2 sees widespread 429s, the answer is the budget, not the code.
@@ -93,9 +99,20 @@ and it will look like a bug when you run two test scripts in parallel.
 `POST /cards/accept` takes `{ cardIds }` — not `cards`, not `ids`. Both cost a wrong guess
 during DS1's verification.
 
-## 4. Not mine, left for you to decide
+## 4. Not mine, left for you to decide — **decided 2026-09-07: deleted**
 
-`git status` is clean except for **Neon CLI scaffolding that I did not create and
+**Resolved by the owner at the start of the DS2 planning session:** all of it was removed, on
+the grounds stated below — Neon must be reachable only through a connection string, exactly
+as RDS is. `hello.ts` and `neon.ts` are gone, `@neon/config` and `@neon/env` are uninstalled,
+and `package.json` / `package-lock.json` are byte-identical to `46a80ec` again. The
+`.gitignore` entry went with them, since there is no longer a `.neon` directory to ignore.
+
+The original note is kept below because the reasoning is what made the decision, and it is
+the reasoning that has to survive the next time a vendor offers an SDK.
+
+---
+
+`git status` was clean except for **Neon CLI scaffolding that I did not create and
 deliberately did not commit**:
 
 - `hello.ts`, `neon.ts` — a Neon Functions starter
@@ -110,6 +127,8 @@ would be the first thing to make that false.
 
 Delete them, or keep them deliberately. Either is fine; leaving them undecided is how a
 vendor SDK quietly becomes load-bearing.
+
+**→ Deleted.** See the note at the head of this section.
 
 ## 5. One security note
 
@@ -140,11 +159,15 @@ scoped by `user_id`, from migration 0006. The retrieval store DS2 needs is half-
 2. **Chunk expiry becomes load-bearing.** `expires_at` is currently a column nothing sweeps,
    which was harmless while chunks were pipeline scratch. The moment chunks are the retrieval
    corpus, a sweep would silently empty a notebook's knowledge base. Decide this deliberately.
-3. **Embeddings need a provider, and it must be a seam.** Groq may have no embedding model
-   that fits; the brief's D6 says so and says a dedicated embedding provider is a second seam
-   for the same reason the card provider is one. [ADR 0010](../adr/0010-runtime-seams.md) is
-   the pattern to copy — resolver in `data/` or `lib/providers/`, no default, structurally
-   typed implementations, and nothing above the data layer reading the variable.
+3. **Embeddings need a provider, and it must be a seam.** The brief's D6 said Groq *may* have
+   no embedding model that fits. **Resolved 2026-09-07: it has none at all**, so this is a
+   certainty rather than a contingency and a dedicated embedding provider against a different
+   vendor is DS2's task 2. [ADR 0010](../adr/0010-runtime-seams.md) is the pattern to copy —
+   resolver in `data/` or `lib/providers/`, no default, structurally typed implementations,
+   and nothing above the data layer reading the variable. One asymmetry with the other four
+   seams, and it is the reason it gets its own paragraph in DS2: **this seam may not have a
+   stub implementation**, because fake vectors ground an answer in noise while looking
+   perfect.
 
 **Two rules that are not negotiable and are easy to break under demo pressure:**
 

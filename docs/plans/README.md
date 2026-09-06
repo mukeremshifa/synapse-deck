@@ -62,7 +62,7 @@ authored against the codebase it will actually run in.
 | P12 — Grounded chat | [P12-grounded-chat.md](P12-grounded-chat.md) | 📋 Planned 2026-09-06. Fills P11's empty workspace pane. **Blocked on Bedrock model access**, embeddings included |
 | Demo sprint | [DEMO-SPRINT-BRIEF.md](DEMO-SPRINT-BRIEF.md) | 🧭 **Decisions made 2026-09-06.** AWS unavailable; 5 phases scoped (DS1–DS5) |
 | DS1 — Portable spine | [DS1-portable-spine.md](DS1-portable-spine.md) | ✅ **Complete — 2026-09-07.** The pipeline generates real cards for the first time. Neon + Groq + jobs in Postgres + in-process fan-out, all four seams with no defaults. **Executed, not just typechecked** — five findings in §7 |
-| DS2 — Grounded chat | _(plan not yet written)_ | 📋 **Next.** pgvector, embeddings on ingestion, retrieval, citations, the chat pane. P12 re-aimed at portable infrastructure. **Start here: [DS1-HANDOFF.md](DS1-HANDOFF.md)** |
+| DS2 — Grounded chat | [DS2-grounded-chat.md](DS2-grounded-chat.md) | 📋 **Planned 2026-09-07, next to execute.** pgvector on Neon, a second provider seam for embeddings, retrieval with citations, the chat pane. P12 re-aimed at portable infrastructure; its no-stub-answers rule inherited verbatim. **Read [DS1-HANDOFF.md](DS1-HANDOFF.md) first** |
 | P13 — Exam-half UI | _(executed without a plan file — see below)_ | ✅ **Frontend closed — 2026-09-06.** Dashboard, blueprint with citations, diagnostic, exam-date study plan, answer explanations, pipeline stages. Backend deliberately untouched; four inert affordances tabulated in SPEC §4.6 |
 
 **DS1 is done, and the headline is that the pipeline has now actually run.** As of
