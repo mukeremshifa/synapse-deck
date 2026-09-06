@@ -12,6 +12,7 @@
  * content is not.
  */
 
+import { GroqProvider } from './groq.ts';
 import { StubProvider } from './stub.ts';
 import type { CardProvider, ProviderName } from './types.ts';
 
@@ -55,15 +56,27 @@ export function resolveProvider(): CardProvider {
       cached = new StubProvider();
       return cached;
 
-    case 'bedrock':
     case 'groq':
-      // Deliberately not "coming soon". P10 task 10 adds these; until then a
-      // deployment configured for a real provider must fail loudly rather than
-      // quietly serving stub content.
+      // The first real provider (DS1 task 4). Nothing is logged here: a real
+      // model producing real cards is the ordinary case, and a line on every
+      // cold start would train the reader to skim past the stub's warning
+      // sitting one branch above it.
+      cached = new GroqProvider();
+      return cached;
+
+    case 'bedrock':
+      // Still deliberately not "coming soon". Model access has not been
+      // granted, and a deployment configured for Bedrock must fail loudly
+      // rather than quietly serving something else — least of all stub content.
+      //
+      // When the grant arrives this becomes `new BedrockProvider()` and lands
+      // *beside* groq.ts rather than replacing it: two providers answering the
+      // same question is what the seam was built for and what Phase E's eval
+      // harness needs. See DEMO-SPRINT-BRIEF D1.
       throw new Error(
-        `CARD_PROVIDER="${configured}" is not implemented yet (P10 task 10). ` +
-          'Bedrock model access is blocked and GROQ_API_KEY is not reachable ' +
-          'from Lambda; see docs/plans/P10-SESSION-2.md.',
+        'CARD_PROVIDER="bedrock" is not implemented: model access has not been ' +
+          'granted on this account (docs/plans/DEMO-SPRINT-BRIEF.md §1). ' +
+          'Use CARD_PROVIDER=groq, which calls a real model today.',
       );
   }
 }

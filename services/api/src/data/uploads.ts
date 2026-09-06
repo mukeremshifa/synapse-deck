@@ -1,180 +1,149 @@
 /**
- * Presigned uploads. P10 task 3.
+ * Uploaded documents, wherever they are kept. The `UPLOAD_STORE` seam.
+ * DS1 task 6.
  *
- * Not a datastore module, but it lives in `data/` deliberately, and the reason
- * is the same one that put `jobs.ts` here: **this is where the tenancy boundary
- * is drawn.** The object key is built from `userId` and nothing else, so a
- * presigned URL can only ever address the caller's own prefix. That is exactly
- * the kind of decision ADR 0008's rule 3 exists to keep in one auditable
- * directory — a handler that built its own key would be a handler reasoning
- * about ownership, which is the shape the rule forbids.
+ * Two implementations, both maintained:
  *
- * ── Why presign at all ────────────────────────────────────────────────────
+ *   - `uploads-local.ts` — a directory on this machine, plus a route that
+ *     accepts the PUT. Self-contained, which is what a demo needs.
+ *   - `uploads-s3.ts`    — a presigned PUT the browser sends directly to S3.
+ *     The AWS path, and still the better one: the file never passes through the
+ *     API, which is what makes a 20 MB document cheap.
  *
- * The browser PUTs to S3 directly. The file never passes through the API, which
- * matters for two reasons: a 20 MB PDF through a Lambda means paying for memory
- * to hold it, and API Gateway caps a request payload at 10 MB regardless — so
- * routing uploads through the API would put a hard ceiling on document size in
- * exchange for nothing.
+ * ── This seam is not symmetric, and the asymmetry is the interesting part ──
  *
- * ── The key is generated, never taken from the client ─────────────────────
+ * The other two seams swap implementations that do the same work in different
+ * places. This one swaps implementations with **different shapes of trust**:
  *
- * `uploads/<userId>/<uuid>.pdf`. The user's filename is *not* part of it.
+ *   - On S3 the size limit is signed into the URL, so S3 itself rejects a body
+ *     of the wrong size and a lying client is refused by someone other than us.
+ *   - Locally there is no signature. The limit is enforced by the route on the
+ *     bytes it actually received, which is a *check* rather than a
+ *     *constraint* — strictly weaker, and worth naming rather than assuming
+ *     the two are equivalent because the same constant appears in both.
  *
- * A key built from a user-supplied filename is a path-traversal bug waiting to
- * happen — `../` in a filename, a name that collides with another user's
- * object, a name long enough to break the key limit. The filename is kept as
- * display metadata, where it can be rendered as text and do no harm, and the
- * key is a UUID that cannot be anything else.
+ * Both are bounded, so neither can be used to fill a disk. But if a future
+ * phase adds something that depends on S3's signature doing the enforcing, this
+ * is the paragraph that says it will not hold locally.
  *
- * ── The size limit is enforced on the URL, not just in the handler ────────
+ * No default, for the reason the other two seams give.
  *
- * `ContentLength` is signed into the presigned request. That distinction is the
- * whole point: a check in the handler validates the *claim* a client made about
- * its file, and a client is not a security boundary. Signing the length means
- * S3 itself rejects a PUT whose body is a different size — so a caller who
- * lies, or who reuses a URL for a larger file, is refused by S3 rather than
- * trusted by us.
+ *     grep -rn 'UPLOAD_STORE' src/ services/api/src/handlers/   # must be empty
  */
 
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { randomUUID } from 'node:crypto';
-import { UPLOAD_LIMITS } from '../lib/schemas.ts';
+import * as local from './uploads-local.ts';
+import * as s3 from './uploads-s3.ts';
 import { ApiError } from '../lib/rows.ts';
 
+export type { UploadTicketResult } from './uploads-s3.ts';
+
+const STORE_NAMES = ['local', 's3'] as const;
+type StoreName = (typeof STORE_NAMES)[number];
+
 /**
- * How long a presigned URL stays valid.
+ * The shape both implementations must satisfy.
  *
- * Five minutes. Long enough for a 20 MB upload on a slow connection, short
- * enough that a URL leaked from a log or a browser history is not a standing
- * grant to write into someone's prefix.
+ * Declared explicitly rather than as `typeof s3`, which is what `jobs.ts` and
+ * `pipeline.ts` do. The difference is that the local store has one export the
+ * S3 store cannot have — `putDocument`, the write path S3 does not need because
+ * the browser writes directly — so requiring the two to match exactly would
+ * mean either deleting a function the local route needs or adding a stub to S3
+ * that throws. Naming the shared four here says precisely what the seam
+ * guarantees, and leaves `putDocument` reachable only through the module that
+ * actually has it.
  */
-const URL_TTL_SECONDS = 5 * 60;
-
-let s3Client: S3Client | undefined;
-
-function client(): S3Client {
-  s3Client ??= new S3Client({});
-  return s3Client;
+interface UploadStore {
+  uploadKeyFor(userId: string, objectId: string, extension?: string): string;
+  assertOwnedKey(userId: string, objectKey: string): void;
+  readDocumentText(userId: string, objectKey: string): Promise<string>;
+  createUploadTicket(
+    userId: string,
+    input: { filename: string; contentType: string; sizeBytes: number },
+  ): Promise<s3.UploadTicketResult>;
 }
 
-function bucketName(): string {
-  const name = process.env['UPLOAD_BUCKET_NAME'];
-  if (name === undefined || name === '') {
+const STORES: Record<StoreName, UploadStore> = {
+  local,
+  s3,
+};
+
+function isStoreName(value: string): value is StoreName {
+  return (STORE_NAMES as readonly string[]).includes(value);
+}
+
+let cached: UploadStore | undefined;
+
+function store(): UploadStore {
+  if (cached !== undefined) return cached;
+
+  const configured = process.env['UPLOAD_STORE'];
+
+  if (configured === undefined || configured === '') {
     throw new Error(
-      'UPLOAD_BUCKET_NAME is not set. It is wired by infra/lib/api-stack.ts from ' +
-        'PipelineStack.uploadBucket; dev-api.mjs reads it from .env.local.',
+      'UPLOAD_STORE is not set. It must name a store explicitly — there is no ' +
+        'default, because a document written to one store and read from the ' +
+        `other is a job that fails with a confusing 404. One of: ${STORE_NAMES.join(', ')}.`,
     );
   }
-  return name;
+
+  if (!isStoreName(configured)) {
+    throw new Error(
+      `UPLOAD_STORE is "${configured}", which is not a store. ` +
+        `One of: ${STORE_NAMES.join(', ')}.`,
+    );
+  }
+
+  cached = STORES[configured];
+  return cached;
 }
 
-/**
- * The object key for one upload. `userId` first, and it is the only thing that
- * decides the prefix.
- */
-export function uploadKeyFor(userId: string, objectId: string): string {
-  return `uploads/${userId}/${objectId}.pdf`;
+/** Forget the resolved store, so a changed environment variable takes effect. */
+// data-access-lint-disable-next-line Clears a cached module reference, reads no data, so there is no tenant to scope it to.
+export function resetUploadStoreCache(): void {
+  cached = undefined;
 }
 
-/**
- * Refuse an object key that is not inside this user's own prefix.
- *
- * **A key is not a capability.** It arrives from the client in a request body,
- * so it can name anything — including another user's object. The prefix is the
- * boundary (`uploads/<userId>/…`), so checking membership of that prefix is the
- * whole of the ownership check, and it happens here rather than in a handler
- * because that is where ADR 0008 keeps decisions of this kind.
- *
- * Throws rather than returning a boolean: a caller that forgets to check a
- * returned flag is exactly the failure this must not permit.
- */
+export function uploadKeyFor(userId: string, objectId: string, extension?: string): string {
+  return store().uploadKeyFor(userId, objectId, extension);
+}
+
 export function assertOwnedKey(userId: string, objectKey: string): void {
-  const prefix = `uploads/${userId}/`;
-  // `startsWith` alone would accept `uploads/<userId>/../<other>/x.pdf`, which
-  // S3 treats as a literal key but which reads as an escape to anyone auditing
-  // this. Rejecting traversal segments outright keeps the check honest.
-  if (!objectKey.startsWith(prefix) || objectKey.includes('..')) {
-    throw new ApiError(404, 'No such document.');
-  }
+  store().assertOwnedKey(userId, objectKey);
 }
 
-/**
- * Read an uploaded document's text.
- *
- * ── This does not parse PDFs, and says so ─────────────────────────────────
- *
- * Extracting a text layer from a PDF needs a parser, which is a dependency
- * decision this phase deliberately deferred (task 3's scanned-PDF check is the
- * other half of the same deferral). Until that lands, this reads the object as
- * UTF-8 text, which works for a `.txt` upload and produces mostly-binary noise
- * for a real PDF.
- *
- * **That is a known gap, not a hidden one.** A PDF whose extracted text is
- * unusable produces a job that fails with a message the user can act on, rather
- * than a deck of cards generated from binary. The pipeline around it is
- * complete; this one function is the seam a PDF parser slots into.
- */
-export async function readDocumentText(userId: string, objectKey: string): Promise<string> {
-  assertOwnedKey(userId, objectKey);
-
-  const result = await client().send(
-    new GetObjectCommand({ Bucket: bucketName(), Key: objectKey }),
-  );
-
-  const body = await result.Body?.transformToString('utf-8');
-  if (body === undefined || body.trim() === '') {
-    throw new ApiError(400, 'That document had no readable text.');
-  }
-  return body;
+export function readDocumentText(userId: string, objectKey: string): Promise<string> {
+  return store().readDocumentText(userId, objectKey);
 }
 
-export interface UploadTicketResult {
-  uploadUrl: string;
-  objectKey: string;
-  expiresInSeconds: number;
-}
-
-/**
- * Issue a presigned PUT for one document.
- *
- * `userId` comes from the verified JWT and is the only source of the prefix, so
- * there is no request shape — body, query or header — that can produce a URL
- * for another user's objects.
- */
-export async function createUploadTicket(
+export function createUploadTicket(
   userId: string,
   input: { filename: string; contentType: string; sizeBytes: number },
-): Promise<UploadTicketResult> {
-  // Re-checked here rather than trusted from the handler's parse. The schema
-  // already enforces both, and this is the layer that actually signs the URL —
-  // a future caller that skips validation should not be able to sign a 2 GB
-  // request.
-  if (input.sizeBytes > UPLOAD_LIMITS.maxBytes) {
-    throw new Error(`Upload exceeds the ${UPLOAD_LIMITS.maxBytes}-byte limit.`);
+): Promise<s3.UploadTicketResult> {
+  return store().createUploadTicket(userId, input);
+}
+
+/**
+ * Store one uploaded document. Only the local store can do this.
+ *
+ * Throwing rather than being absent from the interface is deliberate. The route
+ * that calls this exists only when `UPLOAD_STORE=local`, so on the S3 path
+ * nothing should ever reach here — and if something does, a 404 that says the
+ * route is not in use is a better answer than a missing export crashing the
+ * process. The error names the configuration rather than the code, because that
+ * is what would need changing.
+ */
+export function putDocument(
+  userId: string,
+  objectKey: string,
+  body: Buffer,
+): Promise<void> {
+  const configured = process.env['UPLOAD_STORE'];
+  if (configured !== 'local') {
+    throw new ApiError(
+      404,
+      'No such route. Documents are uploaded directly to object storage when ' +
+        'UPLOAD_STORE is not "local".',
+    );
   }
-
-  const objectKey = uploadKeyFor(userId, randomUUID());
-
-  const command = new PutObjectCommand({
-    Bucket: bucketName(),
-    Key: objectKey,
-    ContentType: input.contentType,
-    // Signed into the URL, so S3 rejects a body of any other size. See header.
-    ContentLength: input.sizeBytes,
-    // The original filename travels as metadata, never as part of the key.
-    // S3 metadata values must be ASCII, and a document named in Arabic or with
-    // an em dash is entirely ordinary here — so it is encoded rather than sent
-    // raw, which would otherwise fail the PUT with a signature mismatch that
-    // looks nothing like a filename problem.
-    Metadata: {
-      'original-filename': encodeURIComponent(input.filename),
-      'owner-sub': userId,
-    },
-  });
-
-  const uploadUrl = await getSignedUrl(client(), command, { expiresIn: URL_TTL_SECONDS });
-
-  return { uploadUrl, objectKey, expiresInSeconds: URL_TTL_SECONDS };
+  return local.putDocument(userId, objectKey, body);
 }

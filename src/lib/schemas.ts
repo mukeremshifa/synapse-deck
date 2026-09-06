@@ -202,11 +202,28 @@ export type ProfileSettingsInput = z.input<typeof ProfileSettings>;
 // ---------------------------------------------------------------------------
 
 /**
- * What the browser may upload, and what the presigned URL will be issued for.
+ * What the browser may upload, and what the upload URL will be issued for.
  *
- * **PDF only, for now.** The pipeline extracts a text layer; a .docx or .pptx
- * would need a different extractor, and accepting a file the pipeline cannot
- * read is a failure discovered after the upload rather than before it.
+ * ── Plain text and Markdown, and PDF with a caveat (DS1) ──────────────────
+ *
+ * The principle is unchanged and is the reason this list is short: **accepting
+ * a file the pipeline cannot read is a failure discovered after the upload
+ * rather than before it.** A .docx or .pptx would need its own extractor and is
+ * still refused for exactly that reason.
+ *
+ * What changed at DS1 is that the principle was being stated while being
+ * broken. The list held PDF *only*, and `readDocumentText` has never parsed a
+ * PDF -- it reads the object as UTF-8, which yields usable text for a .txt file
+ * and mostly-binary noise for a real PDF. So the one format the UI accepted was
+ * the one format that could not work, and every other format that would have
+ * worked was refused.
+ *
+ * Adding `.txt` and `.md` is therefore not a widening so much as a correction:
+ * it makes the accepted set match what the pipeline can actually read. PDF is
+ * kept because a parser is a decision deferred rather than declined (P10 task 3
+ * says so, and DS1 did not reopen it), and a PDF whose extracted text is
+ * unusable fails with a message the user can act on rather than producing a
+ * deck of cards generated from binary.
  */
 export const UPLOAD_LIMITS = {
   /**
@@ -220,8 +237,17 @@ export const UPLOAD_LIMITS = {
    * a caller who obtained a URL upload any size at all).
    */
   maxBytes: 20 * 1024 * 1024,
-  contentTypes: ['application/pdf'],
-  extensions: ['.pdf'],
+  /**
+   * Browsers disagree about the type of a Markdown file -- Chrome commonly
+   * reports `text/markdown`, others `text/plain`, and some report an empty
+   * string for a file dragged from certain sources. All three spellings are
+   * listed rather than normalised, because the check that matters is done
+   * against the extension *and* the type together (see `validateFile`), and a
+   * list that omitted a real-world spelling would reject a valid file with a
+   * message saying it was the wrong kind.
+   */
+  contentTypes: ['application/pdf', 'text/plain', 'text/markdown'],
+  extensions: ['.pdf', '.txt', '.md'],
 } as const;
 
 export const UploadRequest = z.object({

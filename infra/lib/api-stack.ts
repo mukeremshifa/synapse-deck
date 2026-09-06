@@ -316,6 +316,11 @@ export class ApiStack extends Stack {
         allowMethods: [
           CorsHttpMethod.GET,
           CorsHttpMethod.POST,
+          // PUT is here for `/uploads/{objectId}`, which is inert on this stack
+          // (see the route's comment). Listed anyway so the preflight matches
+          // the declared route table rather than the subset that happens to be
+          // reachable in one configuration.
+          CorsHttpMethod.PUT,
           CorsHttpMethod.PATCH,
           CorsHttpMethod.DELETE,
           CorsHttpMethod.OPTIONS,
@@ -381,6 +386,24 @@ export class ApiStack extends Stack {
     route('/cards/delete', [HttpMethod.POST], cardsFn, 'DeleteCardsInt');
 
     route('/uploads', [HttpMethod.POST], uploadsFn, 'UploadsInt');
+    /*
+     * `PUT /uploads/{objectId}` — the local upload store's write path (DS1).
+     *
+     * **Declared here but inert on AWS, and that is deliberate.** When
+     * `UPLOAD_STORE=s3` — which is what this stack deploys — the browser PUTs to
+     * a presigned URL and never reaches the API, so nothing routes here and
+     * `data/uploads.ts` refuses the call with a 404 if anything tries.
+     *
+     * It is declared anyway because `scripts/check-routes.mjs` compares this
+     * table against `scripts/dev-api.mjs` and fails on any difference in either
+     * direction. The alternative was an exception in that check, and an
+     * exception is how a route-parity check stops being a guarantee — the whole
+     * value of it is that it has no special cases to argue about. A declared
+     * route that no configuration reaches costs a few lines of template; a
+     * weakened check costs the one class of bug this development setup
+     * introduces.
+     */
+    route('/uploads/{objectId}', [HttpMethod.PUT], uploadsFn, 'UploadPutInt');
     route('/jobs', [HttpMethod.GET, HttpMethod.POST], jobsFn, 'JobsInt');
     route('/jobs/{jobId}', [HttpMethod.GET], jobsFn, 'JobInt');
     // Served by the jobs function because quota is read from the same table it

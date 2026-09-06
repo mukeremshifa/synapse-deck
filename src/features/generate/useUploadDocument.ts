@@ -43,6 +43,11 @@ const IDLE: UploadState = { phase: 'idle', percent: 0, objectKey: null, error: n
  * the type and the size, not the contents. A PDF with no text layer — a scan —
  * passes this and is caught later; detecting that needs a PDF parser and is
  * deliberately not in this pass.
+ *
+ * The same caveat now covers PDFs generally (DS1): nothing here parses one, so
+ * a PDF reaches the pipeline and fails there with a message the user can act
+ * on. A .txt or .md file works end to end. See `UPLOAD_LIMITS` for why the
+ * accepted list is what it is.
  */
 export function validateFile(file: File): string | null {
   const name = file.name.toLowerCase();
@@ -53,7 +58,10 @@ export function validateFile(file: File): string | null {
   // `type` for a file dragged from certain sources, and a `.pdf` renamed to
   // `.txt` reports the wrong extension.
   if (!extensionOk || !typeOk) {
-    return 'That is not a PDF. Only PDF documents can be turned into cards right now.';
+    return (
+      'That file type cannot be turned into cards. Upload a .txt, .md or .pdf ' +
+      'file.'
+    );
   }
   if (file.size === 0) {
     return 'That file is empty.';

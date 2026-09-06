@@ -11,14 +11,16 @@
  * What lives behind it today:
  *
  *   - `stub`    — deterministic, offline, no model. See `stub.ts`.
- *   - `bedrock` — task 10, once model access exists.
- *   - `groq`    — the fallback D6 names, once its key is reachable from Lambda.
+ *   - `groq`    — **a real model, callable today.** See `groq.ts`.
+ *   - `bedrock` — still unimplemented; model access has not been granted.
  *
- * **Neither real provider is callable as of P10 session 2.** Bedrock refuses the
- * caller's country for Anthropic models and has no grant for Nova; `GROQ_API_KEY`
- * has only ever existed as a Supabase Edge Function secret, never in a form a
- * Lambda can read. That is why the stub exists and why it is loud about being a
- * stub — see `stub.ts`.
+ * **This changed at DS1.** Through all of P10 neither real provider was
+ * callable — Bedrock refused the caller's country for Anthropic models and had
+ * no grant for Nova, and `GROQ_API_KEY` existed only as a Supabase Edge Function
+ * secret that no Lambda could read. Groq now runs against the API directly with
+ * the key in the server environment, so the stub is no longer the only
+ * implementation that works. It is kept, and kept loud about being a stub,
+ * because a real provider does not make a fake one safer.
  */
 
 import type { CardPayload, CardKind } from '../schemas.ts';
@@ -80,8 +82,25 @@ export interface CardProvider {
  * malformed answer, so it burns the retry budget and the cost for nothing.
  */
 export class ProviderRetryableError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
-    super(message, options);
+  /**
+   * How long the provider asked us to wait, in milliseconds, when it said so.
+   *
+   * Added at DS1, and it earned itself immediately. Groq's free tier limits
+   * **tokens per minute**, so a 429 there clears in tens of seconds rather than
+   * the hundreds of milliseconds an exponential backoff assumes — DS1's first
+   * multi-chunk run lost two chunks of four to retries that all landed inside
+   * one still-exhausted window.
+   *
+   * The server knows when it will next accept work and says so in `retry-after`.
+   * Guessing when the answer is available is how a bounded retry policy becomes
+   * a policy that reliably fails. `undefined` means the provider did not say,
+   * and the runner falls back to its own backoff.
+   */
+  readonly retryAfterMs: number | undefined;
+
+  constructor(message: string, options?: { cause?: unknown; retryAfterMs?: number }) {
+    super(message, { cause: options?.cause });
     this.name = 'ProviderRetryableError';
+    this.retryAfterMs = options?.retryAfterMs;
   }
 }

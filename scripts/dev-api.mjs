@@ -52,22 +52,28 @@ process.env['PGDATABASE'] ??= 'synapsedeck';
 process.env['PGUSER'] ??= 'synapsedeck_app';
 process.env['CORS_ORIGIN'] ??= 'http://localhost:5173';
 
-// P10. The job-state table, mirroring api-stack.ts's commonEnvironment.
-//
-// Left unset unless .env.local names one, and that is deliberate: there is no
-// local DynamoDB here, so a made-up table name would turn "this route is not
-// wired up locally yet" into a confusing SDK error against a table that does
-// not exist. `data/jobs.ts` throws a sentence explaining itself when the
-// variable is missing, which is the better failure. Point this at a real table
-// (or DynamoDB Local) when a route that needs it is being worked on.
-// The same applies to UPLOAD_BUCKET_NAME (P10 task 3). Pointing it at a real
-// dev bucket is what makes `POST /uploads` work locally: the presigned PUT is
-// signed with the caller's own AWS credentials, so the browser uploads to real
-// S3 while the API stays local. Without it, `data/uploads.ts` throws a sentence
-// saying so.
-//
-// (No assignment here on purpose: .env.local is loaded just below, and setting
-// either variable there is all that is needed.)
+/*
+ * The three seams, and what the demo path needs from them (DS1).
+ *
+ * Nothing is defaulted here on purpose. Each resolver throws a sentence naming
+ * itself when its variable is missing, which is a better failure than a default
+ * that quietly picks the wrong implementation -- a job written to one store and
+ * polled from the other reports 404 forever, and the cause is nowhere near the
+ * symptom.
+ *
+ * For the demo path, .env.local sets:
+ *
+ *     CARD_PROVIDER=groq       GROQ_API_KEY, GROQ_MODEL
+ *     JOB_STORE=postgres       the PG* block -- Neon or local
+ *     PIPELINE_RUNNER=local    no further configuration
+ *     UPLOAD_STORE=local       UPLOAD_DIR, optional
+ *
+ * For the AWS path, JOB_TABLE_NAME and UPLOAD_BUCKET_NAME must name real
+ * resources: there is no local DynamoDB and nothing here signs S3 requests but
+ * the AWS SDK reading the caller's own credentials.
+ *
+ * (No assignment here: .env.local is loaded just below, and setting these there
+ * is all that is needed.)
 
 /*
  * The password comes from .env.local as LOCAL_PGPASSWORD rather than
@@ -163,11 +169,28 @@ async function verifyToken(token) {
 // Routes — mirroring infra/lib/api-stack.ts
 // ---------------------------------------------------------------------------
 
+/*
+ * Every handler the route table names.
+ *
+ * `jobs` and `uploads` were declared in ROUTES from P10 and **never imported
+ * here**, so every one of those six routes resolved to `undefined` and threw
+ * `handlers[route.fn] is not a function` — a 500 with nothing useful in it.
+ * The whole ingestion pipeline was unreachable locally for that reason, and it
+ * is why nothing in it had ever run before DS1.
+ *
+ * `scripts/check-routes.mjs` could not see it: that check compares route
+ * *tables*, and its header says plainly that it does not check a route reaches
+ * a handler. This object is now the thing that must stay complete, so a missing
+ * key is worth noticing — hence the assertion below rather than trusting that
+ * anyone reads this comment.
+ */
 const handlers = {
   profile: (await import('../services/api/src/handlers/profile.ts')).handler,
   decks: (await import('../services/api/src/handlers/decks.ts')).handler,
   cards: (await import('../services/api/src/handlers/cards.ts')).handler,
   reviews: (await import('../services/api/src/handlers/reviews.ts')).handler,
+  uploads: (await import('../services/api/src/handlers/uploads.ts')).handler,
+  jobs: (await import('../services/api/src/handlers/jobs.ts')).handler,
 };
 
 /**
@@ -194,6 +217,12 @@ const ROUTES = [
   { method: 'PATCH', pattern: /^\/cards\/([^/]+)$/, fn: 'cards', params: ['cardId'] },
 
   { method: 'POST', pattern: /^\/uploads$/, fn: 'uploads' },
+  // The local upload store's write path (DS1). Reachable only when
+  // UPLOAD_STORE=local; with UPLOAD_STORE=s3 the browser PUTs to a presigned
+  // URL and never comes here. Declared in infra/lib/api-stack.ts too, so
+  // check-routes stays green -- see the comment there for why parity is kept
+  // rather than excepted.
+  { method: 'PUT', pattern: /^\/uploads\/([^/]+)$/, fn: 'uploads', params: ['objectId'] },
 
   { method: 'POST', pattern: /^\/jobs$/, fn: 'jobs' },
   { method: 'GET', pattern: /^\/jobs$/, fn: 'jobs' },
@@ -206,10 +235,28 @@ const ROUTES = [
   { method: 'POST', pattern: /^\/reviews\/undo$/, fn: 'reviews' },
 ];
 
+/*
+ * Fail at startup, not at the first request, if a route names a handler that was
+ * not imported. That is exactly the bug described above, and it survived for a
+ * whole phase because its symptom was a 500 on one route rather than anything
+ * visible at boot.
+ */
+{
+  const missing = [...new Set(ROUTES.map((r) => r.fn))].filter((fn) => !handlers[fn]);
+  if (missing.length > 0) {
+    console.error(
+      `✗ ROUTES names ${missing.length} handler(s) that are not imported: ${missing.join(', ')}.
+` +
+        '  Add them to the `handlers` object above. Every route would 500 otherwise.',
+    );
+    process.exit(1);
+  }
+}
+
 const CORS = {
   'access-control-allow-origin': process.env['CORS_ORIGIN'],
   'access-control-allow-headers': 'authorization,content-type',
-  'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS',
+  'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
   'access-control-max-age': '86400',
 };
 
@@ -248,11 +295,30 @@ const server = createServer((req, res) => {
       return;
     }
 
-    const body = await new Promise((resolve) => {
+    /*
+     * The raw bytes, decoded the way API Gateway decides to decode them.
+     *
+     * Gateway base64-encodes a body whose content type it does not consider
+     * text and sets `isBase64Encoded`; a JSON or text body arrives as a plain
+     * string. Reproducing that here matters for `PUT /uploads/{objectId}`,
+     * which is the first route in this project to carry a non-JSON body -- a
+     * handler that only ever saw UTF-8 locally would corrupt every binary
+     * upload the moment it ran behind Gateway, and the corruption would look
+     * like a bad file rather than a bad decode.
+     */
+    const raw = await new Promise((resolve) => {
       const chunks = [];
       req.on('data', (c) => chunks.push(c));
-      req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      req.on('end', () => resolve(Buffer.concat(chunks)));
     });
+
+    const contentType = req.headers['content-type'] ?? '';
+    const isText =
+      contentType.startsWith('text/') ||
+      contentType.includes('json') ||
+      contentType === '';
+    const body = isText ? raw.toString('utf8') : raw.toString('base64');
+    const isBase64Encoded = !isText && raw.length > 0;
 
     const match = route.pattern.exec(path);
     const pathParameters = Object.fromEntries(
@@ -270,7 +336,7 @@ const server = createServer((req, res) => {
       queryStringParameters: Object.fromEntries(url.searchParams),
       pathParameters,
       body: body === '' ? undefined : body,
-      isBase64Encoded: false,
+      isBase64Encoded,
       requestContext: {
         requestId: Math.random().toString(36).slice(2, 10),
         http: { method: req.method, path },

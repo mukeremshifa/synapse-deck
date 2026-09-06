@@ -60,8 +60,43 @@ authored against the codebase it will actually run in.
 | P10 — Ingestion  | [P10-ingestion.md](P10-ingestion.md)         | 🔨 In progress. Tasks 1–9, 11 done. Task 10 blocked on Bedrock model access. **Start here: [P10-SESSION-4.md](P10-SESSION-4.md)** |
 | P11 — Notebook shell | [P11-notebook-shell.md](P11-notebook-shell.md) | ✅ Complete — 2026-09-06. Frontend rewritten to a NotebookLM-shaped shell; backend untouched. Grounded chat deliberately unbuilt |
 | P12 — Grounded chat | [P12-grounded-chat.md](P12-grounded-chat.md) | 📋 Planned 2026-09-06. Fills P11's empty workspace pane. **Blocked on Bedrock model access**, embeddings included |
-| Demo sprint | [DEMO-SPRINT-BRIEF.md](DEMO-SPRINT-BRIEF.md) | 🧭 **Decisions made 2026-09-06.** AWS unavailable; 5 phases scoped (DS1–DS5). **Start here** |
+| Demo sprint | [DEMO-SPRINT-BRIEF.md](DEMO-SPRINT-BRIEF.md) | 🧭 **Decisions made 2026-09-06.** AWS unavailable; 5 phases scoped (DS1–DS5) |
+| DS1 — Portable spine | [DS1-portable-spine.md](DS1-portable-spine.md) | ✅ **Complete — 2026-09-07.** The pipeline generates real cards for the first time. Neon + Groq + jobs in Postgres + in-process fan-out, all four seams with no defaults. **Executed, not just typechecked** — five findings in §7 |
+| DS2 — Grounded chat | _(plan not yet written)_ | 📋 **Next.** pgvector, embeddings on ingestion, retrieval, citations, the chat pane. P12 re-aimed at portable infrastructure |
 | P13 — Exam-half UI | _(executed without a plan file — see below)_ | ✅ **Frontend closed — 2026-09-06.** Dashboard, blueprint with citations, diagnostic, exam-date study plan, answer explanations, pipeline stages. Backend deliberately untouched; four inert affordances tabulated in SPEC §4.6 |
+
+**DS1 is done, and the headline is that the pipeline has now actually run.** As of
+2026-09-07 a user pastes text or uploads a `.txt`/`.md` file and a language model writes
+cards from it — Groq behind the provider seam that already existed, job state in Postgres on
+Neon, a bounded in-process fan-out in place of Step Functions, ending at the review gate with
+the cards in the study queue.
+
+**It was executed rather than only typechecked, and that is where the value was.** The
+pipeline had been written across all of P10 and had never once run. Running it found five
+things, four of them bugs, none visible to a green `verify` — including that
+`scripts/dev-api.mjs` **never imported the `jobs` or `uploads` handler**, so every ingestion
+route had been returning a 500 for a whole phase. `check:routes` could not see it: it
+compares route tables and says in its own header that it does not check a route reaches a
+handler. The full list is [DS1 §7](DS1-portable-spine.md#7-what-the-first-real-run-found),
+and it is the most useful artifact the phase produced.
+
+**Two findings are worth carrying forward.** The `generations` row was never closed out, so
+one finished job blocked the next for five minutes and the cost trail recorded nothing —
+`finishGeneration` existed with no caller. And Groq's free tier limits **tokens** per minute
+rather than requests, which made a request-shaped backoff reliably fail; the provider now
+honours `retry-after` and concurrency is 2, configurable, because the right value belongs to
+the account's tier and not to this code.
+
+**Four seams now decide which infrastructure runs, and none has a default**
+([ADR 0010](../adr/0010-runtime-seams.md)). `CARD_PROVIDER`, `JOB_STORE`, `PIPELINE_RUNNER`,
+`UPLOAD_STORE` — each throws when unset, because a job written to one store and polled from
+the other reports 404 forever. `jobs-dynamo.ts` and `pipeline-sfn.ts` are **byte-identical**
+to what P10 wrote; the brief's §8 table still holds in full, which is the check that matters
+at every phase boundary.
+
+**Nothing proves the two sides of a seam agree.** DynamoDB and Step Functions were not
+reachable, so `JOB_STORE=dynamo` typechecks and has not run. Card quality is likewise one
+person reading two dozen cards, not a measurement — the eval harness is Phase E.
 
 **The direction changed again on 2026-09-06, and the AWS board is paused rather than
 abandoned.** Bedrock model access was not granted and RDS was not worth paying for while the

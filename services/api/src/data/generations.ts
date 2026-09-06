@@ -129,6 +129,39 @@ export async function createGeneration(
 }
 
 /**
+ * The generation row a finished job should close out. DS1.
+ *
+ * ── Why the deck is the link, and not a column on the job ─────────────────
+ *
+ * `pipeline-finalise` knows a `userId` and a `jobId`, and needs the generation
+ * row that was written when the job was dispatched. There is no `generation_id`
+ * on the job, and adding one was the obvious alternative — rejected because the
+ * job's own store is behind a seam (`JOB_STORE`), so the column would have to
+ * be added to the DynamoDB item shape as well, for a link the deck already
+ * provides. A schema change to two stores to avoid one lookup is the wrong
+ * trade.
+ *
+ * Newest first, and only ever a `running` row: a deck that is regenerated has
+ * more than one generation against it, and the one to close is the one still
+ * open. If none is open, this returns null and the finaliser does nothing,
+ * which is the correct behaviour for a job finalised twice.
+ */
+export async function findRunningGenerationForDeck(
+  userId: string,
+  deckId: string,
+): Promise<{ id: string } | null> {
+  const result = await query<{ id: string }>(
+    `select id
+       from public.generations
+      where user_id = $1 and deck_id = $2 and status = 'running'
+      order by created_at desc
+      limit 1`,
+    [userId, deckId],
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
  * Close a generation out once the job has finished.
  *
  * `units` is deliberately **not** updatable. What a job cost was decided before

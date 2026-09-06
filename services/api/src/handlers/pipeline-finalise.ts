@@ -27,6 +27,10 @@
 
 import { getJobWithChunks, updateJobStatus } from '../data/jobs.ts';
 import { setDeckStatus } from '../data/decks.ts';
+import {
+  finishGeneration,
+  findRunningGenerationForDeck,
+} from '../data/generations.ts';
 
 export interface FinaliseInput {
   userId: string;
@@ -64,6 +68,48 @@ export async function handler(input: FinaliseInput): Promise<FinaliseOutput> {
   // point that generates before a deck exists should not crash here.
   if (job?.deckId != null) {
     await setDeckStatus(userId, job.deckId, cardsGenerated > 0 ? 'draft' : 'failed');
+
+    /*
+     * ── Close the generation row out. DS1, and it was missing. ────────────
+     *
+     * `handlers/jobs.ts` writes a `generations` row with `status = 'running'`
+     * **before** the work starts, because that is what makes the concurrency
+     * limit real — three tabs opened at once each see the others' rows. Nothing
+     * ever closed it again: through all of P10 the pipeline had never actually
+     * run, so the row stayed `running` and nobody saw it.
+     *
+     * Running it once made the consequence obvious and it is worse than an
+     * untidy table. Two things follow from a row that never leaves `running`:
+     *
+     *   1. **The next job is refused.** `decideGeneration` counts running rows
+     *      against the concurrency limit, so one finished generation blocks
+     *      every subsequent one until the row ages past `staleRunningMinutes`.
+     *      The user is told to "wait for it to finish" about a job that has
+     *      already finished.
+     *   2. **The cost trail is empty.** `cards_returned` stays 0 and the token
+     *      counts stay null, so the audit trail records that something was
+     *      charged for and nothing about what it produced.
+     *
+     * Guarded on finding an open row, so finalising a job twice is a no-op
+     * rather than an error — which matters more here than it did on Step
+     * Functions, because a retried execution is a normal event.
+     */
+    const generation = await findRunningGenerationForDeck(userId, job.deckId);
+    if (generation !== null) {
+      await finishGeneration(userId, generation.id, {
+        status,
+        cardsReturned: cardsGenerated,
+        // Deliberately null rather than a sum over the chunks. Token counts are
+        // returned per model call and are not carried on the chunk records, so
+        // totalling them would mean widening the record shape in both job
+        // stores. Recording null is honest; inventing a total is not, and
+        // `stub.ts` makes the same argument about fabricated numbers.
+        inputTokens: null,
+        outputTokens: null,
+        error:
+          status === 'failed' ? 'No cards could be written from this document.' : null,
+      });
+    }
   }
 
   return {

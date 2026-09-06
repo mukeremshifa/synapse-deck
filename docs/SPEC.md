@@ -263,15 +263,31 @@ that generate blueprints (B) and diagnostics (D) port them rather than untangle 
 
 ### 4.6 What the frontend deliberately stops at
 
-**The exam half's frontend is complete as of 2026-09-06.** Four affordances remain visible
-and inert, and each is blocked on a write path or a pipeline rather than on design:
+**The exam half's frontend is complete as of 2026-09-06.** Four affordances remained
+visible and inert; **the pipeline one of them waited on now exists** (DS1, 2026-09-07):
 
 | Affordance | Where | Blocked on |
 | ---------- | ----- | ---------- |
-| Blueprint-aligned generation | Blueprint | The ingestion pipeline (Phase B) |
+| Blueprint-aligned generation | Blueprint | ~~The ingestion pipeline~~ — **the pipeline runs**; what remains is passing a blueprint's topic weights into the job, which is DS3's |
 | Generate cards from misses | Exam results | A write path `answers` → `cards` (D11) |
 | Plan action: review | Diagnostic | A source viewer; no route reads a source in place |
 | Plan action: questions | Diagnostic | Topic-scoped question generation (Phase C) |
+
+**The generation loop is real as of DS1.** Paste text or upload a `.txt`/`.md` document and
+a language model writes cards from it: Groq behind the existing provider seam, job state in
+Postgres on Neon, a bounded in-process fan-out in place of Step Functions, and the review
+gate at the end. This was verified by running it, not only by typechecking it — see
+[DS1-portable-spine.md](plans/DS1-portable-spine.md) §7 for what the first real run found.
+
+**PDF is accepted and does not work, and the UI says so.** Nothing parses a PDF's text
+layer; the bytes are decoded as UTF-8, which yields noise. A PDF therefore produces a job
+that fails with a message the user can act on rather than a deck generated from binary.
+`.txt` and `.md` were added to `UPLOAD_LIMITS` at DS1 for exactly this reason: the accepted
+set had been *only* the one format that could not work.
+
+**Which infrastructure runs is configuration, not code** — four seams, no defaults, no
+branching above the data layer ([ADR 0010](adr/0010-runtime-seams.md)). Bedrock, DynamoDB
+and Step Functions return as environment variables plus one new provider file.
 
 Each is shown rather than hidden, and says what it needs. A disabled control that explains
 itself shows a reviewer where the loop goes; a hidden one reads as a missing feature, and a

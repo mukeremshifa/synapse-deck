@@ -108,7 +108,7 @@ export function CreateFromDocumentPage() {
           // Fall back to the filename minus its extension: a title is required,
           // and making the user type one they already expressed by choosing the
           // file is friction for its own sake.
-          deckTitle: title.trim() === '' ? chosen.name.replace(/\.pdf$/i, '') : title.trim(),
+          deckTitle: title.trim() === '' ? chosen.name.replace(/\.(pdf|txt|md)$/i, '') : title.trim(),
         });
         setJobId(started.jobId);
         // The job has spent its units, so the figure on screen is now stale.
@@ -159,7 +159,7 @@ export function CreateFromDocumentPage() {
       <header className="space-y-1">
         <h1 className="font-serif text-3xl tracking-tight">Create from a document</h1>
         <p className="text-muted-foreground max-w-prose text-sm">
-          Upload a PDF and cards are written from it. You approve every card before it
+          Upload a document and cards are written from it. You approve every card before it
           enters a deck.
         </p>
       </header>
@@ -168,7 +168,7 @@ export function CreateFromDocumentPage() {
         <CardHeader>
           <CardTitle>Source document</CardTitle>
           <CardDescription>
-            PDF, up to {MAX_MB} MB. The text has to be selectable — a scanned page is a
+            Text, Markdown or PDF, up to {MAX_MB} MB. The text has to be selectable — a scanned page is a
             picture of text, and nothing here can read it.
           </CardDescription>
           {/*
@@ -212,7 +212,7 @@ export function CreateFromDocumentPage() {
           >
             <UploadIcon aria-hidden className="text-muted-foreground size-6" />
             <span className="text-sm font-medium">
-              {dragging ? 'Drop it here' : 'Choose a PDF, or drag one here'}
+              {dragging ? 'Drop it here' : 'Choose a file, or drag one here'}
             </span>
             <span className="text-muted-foreground text-xs">
               Up to {MAX_MB} MB. Nothing is uploaded until you press Upload.
@@ -240,7 +240,7 @@ export function CreateFromDocumentPage() {
                 id="deck-title"
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
-                placeholder={file.name.replace(/\.pdf$/i, '')}
+                placeholder={file.name.replace(/\.(pdf|txt|md)$/i, '')}
                 maxLength={200}
                 disabled={busy}
               />
