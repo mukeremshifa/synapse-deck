@@ -62,7 +62,7 @@ authored against the codebase it will actually run in.
 | P12 — Grounded chat | [P12-grounded-chat.md](P12-grounded-chat.md) | 📋 Planned 2026-09-06. Fills P11's empty workspace pane. **Blocked on Bedrock model access**, embeddings included |
 | Demo sprint | [DEMO-SPRINT-BRIEF.md](DEMO-SPRINT-BRIEF.md) | 🧭 **Decisions made 2026-09-06.** AWS unavailable; 5 phases scoped (DS1–DS5) |
 | DS1 — Portable spine | [DS1-portable-spine.md](DS1-portable-spine.md) | ✅ **Complete — 2026-09-07.** The pipeline generates real cards for the first time. Neon + Groq + jobs in Postgres + in-process fan-out, all four seams with no defaults. **Executed, not just typechecked** — five findings in §7 |
-| DS2 — Grounded chat | _(plan not yet written)_ | 📋 **Next.** pgvector, embeddings on ingestion, retrieval, citations, the chat pane. P12 re-aimed at portable infrastructure |
+| DS2 — Grounded chat | _(plan not yet written)_ | 📋 **Next.** pgvector, embeddings on ingestion, retrieval, citations, the chat pane. P12 re-aimed at portable infrastructure. **Start here: [DS1-HANDOFF.md](DS1-HANDOFF.md)** |
 | P13 — Exam-half UI | _(executed without a plan file — see below)_ | ✅ **Frontend closed — 2026-09-06.** Dashboard, blueprint with citations, diagnostic, exam-date study plan, answer explanations, pipeline stages. Backend deliberately untouched; four inert affordances tabulated in SPEC §4.6 |
 
 **DS1 is done, and the headline is that the pipeline has now actually run.** As of
@@ -93,6 +93,14 @@ the account's tier and not to this code.
 the other reports 404 forever. `jobs-dynamo.ts` and `pipeline-sfn.ts` are **byte-identical**
 to what P10 wrote; the brief's §8 table still holds in full, which is the check that matters
 at every phase boundary.
+
+**One thing DS2 should know before it plans anything.** P12 and SPEC §4.6 both refused the
+AI tutor on the grounds that chunks are not persisted retrievably. **That is no longer true**:
+`job_chunks.source_text` holds every chunk's text, scoped by `user_id`, as of migration 0006.
+The retrieval corpus DS2 needs is half-built — what is missing is an embedding column, an
+index and the query. It also means `job_chunks.expires_at`, a column nothing currently
+sweeps, stops being harmless the moment chunks become the knowledge base.
+[DS1-HANDOFF.md](DS1-HANDOFF.md) §6 lists the three decisions that shape that schema.
 
 **Nothing proves the two sides of a seam agree.** DynamoDB and Step Functions were not
 reachable, so `JOB_STORE=dynamo` typechecks and has not run. Card quality is likewise one
