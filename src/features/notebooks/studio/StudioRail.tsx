@@ -4,6 +4,8 @@ import {
   LayersIcon,
   PlayIcon,
   SparklesIcon,
+  StethoscopeIcon,
+  TableIcon,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -151,6 +153,32 @@ export function StudioRail({
           to={notebookPath.cards(notebook.id)}
           disabled={!hasCards}
           disabledReason="Nothing to browse yet"
+        />
+      </div>
+
+      {/*
+        The exam half of the loop. Separated by a rule rather than mixed into
+        the list above, because these two are about *planning and reviewing*
+        study while the three above are about doing it — and a rail that mixes
+        "practise 18 cards now" with "look at what an exam would weigh" makes
+        the daily action harder to find.
+
+        Both run on sample data today and say so on arrival rather than here:
+        a disabled entry would hide the two most distinctive screens in the
+        product, and a caveat in a 320px rail is a caveat nobody reads.
+      */}
+      <div className="space-y-2 border-t pt-4">
+        <StudioEntry
+          icon={TableIcon}
+          title="Exam blueprint"
+          detail="What an exam here should weigh"
+          to={notebookPath.blueprint(notebook.id)}
+        />
+        <StudioEntry
+          icon={StethoscopeIcon}
+          title="Diagnostic"
+          detail="Topic mastery, and what to do next"
+          to={notebookPath.diagnostic(notebook.id)}
         />
       </div>
 

@@ -12,6 +12,7 @@
  */
 
 import { Button } from '@/components/ui/button';
+import { PipelineStages } from './PipelineStages';
 import type { JobProgress } from './useJobProgress';
 
 export function JobProgressPanel({
@@ -48,10 +49,24 @@ export function JobProgressPanel({
         )}
       </div>
 
+      {/*
+        The stage list replaces a bare progress bar. A percentage tells the user
+        how much is left; the stages tell them what is happening, which is what
+        makes a 40-second wait tolerable rather than suspicious. Both are kept —
+        the bar carries the proportion, the list carries the meaning — and every
+        stage is derived from a field the job reports. See `PipelineStages`.
+      */}
       {!isFinished && (
-        <progress value={percent} max={100} className="h-2 w-full overflow-hidden rounded-full">
-          {percent}%
-        </progress>
+        <>
+          <progress
+            value={percent}
+            max={100}
+            className="h-2 w-full overflow-hidden rounded-full"
+          >
+            {percent}%
+          </progress>
+          <PipelineStages job={job} />
+        </>
       )}
 
       {/*

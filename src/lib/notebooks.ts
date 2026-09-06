@@ -87,4 +87,8 @@ export const notebookPath = {
   cards: (id: string) => `/notebooks/${id}/cards`,
   practice: (id: string) => `/notebooks/${id}/practice`,
   exam: (id: string) => `/notebooks/${id}/exam`,
+  /** The exam blueprint — what an exam over this notebook should weigh. */
+  blueprint: (id: string) => `/notebooks/${id}/blueprint`,
+  /** Topic mastery and the plan derived from it. */
+  diagnostic: (id: string) => `/notebooks/${id}/diagnostic`,
 } as const;
