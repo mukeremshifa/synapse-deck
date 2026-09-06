@@ -447,6 +447,65 @@ audited write path, and the whole question is where the boundary sits:
 
 Write the answer into `SPEC.md`, not only into code: it is a change to what a "draft" is.
 
+**✅ Done 2026-09-06** (session 2), migration written, rehearsed, and **applied**.
+
+`0003_drop_card_status_draft.sql`. Postgres has no `DROP VALUE`, so this is a type swap:
+new enum, column moved onto it, old type dropped, renamed back.
+
+**Rehearsed before it was applied, twice, because nothing else checks a migration now**
+(ADR 0005 deleted the PGlite harness). Both rehearsals ran the real file inside
+`begin; … rollback;` against the real schema:
+
+1. **The happy path** — enum reduced to three members, all three indexes rebuilt, default
+   restored, both rows intact. Rolled back.
+2. **The refusal** — one row flipped to `'draft'` first, and the migration failed exactly
+   as its comment claims: `invalid input value for enum card_status_new: "draft"`. That is
+   the behaviour worth having, because a migration that silently rewrote real drafts to
+   `'active'` would push someone's unreviewed cards into their practice queue.
+
+**The trap that would have failed it.** Three indexes depend on `cards.status` and two are
+*partial*, with `where status = 'active'::card_status` baked into the predicate. The column
+cannot be retyped while they reference it, so they are dropped and recreated identically to
+0001. `cards_queue_idx` is the practice queue's index (SPEC §10) — recreating it is not
+housekeeping, it is the difference between an index scan and a sequential one on the
+hottest query in the product. Verified present with predicates intact after applying.
+
+**Verified against the live local schema after applying**, not assumed: enum is
+`active,suspended,archived`; all three indexes back with their predicates; default is
+`'active'::card_status`; no orphan `card_status_new` left behind; `update … set
+status='draft'` now fails; `review_card` survived the swap; and **`deck_status` still reads
+`generating,draft,active,failed`** — the trap the handover warned about, checked rather
+than trusted. The three changed queries (deck aggregate, `acceptDrafts`, `listDeckCards`)
+were each executed against the migrated schema.
+
+**One code change deserved more thought than a delete.** `acceptDrafts` carried
+`and status = 'draft'`, and that clause was doing real work: it made accepting the same
+gate twice a no-op rather than resurrecting a card the user had since suspended. Removing
+it without a replacement would have reintroduced that bug silently, as a side effect of an
+enum change. The obvious replacement, `status <> 'active'`, is wrong in a worse way — it
+would let a stale gate submission pull an `'archived'` card back into the queue. It is now
+`status = 'suspended'`, which is the only status a card awaiting acceptance can hold.
+
+`draftCount` is gone from the deck-list aggregate rather than left returning a permanent
+zero: drafts are not in this database any more, so the query cannot count them. The deck
+list now reads `decks.status = 'draft'` to mark a deck resumable and says *that* a deck is
+waiting rather than *how many* cards are. `useDraftCards` returns an empty list instead of
+calling an endpoint that would now 400 — a seam left open on purpose for task 5, which
+repoints it at the job's drafts.
+
+`?status=draft` now returns **400 with an explanation** rather than being silently ignored.
+A caller still sending it is working from a stale contract and should be told, not handed
+the full card list as though the filter had been honoured.
+
+**`src/types/database.ts` was deliberately not regenerated, and must not be hand-edited.**
+It is generated from the live Supabase project, which keeps `'draft'` until Phase F, so it
+will keep reporting four members while RDS has three. That divergence is expected and is
+now documented in `services/api/src/lib/rows.ts`, next to the type it disagrees with. The
+RDS side is authoritative for the API; Supabase stays authoritative for the Supabase-backed
+paths until Phase F.
+
+**The Supabase project was not touched**, per the owner's decision.
+
 ### 5. Step Functions, and the end of SSE — §7 question 2
 
 D5. Map state over chunks, per-chunk retry, partial failure as a normal outcome.

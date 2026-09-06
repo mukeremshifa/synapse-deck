@@ -9,7 +9,6 @@ import {
   createCards,
   deleteCards,
   listDeckCards,
-  listDraftCards,
   setCardStatus,
   updateCardContent,
   type CardInsert,
@@ -118,15 +117,20 @@ export async function handler(event: ApiEvent): Promise<ApiResponse> {
     if (deckId !== undefined) {
       switch (method) {
         case 'GET':
-          // `?status=draft` is the review gate's queue; anything else is the
-          // deck's card list. A query parameter rather than a second route
-          // because it is the same collection, filtered.
-          return json(
-            200,
-            queryParam(event, 'status') === 'draft'
-              ? await listDraftCards(userId, deckId)
-              : await listDeckCards(userId, deckId),
-          );
+          // `?status=draft` is gone with P10's migration 0003: drafts live in
+          // DynamoDB until the review gate accepts them, so there is no draft
+          // row in this database to filter for. The parameter is not silently
+          // ignored -- a caller still sending it is working from a stale
+          // contract and should be told, not handed the full card list as
+          // though it had been honoured.
+          if (queryParam(event, 'status') === 'draft') {
+            throw new ApiError(
+              400,
+              'Draft cards are no longer stored with the deck. Read the ' +
+                "generation job's drafts instead.",
+            );
+          }
+          return json(200, await listDeckCards(userId, deckId));
 
         case 'POST': {
           const body = readJsonBody(event) as {

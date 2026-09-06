@@ -191,8 +191,6 @@ export type DeckWithCounts = DeckRow & {
   cardCount: number;
   dueCount: number;
   newCount: number;
-  /** Generated cards still waiting at the review gate (SPEC §4.1 step 5). */
-  draftCount: number;
 };
 
 /**
@@ -587,12 +585,30 @@ export function useDueSummary() {
 // or rejecting them, and showing how much of the monthly allowance is left.
 // ---------------------------------------------------------------------------
 
-/** The drafts a generation left behind, oldest first — the review gate's queue. */
+/**
+ * The drafts a generation left behind, oldest first — the review gate's queue.
+ *
+ * ── Disabled at P10, deliberately and visibly ─────────────────────────────
+ *
+ * Migration 0003 removed `'draft'` from `card_status`: drafts now live in
+ * DynamoDB until they are accepted, so `/decks/{id}/cards?status=draft` has
+ * nothing to return and the API now rejects that parameter outright rather than
+ * pretending to honour it.
+ *
+ * The replacement is the job's own drafts, and that endpoint arrives with the
+ * pipeline in **P10 task 5**. Until then this returns an empty list rather than
+ * calling an endpoint that would 400 — the review gate renders its empty state
+ * instead of an error, which is the truthful thing for a gate that has no
+ * drafts to show.
+ *
+ * This is a seam left open on purpose, not an oversight: task 5 repoints the
+ * `queryFn` at the job and everything above it keeps working unchanged.
+ */
 export function useDraftCards(deckId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.deckDrafts(deckId ?? ''),
     enabled: Boolean(deckId),
-    queryFn: () => api.get<CardRow[]>(`/decks/${deckId!}/cards?status=draft`),
+    queryFn: (): Promise<CardRow[]> => Promise.resolve([]),
     // A generation may still be streaming into this deck; a stale list here is
     // the difference between "resume where you left off" and "half your cards
     // are missing".

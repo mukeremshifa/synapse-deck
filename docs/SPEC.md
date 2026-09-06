@@ -95,15 +95,26 @@ Not designed for: teachers assigning decks to classes; teams sharing decks.
 4. Submit → Edge Function streams cards back. Each card appears in a **staging list** as it
    arrives, with skeleton rows for the ones still coming.
 5. **Review gate:** user edits, rejects, or accepts individual cards. Bulk accept-all.
-6. Accept → cards move from `draft` to `active` and enter the FSRS `new` queue.
+6. Accept → cards are written as `active` and enter the FSRS `new` queue.
 
 **Why a review gate:** LLM-generated cards are ~80% good. Reviewing a bad card for months is
 worse than not having it. The gate is the single highest-leverage quality feature in the
 product, and it is cheap to build.
 
-**Draft persistence:** drafts are written to the DB server-side as they stream (status
-`draft`), not held only in React state. A refresh mid-generation must not burn a paid
-generation. Rejecting deletes the row; abandoning leaves a resumable draft deck.
+**Draft persistence:** drafts are persisted server-side as they stream, not held only in
+React state. A refresh mid-generation must not burn a paid generation. Rejecting discards
+the draft; abandoning leaves a resumable draft deck.
+
+**Where drafts live changed at P10** (AWS-native build). They used to be rows in `cards`
+with `status = 'draft'`; they are now records in the DynamoDB job table, and **only
+accepted cards are ever written to Postgres**. `card_status` lost its `'draft'` member
+accordingly (migration `0003_drop_card_status_draft.sql`): with no code path able to
+produce that status, an enum member nothing can write is worse than none at all, because
+it invites handling for a state that cannot occur.
+
+`deck_status` keeps its own `'draft'`, which means something different and still happens --
+"generation finished, the review gate has not been passed". That is the resumable state
+above, and it is what the deck list now reads to mark a deck resumable.
 
 ### 4.2 Practice
 
@@ -149,7 +160,7 @@ Postgres on Supabase. Every table has `id uuid default gen_random_uuid()`, `crea
 
 ```sql
 create type card_kind   as enum ('basic', 'cloze', 'mcq');
-create type card_status as enum ('draft', 'active', 'suspended', 'archived');
+create type card_status as enum ('active', 'suspended', 'archived');  -- P10: 'draft' removed
 create type fsrs_state  as enum ('new', 'learning', 'review', 'relearning');
 create type deck_status as enum ('generating', 'draft', 'active', 'failed');
 create type gen_source  as enum ('text', 'document', 'manual');

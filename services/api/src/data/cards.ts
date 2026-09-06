@@ -33,17 +33,6 @@ export async function listDeckCards(userId: string, deckId: string): Promise<Car
   return result.rows;
 }
 
-/** Drafts waiting at the review gate, oldest first. */
-export async function listDraftCards(userId: string, deckId: string): Promise<CardRow[]> {
-  const result = await query<CardRow>(
-    `select ${COLUMNS} from public.cards
-      where user_id = $1 and deck_id = $2 and status = 'draft'
-      order by created_at asc`,
-    [userId, deckId],
-  );
-  return result.rows;
-}
-
 export async function getCard(userId: string, cardId: string): Promise<CardRow | null> {
   const result = await query<CardRow>(
     `select ${COLUMNS} from public.cards where id = $2 and user_id = $1`,
@@ -177,10 +166,30 @@ export async function setCardStatus(
 }
 
 /**
- * Accept drafts: `draft` → `active`, and nothing else.
+ * Accept cards at the review gate.
  *
- * `and status = 'draft'` is kept from the original: it makes accepting the same
- * gate twice a no-op rather than resurrecting a card the user later suspended.
+ * ── What changed at P10, and the guard that had to replace itself ─────────
+ *
+ * This used to read `... and status = 'draft'`, and that clause was doing real
+ * work: it made accepting the same gate twice a no-op rather than resurrecting
+ * a card the user had since suspended. Migration 0003 removed `'draft'` from
+ * the enum, so the clause could not stay — but **dropping it without a
+ * replacement would reintroduce exactly that bug**, quietly, as a side effect
+ * of an enum change.
+ *
+ * The replacement is `status = 'suspended'`, and the narrowness is the point.
+ * Acceptance must not be able to *resurrect* a card: `<> 'active'` would look
+ * natural and would let a stale gate submission pull an `'archived'` card --
+ * one the user deliberately put away -- back into the practice queue. Archived
+ * is a terminal state chosen by the user, so it is excluded; `'active'` is
+ * excluded because accepting a card twice should be a no-op. That leaves
+ * `'suspended'`, which is the only status a card awaiting acceptance can now
+ * hold.
+ *
+ * The returned id list is what tells the handler which cards actually moved, so
+ * a submission naming cards that did not qualify reports honestly rather than
+ * claiming success.
+ *
  * The scheduling columns are deliberately untouched — the card was created with
  * fresh-card state, so accepting it drops it into the `new` queue with no
  * change to `fsrs.ts` or `review_card` (SPEC §4.1 step 6).
@@ -193,7 +202,7 @@ export async function acceptDrafts(
   const result = await query<{ id: string }>(
     `update public.cards
         set status = 'active'
-      where user_id = $1 and id = any($2::uuid[]) and status = 'draft'
+      where user_id = $1 and id = any($2::uuid[]) and status = 'suspended'
       returning id`,
     [userId, cardIds],
   );

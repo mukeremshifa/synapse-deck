@@ -169,9 +169,16 @@ export function DecksPage() {
 function DeckRow({ deck, onDelete }: { deck: DeckWithCounts; onDelete: () => void }) {
   const ready = deck.dueCount + deck.newCount;
   const generating = deck.status === 'generating';
-  // A generation that was interrupted leaves drafts behind. This is the way back
-  // into the review gate (SPEC §4.1: abandoning leaves a resumable draft deck).
-  const resumable = deck.draftCount > 0;
+  // A generation that was interrupted leaves a resumable deck behind. This is
+  // the way back into the review gate (SPEC §4.1: abandoning leaves a resumable
+  // draft deck).
+  //
+  // Read from `deck.status`, not from a count of draft cards: P10's migration
+  // 0003 moved drafts to DynamoDB, so the deck list can no longer count them.
+  // `decks.status = 'draft'` is a different column with its own meaning --
+  // "generation finished, the gate has not been passed" -- and it is the one
+  // that actually says a deck is resumable.
+  const resumable = deck.status === 'draft';
 
   return (
     <Card className="hover:border-foreground/25 py-4 transition-colors">
@@ -187,16 +194,14 @@ function DeckRow({ deck, onDelete }: { deck: DeckWithCounts; onDelete: () => voi
             {plural(deck.cardCount, 'card')}
             {deck.dueCount > 0 && ` · ${deck.dueCount} due`}
             {deck.newCount > 0 && ` · ${deck.newCount} new`}
-            {resumable && ` · ${deck.draftCount} waiting to be reviewed`}
+            {resumable && ' · waiting to be reviewed'}
           </p>
         </div>
 
         {generating ? (
           <Badge variant="secondary">Writing cards…</Badge>
         ) : resumable ? (
-          <Badge variant="secondary">
-            <span className="font-mono tabular-nums">{deck.draftCount}</span> to review
-          </Badge>
+          <Badge variant="secondary">To review</Badge>
         ) : ready > 0 ? (
           <Badge variant="secondary">
             <span className="font-mono tabular-nums">{ready}</span> ready

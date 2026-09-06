@@ -18,10 +18,31 @@
  * (task 8 keeps the hook signatures identical), and these are the server's copy
  * of the same thing. Where they must agree, they agree by transcription, not by
  * a checked guarantee.
+ *
+ * ── The two sides now legitimately disagree about `card_status` ───────────
+ *
+ * P10's migration 0003 removed `'draft'` from `card_status` **on RDS only**.
+ * `src/types/database.ts` is generated from the live Supabase project, which
+ * still has that value and still serves /progress and generation until Phase F,
+ * so the generated file will keep reporting four members while this file
+ * declares three.
+ *
+ * **That is expected, and it is not fixed by hand-editing the generated file.**
+ * For anything the API serves, this file is authoritative; the generated types
+ * stay authoritative for the Supabase-backed paths until Phase F retires them.
+ * `npm run db:types` will keep producing `'draft'` and should not be
+ * interpreted as drift to correct.
  */
 
 export type CardKind = 'basic' | 'cloze' | 'mcq';
-export type CardStatus = 'draft' | 'active' | 'suspended' | 'archived';
+/**
+ * No `'draft'`. P10 removed it: drafts live in DynamoDB until the review gate
+ * accepts them, so no row is ever written with that status (migration 0003).
+ *
+ * `DeckStatus` below keeps its own `'draft'`, which is a different thing --
+ * "generation finished, the gate has not been passed" -- and is still reachable.
+ */
+export type CardStatus = 'active' | 'suspended' | 'archived';
 export type FsrsState = 'new' | 'learning' | 'review' | 'relearning';
 export type DeckStatus = 'generating' | 'draft' | 'active' | 'failed';
 export type GenSource = 'text' | 'document' | 'manual';

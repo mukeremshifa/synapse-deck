@@ -18,8 +18,6 @@ export interface DeckWithCounts extends DeckRow {
   cardCount: number;
   dueCount: number;
   newCount: number;
-  /** Generated cards still waiting at the review gate (SPEC §4.1 step 5). */
-  draftCount: number;
 }
 
 /**
@@ -36,10 +34,21 @@ export interface DeckWithCounts extends DeckRow {
  * port, and the reason is worth stating: a client fetching every card to count
  * them is a shape that only makes sense when the client *is* the API.
  *
- * `left join` so a deck with no cards still appears, with zeros. Draft cards
- * are counted but excluded from `cardCount`: a deck abandoned part-way through
- * the review gate has no active cards to advertise itself with and still has to
- * be findable from the deck list (SPEC §4.1).
+ * `left join` so a deck with no cards still appears, with zeros.
+ *
+ * ── `draftCount` is gone, and nothing replaces it here ────────────────────
+ *
+ * P10 moved drafts to DynamoDB (migration 0003 removed `'draft'` from
+ * `card_status`), so this query *cannot* count them — the rows are not in this
+ * database. Rather than return a number that would silently always be zero, the
+ * field is removed.
+ *
+ * A deck abandoned part-way through the review gate is still findable, and
+ * still marked resumable: that state is `decks.status = 'draft'`, which is a
+ * different column with a different meaning and is untouched by this phase. The
+ * deck list now says *that* a deck is waiting rather than *how many* cards are
+ * waiting; the count comes back when the gate reads its job from DynamoDB
+ * (P10 task 5).
  */
 export async function listDecks(userId: string, now: Date): Promise<DeckWithCounts[]> {
   const result = await query<DeckRow & Record<string, number>>(
@@ -47,16 +56,14 @@ export async function listDecks(userId: string, now: Date): Promise<DeckWithCoun
             d.new_cards_per_day, d.created_at, d.updated_at,
             coalesce(c.card_count, 0)::int  as "cardCount",
             coalesce(c.due_count, 0)::int   as "dueCount",
-            coalesce(c.new_count, 0)::int   as "newCount",
-            coalesce(c.draft_count, 0)::int as "draftCount"
+            coalesce(c.new_count, 0)::int   as "newCount"
        from public.decks d
        left join (
          select deck_id,
                 count(*) filter (where status = 'active')                          as card_count,
                 count(*) filter (where status = 'active'
                                    and fsrs_state <> 'new' and due <= $2)          as due_count,
-                count(*) filter (where status = 'active' and fsrs_state = 'new')   as new_count,
-                count(*) filter (where status = 'draft')                           as draft_count
+                count(*) filter (where status = 'active' and fsrs_state = 'new')   as new_count
            from public.cards
           where user_id = $1
           group by deck_id
