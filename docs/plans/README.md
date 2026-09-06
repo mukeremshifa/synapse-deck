@@ -60,7 +60,7 @@ authored against the codebase it will actually run in.
 | P10 — Ingestion  | [P10-ingestion.md](P10-ingestion.md)         | 🔨 In progress. Tasks 1–9, 11 done. Task 10 blocked on Bedrock model access. **Start here: [P10-SESSION-4.md](P10-SESSION-4.md)** |
 | P11 — Notebook shell | [P11-notebook-shell.md](P11-notebook-shell.md) | ✅ Complete — 2026-09-06. Frontend rewritten to a NotebookLM-shaped shell; backend untouched. Grounded chat deliberately unbuilt |
 | P12 — Grounded chat | [P12-grounded-chat.md](P12-grounded-chat.md) | 📋 Planned 2026-09-06. Fills P11's empty workspace pane. **Blocked on Bedrock model access**, embeddings included |
-| P13 — Exam-half UI | _(executed without a plan file — see below)_ | ✅ Frontend complete — 2026-09-06. Dashboard, blueprint, diagnostic, study plan, pipeline stages. Backend deliberately untouched |
+| P13 — Exam-half UI | _(executed without a plan file — see below)_ | ✅ **Frontend closed — 2026-09-06.** Dashboard, blueprint with citations, diagnostic, exam-date study plan, answer explanations, pipeline stages. Backend deliberately untouched; four inert affordances tabulated in SPEC §4.6 |
 
 **P7 was the last phase of v1, and the v1 board is closed.** SPEC §11 lists nothing between
 P7 and Post-v1, so for two days there was deliberately no P8 file: writing one would have
@@ -118,6 +118,35 @@ codebase it will run in; this was one session's frontend work with no schema cha
 migration and no infrastructure, which is the same reason the post-P7 landing-page revision
 did not get one. What a future session needs is in SPEC §4.5, not in a plan for work already
 done.
+
+**Finished on 2026-09-06 in a second pass, and the frontend is now closed.** Three items,
+each chosen because the repo already contained most of the work:
+
+1. **Citations.** `TopicEvidence` replaced `evidence: string[]` — a claim plus where it was
+   seen. A sentence explains; a citation proves, and grounding claims in the user's own
+   material is the property that separates this from a model answering from nothing.
+   `locator` is a display string rather than a page number **because `chunking.ts` has no
+   page dimension at all**; a `page: number` field would have been a schema inviting the
+   generator to invent one.
+2. **The exam date drives the plan.** It is the one input the product cannot derive, and
+   `planFit` reports the shortfall rather than absorbing it — truncating a plan to fit the
+   days available hides exactly the fact the student needs, while looking helpful.
+3. **Explanations, a band, and an exit.** `McqPayload.explanation` had been in the schema
+   since v1 and rendered nowhere; no schema change was needed, only the decision to show
+   it. `examBand` reuses `MASTERY_THRESHOLDS` so the results screen and the diagnostic
+   cannot disagree about the same numbers one click apart.
+
+**The four remaining inert affordances are backend-blocked, not unfinished design** — SPEC
+§4.6 tabulates them. **The AI tutor is refused rather than deferred**, and the reason is
+concrete: chunks are not persisted retrievably, so grounded chat would need an embedding
+store and a retrieval path built from nothing, and shipping it before that means a chat
+that answers from nothing.
+
+**What the backend pass inherits.** Three fixture consumers (`BlueprintPage`,
+`DiagnosticPage`, and the exam runner) and five pure modules — `blueprint.ts`,
+`study-plan.ts`, `mastery.ts`, `exam.ts`, `fsrs.ts` — none of which import a data layer.
+Replacing a fixture with a hook should require no other change to a screen, which is the
+property the fixture convention exists to prove.
 
 **Where the work lives, as of 2026-09-06.** Everything AWS-related and everything the
 parallel sessions built is on **`aws-native`**, which is the branch to check out. It is
