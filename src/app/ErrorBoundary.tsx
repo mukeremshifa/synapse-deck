@@ -245,7 +245,7 @@ function ErrorDetail({ error }: { error: Error }) {
  */
 export function RouteErrorBoundary({
   children,
-  homeTo = '/dashboard',
+  homeTo = '/notebooks',
 }: {
   children: ReactNode;
   homeTo?: string;

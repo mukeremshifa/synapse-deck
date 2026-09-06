@@ -313,7 +313,7 @@ function ReviewGate({
             <CheckCheckIcon /> Accept all
           </Button>
           <Button variant="ghost" asChild>
-            <Link to="/decks">Finish later</Link>
+            <Link to="/notebooks">Finish later</Link>
           </Button>
         </div>
       </header>
@@ -432,7 +432,7 @@ function GateSummary({
               <PlayIcon /> Practise
             </Button>
             <Button variant="outline" asChild>
-              <Link to={`/decks/${deckId}`}>Open deck</Link>
+              <Link to={`/notebooks/${deckId}`}>Open notebook</Link>
             </Button>
           </div>
         }
@@ -453,7 +453,7 @@ function GateSummary({
             <PlayIcon /> Practise now
           </Button>
           <Button variant="outline" asChild>
-            <Link to={`/decks/${deckId}`}>Open deck</Link>
+            <Link to={`/notebooks/${deckId}`}>Open notebook</Link>
           </Button>
         </div>
       </CardContent>

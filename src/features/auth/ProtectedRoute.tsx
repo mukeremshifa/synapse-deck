@@ -35,6 +35,6 @@ export function PublicOnlyRoute({ children }: { children: ReactNode }) {
   const { session, loading } = useAuth();
 
   if (loading) return null;
-  if (session) return <Navigate to="/dashboard" replace />;
+  if (session) return <Navigate to="/notebooks" replace />;
   return <>{children}</>;
 }

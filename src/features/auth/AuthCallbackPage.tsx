@@ -100,7 +100,7 @@ export function AuthCallbackPage() {
       // Already signed in — someone opened the link in a browser that has a
       // session. Nothing to confirm; send them where they were going.
       if (await getSession()) {
-        navigate('/dashboard', { replace: true });
+        navigate('/notebooks', { replace: true });
         return;
       }
 

@@ -107,7 +107,7 @@ export function LoginPage() {
     }
     // Resume whatever they were trying to reach before the guard intervened.
     const from = (location.state as { from?: { pathname: string } } | null)?.from;
-    navigate(from?.pathname ?? '/dashboard', { replace: true });
+    navigate(from?.pathname ?? '/notebooks', { replace: true });
   });
 
   return (

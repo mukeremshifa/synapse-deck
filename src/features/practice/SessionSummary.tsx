@@ -96,7 +96,7 @@ export function SessionSummary({
             </Button>
           )}
           <Button variant="secondary" asChild>
-            <Link to="/decks">Back to decks</Link>
+            <Link to="/notebooks">Back to notebooks</Link>
           </Button>
         </div>
       </CardContent>

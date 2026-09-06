@@ -65,7 +65,7 @@ export function ExamPage() {
           result={phase.result}
           outcome={phase.outcome}
           onRetake={() => setPhase({ status: 'setup' })}
-          onDone={() => void navigate('/dashboard')}
+          onDone={() => void navigate('/notebooks')}
         />
       );
   }

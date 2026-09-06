@@ -17,7 +17,7 @@ export function NotFoundPage() {
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-4 py-12">
-      <Link to="/dashboard" className="mb-8 self-center">
+      <Link to="/notebooks" className="mb-8 self-center">
         <LogoLockup />
       </Link>
       <EmptyState
@@ -36,7 +36,7 @@ export function NotFoundPage() {
         }
         action={
           <Button asChild>
-            <Link to="/dashboard">Go to dashboard</Link>
+            <Link to="/notebooks">Go to notebooks</Link>
           </Button>
         }
       />

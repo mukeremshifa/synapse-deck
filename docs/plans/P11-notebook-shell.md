@@ -117,9 +117,11 @@ chrome is rebuilt.
 
 ### Dropped unless re-earned
 
-- **Progress dashboard** (7 files, Recharts). The owner did not keep it. Recharts stays in
-  `package.json` because the exam results screen may use it; if nothing does by task 9,
-  remove the dependency in that task rather than leaving it as dead weight.
+- **Progress dashboard** (7 files, Recharts). The owner did not keep it. **Recharts was
+  removed from `package.json`** once the pages went: nothing else imported it (the exam
+  results screen draws its own bars in CSS), and a dependency no module references is
+  weight in the lockfile and a false signal about what the app draws with. It comes back
+  with the diagnostic, if the diagnostic wants it.
 - **Landing page + marketing showcase** (4 files). `/` becomes the notebook list for a
   signed-in user and the sign-in door otherwise.
 - **Dashboard.** Its job is the notebook list now.

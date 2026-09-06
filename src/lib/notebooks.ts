@@ -84,6 +84,7 @@ export const notebookPath = {
   open: (id: string) => `/notebooks/${id}`,
   /** The review gate. Still `/create/review/:deckId` on the router. */
   gate: (id: string) => `/create/review/${id}`,
+  cards: (id: string) => `/notebooks/${id}/cards`,
   practice: (id: string) => `/notebooks/${id}/practice`,
   exam: (id: string) => `/notebooks/${id}/exam`,
 } as const;

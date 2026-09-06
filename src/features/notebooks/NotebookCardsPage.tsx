@@ -47,8 +47,10 @@ const KIND_LABELS: Record<CardKind, string> = {
  * reading the card you came for.
  */
 
-export function DeckDetailPage() {
-  const { deckId } = useParams<{ deckId: string }>();
+export function NotebookCardsPage() {
+  // The route says notebookId; the hooks say deckId. Same id — the rename
+  // stopped at the wire (`src/lib/notebooks.ts`).
+  const { notebookId: deckId } = useParams<{ notebookId: string }>();
   const deck = useDeck(deckId);
   const cards = useCards(deckId);
 
@@ -115,10 +117,10 @@ export function DeckDetailPage() {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link
-            to="/decks"
+            to={deckId ? `/notebooks/${deckId}` : '/notebooks'}
             className="text-muted-foreground text-sm underline-offset-4 hover:underline"
           >
-            ← All decks
+            ← Back to the notebook
           </Link>
           <h1 className="mt-1 font-serif text-3xl tracking-tight">
             {deck.data?.title ?? <Skeleton className="h-8 w-48" />}

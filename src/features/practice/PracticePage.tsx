@@ -10,7 +10,17 @@ import { resolveTimeZone, startOfNextStudyDay } from '@/lib/day';
 import { PracticeSession } from './PracticeSession';
 
 export function PracticePage() {
-  const { deckId } = useParams<{ deckId?: string }>();
+  /*
+   * The route says `:notebookId` (P11) and everything below this line says
+   * deckId, because the rename stopped at the wire — `usePracticeQueue` and
+   * `useDeck` take the id the API knows. Same id, two names, translated here.
+   *
+   * This is the seam that broke silently during the rewrite: with the param
+   * still read as `deckId`, the route supplied nothing, `usePracticeQueue`
+   * fell back to its every-deck queue, and a user practising one notebook got
+   * cards from all of them. Nothing typechecks that, so it is named here.
+   */
+  const { notebookId: deckId } = useParams<{ notebookId?: string }>();
   const deck = useDeck(deckId);
   const { data: profile } = useProfile();
   const queue = usePracticeQueue(deckId);
@@ -124,7 +134,7 @@ function NothingDue({
         }
         action={
           <Button asChild variant="outline">
-            <Link to="/decks">Back to decks</Link>
+            <Link to="/notebooks">Back to notebooks</Link>
           </Button>
         }
       />
@@ -138,8 +148,8 @@ function NothingDue({
       description="Add a few cards and they will appear here straight away."
       action={
         <Button asChild>
-          <Link to={deckId ? `/decks/${deckId}` : '/decks'}>
-            {deckId ? 'Add cards to this deck' : 'Go to decks'}
+          <Link to={deckId ? `/notebooks/${deckId}` : '/notebooks'}>
+            {deckId ? 'Open this notebook' : 'Go to notebooks'}
           </Link>
         </Button>
       }
