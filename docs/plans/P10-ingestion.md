@@ -864,13 +864,26 @@ Into `SPEC.md`, in the commit that implements them:
 - What a draft is, once drafts live in DynamoDB before acceptance (task 4).
 - The quota unit for document work (task 8) — a product decision, and §4.1 step 3 currently
   describes the old one.
+
+  **✅ Decided and recorded, 2026-09-06.** **One chunk = one model call = one unit**, with
+  the monthly allowance rebased from 30 generations to **300 units**. A pasted passage is
+  one chunk and still costs 1, so a paste-only user is strictly better off (300 rather than
+  30); a document costs what it fans out to, capped at `MAX_CHUNKS_PER_JOB` (40). Charging
+  per upload was rejected outright: it prices a 3-page PDF and a 300-page textbook the same.
+
+  The whole job is priced **before dispatch** — the document is chunked, the cost is known
+  exactly, and an unaffordable request is refused before a deck, a generation row or a
+  state-machine execution exists. A refusal names the shortfall ("this needs 40 units and
+  you have 12 left") rather than just saying no. SPEC §4.1 step 3, §5.5 and §7.5 control 3
+  are updated.
 - Where topics come from and how they reconcile (task 7), plus an ADR.
 
 Into `docs/plans/P9-aws-slice.md`:
 
 - The cold-start number, replacing task 2's placeholder.
 - The cross-tenant check output, under acceptance criterion 5.
-- `generations` moving off Supabase, in the split table.
+- `generations` moving off Supabase, in the split table. **✅ Done at task 8**, along with
+  the two-ledger seam that stays open until task 9 moves `/create/text`.
 
 ---
 

@@ -32,8 +32,19 @@ import {
   type JobRecord,
 } from '../data/jobs.ts';
 import { createDeck } from '../data/decks.ts';
+import { createGeneration, readGenerationCounts } from '../data/generations.ts';
 import { startIngestion } from '../data/pipeline.ts';
 import { readDocumentText, assertOwnedKey } from '../data/uploads.ts';
+import { chunkDocument } from '../lib/chunking.ts';
+import {
+  GENERATION_QUOTA,
+  decideGeneration,
+  monthWindow,
+  rateWindowStart,
+  remainingUnits,
+  staleRunningBefore,
+  unitsForChunks,
+} from '../lib/quota.ts';
 import {
   errorResponse,
   json,
@@ -127,6 +138,53 @@ export async function handler(event: ApiEvent): Promise<ApiResponse> {
 
       const text = await readDocumentText(userId, parsed.data.objectKey);
 
+      // ── The quota gate ───────────────────────────────────────────────────
+      //
+      // **Everything below this point costs money, and nothing above it does.**
+      // The document is chunked here rather than inside the pipeline so the
+      // price is known exactly -- one chunk is one model call is one unit --
+      // before a deck exists, before a job record exists, and before Step
+      // Functions is handed anything.
+      //
+      // Refusing at chunk 30 of 40 would leave the user charged for 30 calls
+      // and holding a deck covering three quarters of a document. The whole job
+      // is priced or none of it runs.
+      //
+      // The chunking is not wasted: `startIngestion` needs the same chunks, so
+      // they are computed once and passed down rather than recomputed.
+      const chunked = chunkDocument(text);
+      const units = unitsForChunks(chunked.chunks.length);
+
+      const now = new Date();
+      const month = monthWindow(now);
+      const counts = await readGenerationCounts(userId, {
+        monthStart: month.start,
+        monthEnd: month.end,
+        windowStart: rateWindowStart(now),
+        staleBefore: staleRunningBefore(now),
+      });
+
+      const decision = decideGeneration({
+        usedThisMonth: counts.usedThisMonth,
+        inWindow: counts.inWindow,
+        running: counts.running,
+        units,
+        // Not the ceiling that applies here. `maxInputChars` bounds a single
+        // assembled prompt, and a document is never sent as one -- each chunk
+        // is its own call, and `CHUNK_TARGET_CHARS` keeps every one of them far
+        // inside it. Passing the document's full length would refuse every
+        // document over 28k characters, which is most of the ones worth
+        // uploading. The real ceiling on a document is MAX_CHUNKS_PER_JOB.
+        promptChars: 0,
+      });
+
+      if (!decision.allowed) {
+        // 402, not 400: the request is well formed and would be accepted with a
+        // larger allowance. The code travels so the client can tell a quota
+        // refusal from a rate limit without parsing prose.
+        throw new ApiError(402, decision.message, decision.code);
+      }
+
       // The deck exists before the cards do, so the job has somewhere to put
       // them and the deck list can show that something is happening.
       const deck = await createDeck(userId, {
@@ -134,6 +192,22 @@ export async function handler(event: ApiEvent): Promise<ApiResponse> {
         description: null,
         source: 'document',
         status: 'generating',
+      });
+
+      // Written before the work starts, with `status = 'running'`, which is what
+      // makes the concurrency limit real: three tabs opened at once each see the
+      // others' rows. A row written on completion would count nothing while it
+      // mattered most.
+      await createGeneration(userId, {
+        deckId: deck.id,
+        source: 'document',
+        // The provider is resolved per chunk inside the pipeline, so the model
+        // is not known here. Recorded when the job finishes rather than guessed
+        // now -- a wrong name in the cost trail is worse than a pending one.
+        model: 'pending',
+        inputChars: text.length,
+        cardsRequested: parsed.data.cardCount,
+        units,
       });
 
       const jobId = randomUUID();
@@ -146,10 +220,30 @@ export async function handler(event: ApiEvent): Promise<ApiResponse> {
         depth: parsed.data.depth,
       });
 
-      return json(202, { jobId, deckId: deck.id });
+      return json(202, { jobId, deckId: deck.id, units });
     }
 
     if (method !== 'GET') throw new ApiError(405, `${method} is not allowed here.`);
+
+    // `GET /quota` — what the upload and paste screens show before a user
+    // commits to a job. Advisory: this endpoint reports, `POST /jobs` refuses,
+    // and both read `src/lib/quota.ts` so they cannot disagree.
+    if (event.requestContext.http.path.endsWith('/quota')) {
+      const now = new Date();
+      const month = monthWindow(now);
+      const counts = await readGenerationCounts(userId, {
+        monthStart: month.start,
+        monthEnd: month.end,
+        windowStart: rateWindowStart(now),
+        staleBefore: staleRunningBefore(now),
+      });
+      return json(200, {
+        used: counts.usedThisMonth,
+        remaining: remainingUnits(counts.usedThisMonth),
+        limit: GENERATION_QUOTA.monthlyUnits,
+        resetsAt: month.end.toISOString(),
+      });
+    }
 
     // `GET /jobs?deckId=…` — the review gate's lookup (task 6). It knows the
     // deck it is showing and needs the job that produced it, so that it can say

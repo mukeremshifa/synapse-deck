@@ -9,12 +9,6 @@ import { supabase } from './supabase';
 import { CardPayload, DeckInput, Grade, ProfileSettings, type CardKind } from './schemas';
 import { applyGrade, type SchedulePreview } from './fsrs';
 import {
-  GENERATION_QUOTA,
-  monthWindow,
-  quotaCountFilter,
-  remainingGenerations,
-} from './quota';
-import {
   addStudyDays,
   detectTimeZone,
   resolveTimeZone,
@@ -671,32 +665,25 @@ export type QuotaUsage = {
 /**
  * How much of the monthly allowance is gone (SPEC §4.1 step 3).
  *
- * Advisory: the Edge Function counts the same rows with the same filter and is
- * the only thing that can actually refuse. Showing the number here is what stops
- * the refusal being a surprise at submit time.
+ * **Units, not generations, since P10 task 8.** One unit is one chunk is one
+ * model call, so a pasted passage costs 1 and a 40-chunk document costs 40. The
+ * numbers this returns are therefore an order of magnitude larger than they
+ * were, and `limit` is 300 rather than 30.
+ *
+ * **Moved off Supabase.** `generations` now lives on RDS and the count comes
+ * from `GET /quota`, which is the split table's own schedule (`generations` +
+ * quota → Phase B). The arithmetic is no longer done here at all: it is a
+ * `sum(units)` in Postgres, because the client can no longer see the rows.
+ *
+ * Advisory, as it always was: this reports and `POST /jobs` refuses. Both read
+ * their thresholds from `src/lib/quota.ts`, so the number shown here and the
+ * number that refuses cannot disagree. Showing it is what stops the refusal
+ * being a surprise at submit time.
  */
 export function useQuotaUsage() {
   return useQuery({
     queryKey: queryKeys.quota,
-    queryFn: async (): Promise<QuotaUsage> => {
-      const now = new Date();
-      const month = monthWindow(now);
-      const result = await supabase
-        .from('generations')
-        .select('id', { count: 'exact', head: true })
-        .gte('created_at', month.start.toISOString())
-        .lt('created_at', month.end.toISOString())
-        .or(quotaCountFilter(now));
-      if (result.error) throw result.error;
-
-      const used = result.count ?? 0;
-      return {
-        used,
-        remaining: remainingGenerations(used),
-        limit: GENERATION_QUOTA.monthlyGenerations,
-        resetsAt: month.end.toISOString(),
-      };
-    },
+    queryFn: (): Promise<QuotaUsage> => api.get<QuotaUsage>('/quota'),
     staleTime: 30_000,
   });
 }

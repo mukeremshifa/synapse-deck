@@ -154,8 +154,10 @@ export function SettingsPage() {
         <CardHeader>
           <CardTitle>Card generation</CardTitle>
           <CardDescription>
-            How much of this month&rsquo;s allowance is left. The count comes from the
-            generations themselves, so it is what the server will enforce.
+            How much of this month&rsquo;s allowance is left, in units &mdash; one unit
+            per section of text sent to the model, so a pasted passage costs one and a
+            document costs what it splits into. The count comes from the generations
+            themselves, so it is what the server will enforce.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -176,7 +178,7 @@ export function SettingsPage() {
               <p className="text-muted-foreground text-sm">
                 {quota.data.used === 0
                   ? 'You have not generated any cards this month.'
-                  : `${quota.data.used} used since the 1st.`}{' '}
+                  : `${quota.data.used} units used since the 1st.`}{' '}
                 The allowance resets on {formatDate(new Date(quota.data.resetsAt), 'UTC')}{' '}
                 (UTC).
               </p>

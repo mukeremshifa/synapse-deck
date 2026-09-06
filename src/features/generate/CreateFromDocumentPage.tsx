@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { FileTextIcon, UploadIcon, XIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api-client';
+import { queryKeys, useQuotaUsage } from '@/lib/queries';
 import { UPLOAD_LIMITS } from '@/lib/schemas';
 import { cn } from '@/lib/utils';
 import { useJobProgress } from './useJobProgress';
@@ -40,6 +42,28 @@ import { useUploadDocument, validateFile } from './useUploadDocument';
 
 const MAX_MB = Math.round(UPLOAD_LIMITS.maxBytes / (1024 * 1024));
 
+/**
+ * The remaining allowance, in units.
+ *
+ * Renders nothing while loading or on error rather than a placeholder: this is
+ * advisory (the API is what refuses), and a spinner or an error where a number
+ * belongs draws attention to the wrong thing on a screen whose job is uploading
+ * a file.
+ */
+function QuotaLine() {
+  const quota = useQuotaUsage();
+  if (!quota.data) return null;
+  return (
+    <p className="text-muted-foreground text-xs">
+      <span className="text-foreground font-mono tabular-nums">
+        {quota.data.remaining}
+      </span>{' '}
+      of <span className="font-mono tabular-nums">{quota.data.limit}</span> units left this
+      month — a document costs one unit per section it is split into.
+    </p>
+  );
+}
+
 function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -52,6 +76,7 @@ export function CreateFromDocumentPage() {
   const [dragging, setDragging] = useState(false);
   const { phase, percent, error, upload, reset } = useUploadDocument();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const [title, setTitle] = useState('');
   const [jobId, setJobId] = useState<string | undefined>();
@@ -74,7 +99,10 @@ export function CreateFromDocumentPage() {
 
       setStarting(true);
       try {
-        const started = await api.post<{ jobId: string; deckId: string }>('/jobs', {
+        // `units` comes back so the caller knows what the job actually cost --
+        // the price is decided server-side from the chunk count, which the
+        // client cannot compute without the parsed text (P10 task 8).
+        const started = await api.post<{ jobId: string; deckId: string; units: number }>('/jobs', {
           objectKey: key,
           // Fall back to the filename minus its extension: a title is required,
           // and making the user type one they already expressed by choosing the
@@ -82,6 +110,11 @@ export function CreateFromDocumentPage() {
           deckTitle: title.trim() === '' ? chosen.name.replace(/\.pdf$/i, '') : title.trim(),
         });
         setJobId(started.jobId);
+        // The job has spent its units, so the figure on screen is now stale.
+        // Without this the allowance only refreshes on a reload, and a user
+        // starting a second upload would be reading a number from before the
+        // first one (P10 task 8).
+        void queryClient.invalidateQueries({ queryKey: queryKeys.quota });
       } catch (caught) {
         setStartError(
           caught instanceof Error ? caught.message : 'The job could not be started.',
@@ -90,7 +123,7 @@ export function CreateFromDocumentPage() {
         setStarting(false);
       }
     },
-    [title, upload],
+    [title, upload, queryClient],
   );
 
   const choose = useCallback(
@@ -137,6 +170,14 @@ export function CreateFromDocumentPage() {
             PDF, up to {MAX_MB} MB. The text has to be selectable — a scanned page is a
             picture of text, and nothing here can read it.
           </CardDescription>
+          {/*
+            Shown here and not only on the text page, because this is the screen
+            where the price actually varies: a paste costs one unit, a document
+            costs one per section it splits into. A user about to upload a
+            textbook should be able to see the allowance before they spend it
+            rather than after (P10 task 8).
+          */}
+          <QuotaLine />
         </CardHeader>
 
         <CardContent className="space-y-4">

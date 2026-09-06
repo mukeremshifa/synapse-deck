@@ -144,7 +144,7 @@ becoming permanent. **No screen is live on both backends at once.**
 | `reviews` | **RDS** | P9 |
 | Practice queue, review write path | **RDS** | P9 |
 | `/progress` aggregates | **Supabase** — untouched | Phase F |
-| `generations` + quota | **Supabase** — untouched | Phase B |
+| `generations` + quota | **RDS** — moved at P10 task 8 | ✅ Phase B |
 | `/create/text` generation | **Supabase Edge Function** — untouched | Phase B |
 
 **Why `/progress` and generation stay.** Progress reads
@@ -156,6 +156,19 @@ means writing it twice. Both would violate "no feature is built twice."
 user's decks live in RDS while their progress chart reads Supabase. **Task 10 makes
 `/progress` state plainly that it is showing pre-migration data**, rather than silently
 showing a chart that no longer matches the deck list.
+
+**`generations` moved at P10 task 8, and it left one seam open until task 9.** The quota a
+user sees, and the one `POST /jobs` enforces, is now `sum(units)` over the **RDS** table.
+The Edge Function behind `/create/text` still counts **its own Supabase rows**, because it
+still writes them — so for the window between task 8 and task 9 the two paths bill against
+two separate ledgers, and neither sees the other's spending.
+
+This is a real gap and it is named rather than hidden: a user could spend 300 units on
+documents and still paste text, or the reverse. It is bounded and small — nothing here is
+deployed, `/create/text` is the only route still on the Edge Function, and **task 9 closes
+it by moving that route onto the same pipeline and deleting the Edge Function's quota
+path entirely.** It is not a case of the same feature built twice: it is one feature
+mid-move, with the old half still running until the new half replaces it.
 
 **Phase F ends this and is not optional.**
 

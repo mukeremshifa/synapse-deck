@@ -36,8 +36,37 @@
  * request that passes the first check does not then die at the second.
  */
 export const GENERATION_QUOTA = {
-  /** Per user, per calendar month (SPEC §7.5 control 3). */
-  monthlyGenerations: 30,
+  /**
+   * Per user, per calendar month, **counted in units rather than requests**
+   * (SPEC §7.5 control 3).
+   *
+   * ── Why this number changed at P10 ────────────────────────────────────
+   *
+   * It was 30, when a generation was one pasted passage and one model call.
+   * Document ingestion breaks that equivalence: a document fans out into up to
+   * `MAX_CHUNKS_PER_JOB` chunks and **each chunk is its own model call**, so
+   * "one upload = one generation" would charge the same for one call and for
+   * forty. That is the version of this a user finds unfair the first time it
+   * matters, and the brief says to charge by work done rather than by button
+   * press.
+   *
+   * So the unit is now **one chunk = one model call = one unit**, and the
+   * monthly allowance is rebased to 300 to keep the old behaviour affordable:
+   * a pasted passage is still one chunk and therefore still costs 1, so a user
+   * who only ever pastes text gets 300 rather than 30 — strictly more than
+   * before. A user who uploads documents spends proportionally to what they
+   * actually asked the model to do.
+   *
+   *   a pasted passage        1 chunk   →   1 unit
+   *   a 3-page PDF           ~2 chunks  →   2 units
+   *   a 30-page PDF         ~15 chunks  →  15 units
+   *   a 300-page textbook    40 chunks  →  40 units  (the chunk cap)
+   *
+   * 300 units is ~7 full-size documents, or many small ones, or the same 300
+   * pastes. The ceiling that actually bounds the bill is
+   * `MAX_CHUNKS_PER_JOB` — this bounds how often a user may reach it.
+   */
+  monthlyUnits: 300,
   /** SPEC §7.5 control 4: a short-window burst limiter, per user. */
   windowSeconds: 60,
   perWindow: 3,
@@ -127,13 +156,41 @@ export function estimateTokens(chars: number): number {
   return Math.ceil(chars / GENERATION_QUOTA.charsPerToken);
 }
 
-export function remainingGenerations(usedThisMonth: number): number {
-  return Math.max(0, GENERATION_QUOTA.monthlyGenerations - usedThisMonth);
+export function remainingUnits(usedThisMonth: number): number {
+  return Math.max(0, GENERATION_QUOTA.monthlyUnits - usedThisMonth);
+}
+
+/**
+ * What a job will cost, in units, **before it is dispatched**.
+ *
+ * One chunk is one model call is one unit. This is deliberately a function of
+ * the chunk count rather than of the character count: the chunker is what
+ * decides how many calls happen, so anything else would be an estimate of a
+ * number already known exactly.
+ *
+ * The floor of 1 covers a document that chunks to nothing (an empty or
+ * whitespace-only upload). Such a job does no work and will be refused for
+ * other reasons, but a cost of 0 would make it free to submit in a loop.
+ */
+export function unitsForChunks(chunkCount: number): number {
+  return Math.max(1, chunkCount);
 }
 
 export type GenerationCounts = {
-  /** Non-refused `generations` rows this calendar month. */
+  /**
+   * Units consumed this calendar month, summed from `generations.units` —
+   * **not** a row count. A month holding one 40-chunk document has used 40.
+   */
   usedThisMonth: number;
+  /**
+   * What the job being decided will cost, from `unitsForChunks`. One for a
+   * pasted passage; up to `MAX_CHUNKS_PER_JOB` for a document.
+   *
+   * Required rather than optional: a default of 1 here would silently let a
+   * 40-chunk document through a check that thought it was pricing one call,
+   * which is the whole failure this parameter exists to prevent.
+   */
+  units: number;
   /** Rows created inside the burst window. */
   inWindow: number;
   /** Rows still `running` and recent enough to believe. */
@@ -159,14 +216,27 @@ export type GenerationDecision =
  * generations left this month sends them round a loop that cannot end.
  */
 export function decideGeneration(counts: GenerationCounts): GenerationDecision {
-  if (counts.usedThisMonth >= GENERATION_QUOTA.monthlyGenerations) {
+  const remaining = remainingUnits(counts.usedThisMonth);
+
+  // **The whole job is priced before any of it runs.** Refusing at chunk 30 of
+  // 40 -- after the money is spent and with a deck covering three quarters of a
+  // document -- is the worst version of a quota, and it is the specific failure
+  // this ordering exists to prevent.
+  if (counts.units > remaining) {
     return {
       allowed: false,
       code: 'quota_exceeded',
+      // The shortfall is named rather than implied. "You are out of quota" on a
+      // document the user could have uploaded in two halves is a dead end; the
+      // numbers are what make the next move obvious.
       message:
-        `You have used all ${GENERATION_QUOTA.monthlyGenerations} generations for this ` +
-        'month. The allowance resets on the 1st. You can still add cards by hand, and ' +
-        'every deck you already have keeps working.',
+        remaining === 0
+          ? `You have used all ${GENERATION_QUOTA.monthlyUnits} units for this month. ` +
+            'The allowance resets on the 1st. You can still add cards by hand, and ' +
+            'every deck you already have keeps working.'
+          : `This needs ${counts.units} units and you have ${remaining} left this ` +
+            'month. The allowance resets on the 1st. A shorter section, or part of ' +
+            'this document, would fit.',
     };
   }
 

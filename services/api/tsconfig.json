@@ -60,6 +60,7 @@
   "include": [
     "src",
     "../../src/lib/schemas.ts",
-    "../../src/lib/day.ts"
+    "../../src/lib/day.ts",
+    "../../src/lib/quota.ts"
   ]
 }

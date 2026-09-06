@@ -4,7 +4,7 @@ import {
   monthWindow,
   quotaCountFilter,
   rateWindowStart,
-  remainingGenerations,
+  remainingUnits,
   staleRunningBefore,
   type GenerationDecision,
 } from '../../../src/lib/quota.ts';
@@ -76,12 +76,21 @@ export async function checkGenerationAllowed(
     usedThisMonth,
     inWindow: recent.count ?? 0,
     running: running.count ?? 0,
+    // One pasted passage is one model call, so it costs exactly one unit -- the
+    // pricing this path has always had, now stated in the units the policy
+    // counts in. Documents are the multi-unit case and they do not come through
+    // here; they go through `POST /jobs` on the API, which prices the whole
+    // fan-out before dispatching it (P10 task 8).
+    //
+    // This function is on borrowed time regardless: task 9 moves /create/text
+    // onto the same pipeline and deletes it.
+    units: 1,
     promptChars,
   });
 
   return {
     ...decision,
     usedThisMonth,
-    remaining: remainingGenerations(usedThisMonth),
+    remaining: remainingUnits(usedThisMonth),
   };
 }

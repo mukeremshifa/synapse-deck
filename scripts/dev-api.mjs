@@ -198,6 +198,7 @@ const ROUTES = [
   { method: 'POST', pattern: /^\/jobs$/, fn: 'jobs' },
   { method: 'GET', pattern: /^\/jobs$/, fn: 'jobs' },
   { method: 'GET', pattern: /^\/jobs\/([^/]+)$/, fn: 'jobs', params: ['jobId'] },
+  { method: 'GET', pattern: /^\/quota$/, fn: 'jobs' },
 
   { method: 'GET', pattern: /^\/queue$/, fn: 'reviews' },
   { method: 'GET', pattern: /^\/summary$/, fn: 'reviews' },

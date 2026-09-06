@@ -217,7 +217,7 @@ export function CreateFromTextPage() {
 
               {outOfQuota && (
                 <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-sm">
-                  You have used all {quota.data?.limit} generations this month. You can
+                  You have used all {quota.data?.limit} units this month. You can
                   still add cards by hand from any deck, and everything you already have
                   keeps working.
                 </p>
@@ -403,7 +403,7 @@ function QuotaNote({ remaining, limit }: { remaining?: number; limit?: number })
   return (
     <span>
       <span className="text-foreground font-mono tabular-nums">{remaining}</span> of{' '}
-      <span className="font-mono tabular-nums">{limit}</span> generations left this month
+      <span className="font-mono tabular-nums">{limit}</span> units left this month
       ·{' '}
       <Link to="/settings" className="underline underline-offset-4">
         settings

@@ -90,8 +90,9 @@ Not designed for: teachers assigning decks to classes; teams sharing decks.
 2. Chooses: number of cards (3–50), allowed card types, difficulty/depth, deck title
    (auto-suggested from the text).
 3. Client shows an estimated size (characters, plus an approximate token figure) and
-   remaining monthly quota before submitting. The estimate is advisory; the Edge
-   Function enforces the real limits (§7.5).
+   remaining monthly quota before submitting. The estimate is advisory; the server
+   enforces the real limits (§7.5). Quota is measured in **units** — one per chunk, one per
+   model call — so a pasted passage costs 1 and a document costs what it fans out to.
 4. Submit → Edge Function streams cards back. Each card appears in a **staging list** as it
    arrives, with skeleton rows for the ones still coming.
 5. **Review gate:** user edits, rejects, or accepts individual cards. Bulk accept-all.
@@ -343,6 +344,7 @@ create table generations (
   cards_requested int not null,
   cards_returned int not null default 0,
   cards_accepted int,
+  units int not null check (units >= 1),   -- P10: one per chunk, one per model call
   cost_usd numeric(10,6),
   status text not null default 'running',  -- running | succeeded | failed | refused
   error text,
@@ -354,6 +356,21 @@ create index on generations (user_id, created_at desc);
 
 Quota is **counted from this table**, not tracked in a mutable counter — no drift, and it
 doubles as the cost dashboard.
+
+**Counted as `sum(units)`, not `count(*)` (P10 task 8).** Until document ingestion, one row
+was one generation was one model call, so counting rows was the answer. A document fans out
+into up to 40 chunks and **each chunk is its own model call**, so one row may now represent
+one call or forty. `units` records what the row cost; the principle is unchanged, only the
+arithmetic.
+
+`units` is `not null` **with no default**, deliberately. History was backfilled at 1 (every
+pre-P10 row genuinely was one call), and then the default was dropped so a later insert that
+forgets to price itself fails loudly instead of silently under-charging a 40-chunk document
+as though it were one call.
+
+**On RDS since P10 task 8**, with `units`. The Supabase copy has no such column and does not
+need one: everything that writes it there is a single pasted passage, so one row is still one
+unit. See the split table in `docs/plans/P9-aws-slice.md`.
 
 ### 5.6 `profiles`
 
@@ -654,7 +671,24 @@ Controls, all enforced in the Edge Function, never client-side:
    shown in the UI is an estimate and is never the enforcement mechanism. The arithmetic:
    28,000 ÷ 4 chars/token ≈ 7,000 input tokens, plus `max_tokens` 4,096 ≈ 11,100, which is
    ~92% of the pinned model's 12,000 token/minute ceiling.
-3. **Monthly quota** — **30 generations per user per month**, counted from `generations`.
+3. **Monthly quota** — **300 units per user per month**, summed from `generations.units`.
+   **One unit is one chunk is one model call** (P10 task 8). A pasted passage is a single
+   chunk and so costs 1, exactly as before; a document costs what it fans out to, up to the
+   40-chunk cap. Charging per upload instead would price a 3-page PDF and a 300-page
+   textbook the same, which is the version a user finds unfair the first time it matters.
+
+   The allowance was rebased from 30 generations to 300 units so that the paste-only user
+   is strictly better off (300 rather than 30), while a document spends in proportion to
+   the work it asks for. 300 units is roughly seven full-size documents, or many small
+   ones, or the same 300 pastes.
+
+   **The whole job is priced before any of it runs.** The document is chunked, the cost is
+   known exactly, and the request is refused *before* a deck or job record exists —
+   refusing at chunk 30 of 40, after the money is spent and with a deck covering three
+   quarters of a document, is the worst version of a quota. A refusal that cannot be
+   afforded names the shortfall ("this needs 40 units and you have 12 left") rather than
+   just saying no, because the numbers are what make the next move obvious.
+
    Free tier, so the cost of a generation is $0 and the number is a fair-share limit on the
    shared key rather than a bill. A row spends an allowance when it produced cards, or
    while it is still running: a refusal and a failure that returned nothing spend nothing,

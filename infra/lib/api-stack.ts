@@ -383,6 +383,9 @@ export class ApiStack extends Stack {
     route('/uploads', [HttpMethod.POST], uploadsFn, 'UploadsInt');
     route('/jobs', [HttpMethod.GET, HttpMethod.POST], jobsFn, 'JobsInt');
     route('/jobs/{jobId}', [HttpMethod.GET], jobsFn, 'JobInt');
+    // Served by the jobs function because quota is read from the same table it
+    // writes on dispatch (P10 task 8).
+    route('/quota', [HttpMethod.GET], jobsFn, 'QuotaInt');
 
     route('/queue', [HttpMethod.GET], reviewsFn, 'QueueInt');
     route('/summary', [HttpMethod.GET], reviewsFn, 'SummaryInt');
