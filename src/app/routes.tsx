@@ -8,6 +8,7 @@ import { AuthCallbackPage } from '@/features/auth/AuthCallbackPage';
 import { LoginPage, SignupPage } from '@/features/auth/AuthPages';
 import { ProtectedRoute, PublicOnlyRoute } from '@/features/auth/ProtectedRoute';
 import { NotebookListPage } from '@/features/notebooks/NotebookListPage';
+import { DashboardPage } from '@/features/dashboard/DashboardPage';
 
 /**
  * The route table, rewritten for the notebook shell (P11).
@@ -88,6 +89,16 @@ const SettingsPage = lazy(() =>
     default: module.SettingsPage,
   })),
 );
+const BlueprintPage = lazy(() =>
+  import('@/features/blueprint/BlueprintPage').then(module => ({
+    default: module.BlueprintPage,
+  })),
+);
+const DiagnosticPage = lazy(() =>
+  import('@/features/plan/DiagnosticPage').then(module => ({
+    default: module.DiagnosticPage,
+  })),
+);
 
 /** Page-shaped, so the layout does not jump when the real page arrives. */
 function Lazy({ children }: { children: ReactNode }) {
@@ -143,7 +154,7 @@ function LegacyDeckRedirect() {
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate replace to="/notebooks" />} />
+      <Route path="/" element={<Navigate replace to="/home" />} />
 
       {/* ── The list and settings, inside the page shell ─────────────────── */}
       <Route
@@ -153,7 +164,29 @@ export function AppRoutes() {
           </ProtectedRoute>
         }
       >
+        {/*
+          The dashboard is eager, like the notebook list, because it is now what
+          `/` resolves to — lazily loading the first screen behind the sign-in
+          would put a spinner where the app's content should already be.
+        */}
+        <Route path="home" element={<DashboardPage />} />
         <Route path="notebooks" element={<NotebookListPage />} />
+        <Route
+          path="notebooks/:notebookId/blueprint"
+          element={
+            <Lazy>
+              <BlueprintPage />
+            </Lazy>
+          }
+        />
+        <Route
+          path="notebooks/:notebookId/diagnostic"
+          element={
+            <Lazy>
+              <DiagnosticPage />
+            </Lazy>
+          }
+        />
         <Route
           path="notebooks/:notebookId/cards"
           element={
@@ -228,7 +261,7 @@ export function AppRoutes() {
 
       {/* Old paths, kept as redirects. A bookmark or a link in the owner's
           notes should not 404 because the nouns changed. */}
-      <Route path="dashboard" element={<Navigate replace to="/notebooks" />} />
+      <Route path="dashboard" element={<Navigate replace to="/home" />} />
       <Route path="decks" element={<Navigate replace to="/notebooks" />} />
       <Route path="decks/:notebookId" element={<LegacyDeckRedirect />} />
 

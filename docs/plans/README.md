@@ -60,6 +60,7 @@ authored against the codebase it will actually run in.
 | P10 — Ingestion  | [P10-ingestion.md](P10-ingestion.md)         | 🔨 In progress. Tasks 1–9, 11 done. Task 10 blocked on Bedrock model access. **Start here: [P10-SESSION-4.md](P10-SESSION-4.md)** |
 | P11 — Notebook shell | [P11-notebook-shell.md](P11-notebook-shell.md) | ✅ Complete — 2026-09-06. Frontend rewritten to a NotebookLM-shaped shell; backend untouched. Grounded chat deliberately unbuilt |
 | P12 — Grounded chat | [P12-grounded-chat.md](P12-grounded-chat.md) | 📋 Planned 2026-09-06. Fills P11's empty workspace pane. **Blocked on Bedrock model access**, embeddings included |
+| P13 — Exam-half UI | _(executed without a plan file — see below)_ | ✅ Frontend complete — 2026-09-06. Dashboard, blueprint, diagnostic, study plan, pipeline stages. Backend deliberately untouched |
 
 **P7 was the last phase of v1, and the v1 board is closed.** SPEC §11 lists nothing between
 P7 and Post-v1, so for two days there was deliberately no P8 file: writing one would have
@@ -87,6 +88,36 @@ with a blueprint generator, a timed exam runner, and a diagnostic that turns exa
 scheduled cards. Eight phases are scoped in the brief's §5, roughly 25–35 sessions.
 `SPEC.md` §1 carries a pointer to that direction but **still describes v1**, deliberately:
 it is rewritten by the phase that first implements the new loop, not in advance.
+
+**The exam half got its frontend on 2026-09-06, ahead of its backend.** Owner's
+instruction: build the screens now, do the backend in a separate pass. That is the same
+ordering P11 used for the notebook shell and P9's preconditions used for the exam runner, so
+it needed no new argument — but it did produce two things worth recording on the board.
+
+**It reversed a P11 decision, and the reversal is narrower than it looks.** P11 deleted
+`DashboardPage` because it and the notebook list had become two views of one thing. That was
+right about those two screens. It stopped being right when the product grew a second half:
+"what should I do now?" spans notebooks and spans both halves of the loop, and a list cannot
+answer it. So a dashboard is back at `/home`, and `AppShell` — which P11 left with no
+navigation, arguing a one-item nav bar should not exist — now has two links. **The P11 rule
+that actually mattered survives untouched**: an activity you perform *on* a notebook never
+appears in global nav. That is the test a third link would have to pass.
+
+**Three new pure modules, and one of them cashes in work that was already there.**
+`blueprint.ts` and `study-plan.ts` are new; the diagnostic screen mostly just *renders*
+`mastery.ts`, which has computed a two-signal topic model since it was written and which
+nothing had ever displayed. The most valuable thing in that phase was the least visible.
+
+**What is fixture-backed is marked in the UI, not just in comments.** The blueprint and the
+mastery data are samples. These are the most convincing screens in the product and the ones
+most likely to be demoed, which is exactly why they disclose their sample data on screen.
+The dashboard's numbers are real.
+
+**No plan file, deliberately.** The convention says each phase gets one written against the
+codebase it will run in; this was one session's frontend work with no schema change, no
+migration and no infrastructure, which is the same reason the post-P7 landing-page revision
+did not get one. What a future session needs is in SPEC §4.5, not in a plan for work already
+done.
 
 **Where the work lives, as of 2026-09-06.** Everything AWS-related and everything the
 parallel sessions built is on **`aws-native`**, which is the branch to check out. It is

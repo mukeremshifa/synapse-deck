@@ -173,9 +173,17 @@ aggregation that computes all of it (`src/lib/progress.ts`) was **kept deliberat
 is pure, it is what the post-exam diagnostic needs, and re-deriving it later is exactly the
 drift this document exists to prevent.
 
-What returns, and where it lives, is a decision for the phase that builds the diagnostic —
-a notebook-level view and a global one are both defensible and the brief does not settle
-it. Until then this section describes something real that nothing renders:
+**Partly settled, 2026-09-06.** A **dashboard** at `/home` now renders the streak and the
+due counts (`useDueSummary`, `useReviewHistory` → `streaks`), so those two are no longer
+homeless. It is deliberately not the old progress page returning: it answers "what should I
+do now?" across notebooks, and an index of every metric is a different screen with a
+different job. See §4.5.
+
+The rest of the list below still renders nowhere. Where it goes is still open, and the
+notebook-level/global question the brief declined to settle is still unsettled — the
+diagnostic that landed took the notebook-level half only.
+
+Until then this section describes something real that only partly renders:
 
 - Reviews-per-day heatmap (365 days).
 - Current and longest streak (a day counts with ≥1 review).
@@ -183,6 +191,38 @@ it. Until then this section describes something real that nothing renders:
 - Due forecast: next 30 days, stacked bar.
 - Card state distribution: new / learning / review / relearning.
 - Mean stability and difficulty, and their trend.
+
+---
+
+### 4.5 The exam half: blueprint, diagnostic, plan
+
+**Built as frontend on 2026-09-06, ahead of the backend that feeds it** — the same way P11
+built the notebook shell and the exam runner was built on fixtures. Four surfaces:
+
+1. **Dashboard** (`/home`). What to do now, across notebooks. Real data: due counts,
+   reviewed-today, streak, notebooks. It carries **no "exam readiness" figure**, though the
+   reference design puts one there — readiness needs attempts stored against topics, and a
+   confident number derived from nothing is precisely what a student would plan around.
+2. **Blueprint** (`/notebooks/:id/blueprint`). What an exam over this material should
+   weigh, as an editable table with an evidence drawer per topic. `src/lib/blueprint.ts`
+   holds the arithmetic: largest-remainder normalisation to 100%, and a question allocation
+   that refuses to round a weighted topic down to zero questions.
+3. **Diagnostic** (`/notebooks/:id/diagnostic`). Renders `src/lib/mastery.ts`, which had
+   been computing a two-signal topic model that nothing displayed. Retention and exam
+   accuracy stay separate, `unmeasured` renders as absence rather than as zero, and a
+   `fragile` topic is called out because its remedy is specific.
+4. **Study plan**, on the same screen. `src/lib/study-plan.ts` turns the mastery model into
+   dated actions. **Every action carries the evidence that produced it** — a plan whose rows
+   are unexplained is indistinguishable from one generated at random.
+
+**What is real and what is not.** The dashboard is real. The blueprint and the mastery data
+are **fixtures** (`src/features/blueprint/fixtures.ts`), on the `exam/fixtures.ts` model:
+parsed through their schema at load, with a deletion date. Both screens say so in the UI,
+not only in a comment, because these are the most convincing screens in the app and a demo
+that does not disclose its sample data misleads whoever is watching.
+
+The three logic modules are pure and take no dependency on Supabase or AWS, so the phases
+that generate blueprints (B) and diagnostics (D) port them rather than untangle them.
 
 ---
 
