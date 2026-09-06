@@ -1,17 +1,21 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { InfoIcon, SparklesIcon } from 'lucide-react';
+import { AlertTriangleIcon, InfoIcon, SparklesIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { resolveTimeZone, studyDayKey } from '@/lib/day';
 import { topicMastery } from '@/lib/mastery';
 import { notebookPath } from '@/lib/notebooks';
+import { useProfile } from '@/lib/queries';
 import {
   buildStudyPlan,
   diagnosisFor,
+  examSchedule,
+  planFit,
   PLAN_DEFAULTS,
   PLAN_LIMITS,
   type PlanAction,
@@ -39,18 +43,51 @@ import { StudyPlanView } from './StudyPlanView';
  *
  * ── Why the plan is adjustable on this screen ─────────────────────────────
  *
- * Days and minutes-per-day are the two inputs the product genuinely cannot
- * infer. Everything else the plan needs — which topics are weak, in what way,
- * and what to do about each — comes from evidence. Asking for the two unknowable
- * things and deriving the rest is the correct division; asking the user to pick
- * topics as well would be handing back the work they came here for.
+ * The exam date and minutes-per-day are the two inputs the product genuinely
+ * cannot infer. Everything else the plan needs — which topics are weak, in what
+ * way, and what to do about each — comes from evidence. Asking for the two
+ * unknowable things and deriving the rest is the correct division; asking the
+ * user to pick topics as well would be handing back the work they came here for.
+ *
+ * ── The date, not the day count, is the real input ────────────────────────
+ *
+ * "How many days" is a question a student has to do arithmetic to answer, and
+ * the arithmetic is the app's job. So the date drives the plan and the day count
+ * becomes derived — shown, but disabled, so the causal link stays visible. The
+ * day count survives as an input for the case with no exam scheduled at all,
+ * which is a real way to use this screen and not a degenerate one.
+ *
+ * The two facts a deadline adds that a day count cannot are surfaced rather than
+ * absorbed: an exam already past, and a plan that does not fit in the time left.
+ * `planFit` exists so the second one is arithmetic rather than an impression.
  */
 export function DiagnosticPage() {
   const { notebookId } = useParams<{ notebookId: string }>();
   const navigate = useNavigate();
 
-  const [days, setDays] = useState(PLAN_DEFAULTS.days);
+  const { data: profile } = useProfile();
+  const timeZone = resolveTimeZone(profile?.timezone);
+
+  /**
+   * The exam date, empty until the student supplies one.
+   *
+   * Empty is the honest default. The product cannot guess when an exam is, and
+   * pre-filling a plausible date would put a number on the screen that the user
+   * did not choose and might not notice — which is the worst of both, since the
+   * whole plan hangs off it.
+   */
+  const [examDate, setExamDate] = useState('');
   const [minutesPerDay, setMinutesPerDay] = useState(PLAN_DEFAULTS.minutesPerDay);
+  /** Used only while no exam date is set. Once there is one, the date decides. */
+  const [fallbackDays, setFallbackDays] = useState(PLAN_DEFAULTS.days);
+
+  const schedule = useMemo(
+    () => (examDate ? examSchedule(examDate, timeZone) : null),
+    [examDate, timeZone],
+  );
+  // A date in the past cannot drive a plan, so the manual figure stands and the
+  // banner below explains why rather than letting the control silently do nothing.
+  const days = schedule && !schedule.passed ? schedule.days : fallbackDays;
 
   const topics = useMemo(
     () => topicMastery(sampleMasteryCards, sampleMasteryAnswers),
@@ -61,6 +98,11 @@ export function DiagnosticPage() {
     () => buildStudyPlan(topics, { days, minutesPerDay }),
     [topics, days, minutesPerDay],
   );
+  const fit = useMemo(
+    () => planFit(plan, { days, minutesPerDay }),
+    [plan, days, minutesPerDay],
+  );
+  const todayKey = useMemo(() => studyDayKey(new Date(), timeZone), [timeZone]);
 
   /**
    * What a plan row does when started.
@@ -143,10 +185,33 @@ export function DiagnosticPage() {
               {plan.days.length > 0
                 ? `${plan.days.length} ${plan.days.length === 1 ? 'day' : 'days'}, about ${plan.minutes} minutes in total.`
                 : 'Nothing needs scheduling.'}
+              {schedule && !schedule.passed
+                ? ` Your exam is ${countdown(schedule.daysUntil)}.`
+                : ''}
             </p>
           </div>
 
-          <div className="flex items-end gap-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="plan-exam-date" className="text-xs">
+                Exam date
+              </Label>
+              <Input
+                id="plan-exam-date"
+                type="date"
+                min={todayKey}
+                value={examDate}
+                onChange={event => setExamDate(event.target.value)}
+                className="h-9 font-mono tabular-nums"
+              />
+            </div>
+
+            {/*
+              The day count is an input only while there is no exam date. Once
+              there is one it becomes derived, and showing it as a disabled field
+              rather than hiding it keeps the connection visible: the student can
+              see that moving the date moved the plan.
+            */}
             <div className="space-y-1.5">
               <Label htmlFor="plan-days" className="text-xs">
                 Days
@@ -157,8 +222,9 @@ export function DiagnosticPage() {
                 min={PLAN_LIMITS.minDays}
                 max={PLAN_LIMITS.maxDays}
                 value={days}
+                disabled={schedule !== null && !schedule.passed}
                 onChange={event =>
-                  setDays(
+                  setFallbackDays(
                     clamp(
                       event.target.valueAsNumber,
                       PLAN_LIMITS.minDays,
@@ -195,6 +261,54 @@ export function DiagnosticPage() {
           </div>
         </div>
 
+        {/*
+          The two things a deadline can tell you that a day count cannot: the
+          exam has passed, or the work does not fit. Both are surfaced rather
+          than absorbed — see `planFit` in `study-plan.ts` for why truncating
+          silently would hide exactly the fact the student needs most.
+        */}
+        {schedule?.passed ? (
+          <div className="flex items-start gap-2 rounded-lg border border-dashed p-3">
+            <InfoIcon
+              className="text-muted-foreground mt-0.5 size-4 shrink-0"
+              aria-hidden
+            />
+            <p className="text-muted-foreground text-xs leading-relaxed">
+              That date has passed, so the plan below is running on the day count
+              instead. Set a future date, or use the days field directly.
+            </p>
+          </div>
+        ) : null}
+
+        {schedule?.beyondHorizon ? (
+          <div className="flex items-start gap-2 rounded-lg border border-dashed p-3">
+            <InfoIcon
+              className="text-muted-foreground mt-0.5 size-4 shrink-0"
+              aria-hidden
+            />
+            <p className="text-muted-foreground text-xs leading-relaxed">
+              That is {schedule.daysUntil} days out. The plan covers the{' '}
+              {PLAN_LIMITS.maxDays}-day run-up — further ahead than that, the
+              schedule you already have is the better guide.
+            </p>
+          </div>
+        ) : null}
+
+        {!fit.fits ? (
+          <div className="border-grade-again/40 bg-grade-again/5 flex items-start gap-2 rounded-lg border p-3">
+            <AlertTriangleIcon
+              className="text-muted-foreground mt-0.5 size-4 shrink-0"
+              aria-hidden
+            />
+            <p className="text-muted-foreground text-xs leading-relaxed">
+              This is about {plan.minutes} minutes of work and you have{' '}
+              {fit.capacity} — roughly {fit.over} minutes more than fits. Add
+              time per day, or accept that the lowest-priority topics below will
+              not get done.
+            </p>
+          </div>
+        ) : null}
+
         <Card>
           <CardContent className="p-5">
             <StudyPlanView plan={plan} onStart={start} />
@@ -221,6 +335,19 @@ export function DiagnosticPage() {
       </div>
     </div>
   );
+}
+
+/**
+ * "in 5 days" / "tomorrow" / "today".
+ *
+ * Words rather than a bare number because the small cases are the ones that
+ * carry urgency, and "your exam is 1 days" reads like a bug at the moment the
+ * student most needs to trust the screen.
+ */
+function countdown(daysUntil: number): string {
+  if (daysUntil === 0) return 'today';
+  if (daysUntil === 1) return 'tomorrow';
+  return `in ${daysUntil} days`;
 }
 
 function clamp(value: number, min: number, max: number): number {

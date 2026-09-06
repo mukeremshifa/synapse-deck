@@ -207,6 +207,20 @@ built the notebook shell and the exam runner was built on fixtures. Four surface
    weigh, as an editable table with an evidence drawer per topic. `src/lib/blueprint.ts`
    holds the arithmetic: largest-remainder normalisation to 100%, and a question allocation
    that refuses to round a weighted topic down to zero questions.
+
+   **Evidence is a citation, not a sentence** (revised 2026-09-06). `TopicEvidence` carries
+   a `claim`, and where the model saw it: `source`, an optional `quote` and a `locator`
+   ("p. 44"). A sentence explains; a citation proves, and grounding a claim in the user's
+   own material is the property that separates this from a model answering from nothing.
+   `isGrounded` splits cited claims from bare ones and the UI draws them differently —
+   making them look alike would be tidier and would be a lie. The `quote` is untrusted
+   model output and is rendered as text, like card content.
+
+   `locator` is deliberately a display string rather than a page number, because
+   `chunking.ts` produces `{ index, text }` over flat text and has no page dimension at
+   all: a `page: number` field would be a schema inviting the generator to invent one.
+   `chunkIndex` is carried and not displayed — it is the join back into the source text,
+   and becomes a link the day a source viewer exists to receive one.
 3. **Diagnostic** (`/notebooks/:id/diagnostic`). Renders `src/lib/mastery.ts`, which had
    been computing a two-signal topic model that nothing displayed. Retention and exam
    accuracy stay separate, `unmeasured` renders as absence rather than as zero, and a
@@ -214,6 +228,18 @@ built the notebook shell and the exam runner was built on fixtures. Four surface
 4. **Study plan**, on the same screen. `src/lib/study-plan.ts` turns the mastery model into
    dated actions. **Every action carries the evidence that produced it** — a plan whose rows
    are unexplained is indistinguishable from one generated at random.
+
+   **The exam date drives it** (added 2026-09-06). The date is the one input the product
+   genuinely cannot derive, and it changes the answer completely: the same five weak topics
+   produce a different plan at twelve days than at two. So the date is the input and the day
+   count is derived from it — shown but disabled, so the causal link stays visible; the day
+   count remains an input only when no exam is scheduled. `examSchedule` counts study days
+   through `day.ts`, so the planner agrees with the scheduler about when a day starts.
+
+   `planFit` returns the shortfall rather than absorbing it. A student with nine hours of
+   remedial work and three evenings is in a different situation from one with three weeks,
+   and the useful thing is to say so and let them cut scope or add time. Truncating the plan
+   to fit would hide exactly that fact, while looking helpful.
 
 **What is real and what is not.** The dashboard is real. The blueprint and the mastery data
 are **fixtures** (`src/features/blueprint/fixtures.ts`), on the `exam/fixtures.ts` model:

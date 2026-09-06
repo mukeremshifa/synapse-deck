@@ -24,6 +24,7 @@ import {
 import { notebookPath } from '@/lib/notebooks';
 import { DEFAULT_EXAM_CONFIG } from '@/lib/schemas';
 import { cn } from '@/lib/utils';
+import { CitationList } from './Citation';
 import { sampleBlueprint } from './fixtures';
 
 /**
@@ -47,10 +48,13 @@ import { sampleBlueprint } from './fixtures';
  *
  * ── The provenance drawer is not decoration ───────────────────────────────
  *
- * Each topic can say what the model saw. A system that proposes a plan and
- * cannot explain it has no business asking to be edited, and the evidence is
- * what turns "trust this" into "check this". Topics the user adds by hand carry
- * no evidence and say so rather than borrowing someone else's.
+ * Each topic can say what the model saw **and where it saw it**. A system that
+ * proposes a plan and cannot explain it has no business asking to be edited,
+ * and a citation back to the page turns "trust this" into "check this" — which
+ * is the difference between this and a model answering from nothing. Topics the
+ * user adds by hand carry no evidence and say so rather than borrowing someone
+ * else's; see `Citation.tsx` for why grounded and ungrounded claims are drawn
+ * differently.
  *
  * ── What is real here and what is not ─────────────────────────────────────
  *
@@ -227,23 +231,10 @@ export function BlueprintPage() {
 
                   {showEvidence && (
                     <div className="mt-3 border-l-2 pl-3">
-                      {topic.evidence.length > 0 ? (
-                        <ul className="space-y-1">
-                          {topic.evidence.map(line => (
-                            <li
-                              key={line}
-                              className="text-muted-foreground text-xs leading-relaxed"
-                            >
-                              {line}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="text-muted-foreground text-xs">
-                          You added this topic, so there is nothing the model saw
-                          to report.
-                        </p>
-                      )}
+                      <CitationList
+                        evidence={topic.evidence}
+                        emptyMessage="You added this topic, so there is nothing the model saw to report."
+                      />
                     </div>
                   )}
                 </li>
