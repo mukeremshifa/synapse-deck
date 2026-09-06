@@ -18,6 +18,21 @@ stack — the mark is both at once. Named late and deliberately: P1–P4 had not
 **One-line (v1, shipped):** Paste what you're studying, get good flashcards, and get
 drilled on them at the right time.
 
+**One-line (P11 onward, as the UI now presents it):** Keep what you're studying in a
+notebook, turn it into flashcards and exams, and get drilled on them at the right time.
+
+> **The shell changed at P11, ahead of the product.**
+> [plans/P11-notebook-shell.md](plans/P11-notebook-shell.md) rewrote the frontend around a
+> **notebook** — sources on the left, a workspace in the middle, a studio on the right that
+> launches cards, practice and exams. The shape is NotebookLM's; the loop underneath is
+> unchanged, because cards here carry FSRS state for months and an exam attempt is a
+> durable record, and neither is the disposable derived view that shape assumes.
+>
+> Two things this section claims are now false and are corrected in §4 and §8.2: the
+> progress pages are gone, and `/` is no longer public. One thing it claims is *aspirational*
+> — the exam runs from a fixture, so "turn it into exams" describes a surface, not a
+> pipeline. §7 is still honest about that.
+
 > **v2 direction, decided 2026-09-05 — not yet built.**
 > [plans/AWS-NATIVE-BRIEF.md](plans/AWS-NATIVE-BRIEF.md) §2 sets a larger product: **one
 > loop, both halves equal** — study → practice → **simulated exam** → review. Upload
@@ -43,7 +58,10 @@ into retention. Everything in v1 serves those two things.
 - OCR / scanned documents / handwriting.
 - Public deck marketplace or social features.
 - Mobile apps (responsive web only).
-- Note generation, summaries, or open-ended tutoring ("study buddy" is post-v1).
+- Note generation, summaries, or open-ended tutoring ("study buddy" is post-v1). **P11
+  built the surface for this and deliberately left it unbuilt** — the notebook's workspace
+  pane says grounded chat has no retrieval layer behind it yet, rather than shipping a box
+  that answers from nothing.
 - Collaborative editing.
 
 ---
@@ -86,7 +104,8 @@ Not designed for: teachers assigning decks to classes; teams sharing decks.
 
 ### 4.1 Generate (the flagship flow)
 
-1. User pastes text (100 – 20,000 chars) into `/create/text`.
+1. User pastes text (100 – 20,000 chars) into `/create/text`, reached from a notebook's
+   sources rail or its studio.
 2. Chooses: number of cards (3–50), allowed card types, difficulty/depth, deck title
    (auto-suggested from the text).
 3. Client shows an estimated size (characters, plus an approximate token figure) and
@@ -119,7 +138,10 @@ above, and it is what the deck list now reads to mark a deck resumable.
 
 ### 4.2 Practice
 
-1. `/practice/:deckId`, or `/practice` for the all-decks due queue.
+1. `/notebooks/:id/practice`. **There is no all-notebooks queue from P11** — practice is
+   launched from a notebook's studio rail, because the reason to practise is that you want
+   to work on *that material*. The hook still supports an unscoped queue; no route reaches
+   it.
 2. Queue = cards where `due <= now()`, ordered by due, with new cards interleaved subject to
    a per-day new-card cap (default 20).
 3. Show front → user self-reveals → rates **Again / Hard / Good / Easy** (FSRS's 4 grades).
@@ -134,14 +156,26 @@ stores state _before_ as well as after.
 
 ### 4.3 Manage
 
-- `/decks` — list, search, card counts, due counts, per-deck stats.
-- `/decks/:id` — card table with inline edit, type filter, bulk delete, manual add.
+- `/notebooks` — the list: search, card counts, due counts, a resumable badge.
+- `/notebooks/:id` — the notebook itself: sources on the left, workspace in the middle,
+  studio on the right. The studio **launches** practice, exams and the card table rather
+  than rendering them, because those outlive the panel (P11 §2).
+- `/notebooks/:id/cards` — card table with inline edit, type filter, bulk delete, manual add.
 - Manual card creation must exist for every card type. The LLM is an accelerator, not the
   only input path.
 
 ### 4.4 Progress
 
-`/progress` — real data only, no invented XP:
+**The progress pages were deleted at P11** and there is currently no route that renders
+them. What they showed — heatmap, streaks, retention windows, due forecast, state
+distribution, stability and difficulty trends — is still specified below, and the
+aggregation that computes all of it (`src/lib/progress.ts`) was **kept deliberately**: it
+is pure, it is what the post-exam diagnostic needs, and re-deriving it later is exactly the
+drift this document exists to prevent.
+
+What returns, and where it lives, is a decision for the phase that builds the diagnostic —
+a notebook-level view and a global one are both defensible and the brief does not settle
+it. Until then this section describes something real that nothing renders:
 
 - Reviews-per-day heatmap (365 days).
 - Current and longest streak (a day counts with ≥1 review).
@@ -739,26 +773,43 @@ Controls, all enforced in the Edge Function, never client-side:
 
 ### 8.2 Routes
 
+**Rewritten at P11** ([plans/P11-notebook-shell.md](plans/P11-notebook-shell.md)). The
+frontend moved from six peer activities to a **notebook** shell, and the route table moved
+with it.
+
 ```
 /login  /signup  /auth/callback
-/                       landing page — public, no session, no request (P7)
-/dashboard              due today, streak, quick-practice, recent decks
-/decks                  deck list
-/decks/:id              card table, inline edit, manual add
-/create/text            paste → generate (streaming)
-/create/review/:deckId  review gate for drafts
-/practice               all-decks due queue
-/practice/:deckId       single-deck queue
-/progress               heatmap, retention, forecast
-/settings               daily limits, timezone, quota usage
-/account
-*                       404
+
+/                                 → /notebooks
+/notebooks                        the notebook list — the front door
+/notebooks/:id                    the notebook: sources · workspace · studio
+/notebooks/:id/cards              card table, inline edit, manual add
+/notebooks/:id/practice           this notebook's due queue
+/notebooks/:id/exam               setup → sit → results
+/create/text                      paste → generate (job pipeline)
+/create/document                  upload a PDF → generate
+/create/review/:deckId            the review gate
+/settings                         daily limits, timezone, quota usage
+/account                          → /settings
+/dashboard  /decks  /decks/:id    → the /notebooks equivalents (kept as redirects)
+*                                 404
 ```
 
-`/` is the only public route with anything on it. It sits under `PublicOnlyRoute`, not
-outside the guards altogether: a visitor **with** a session goes to `/dashboard`. Everything
-from `/dashboard` down is inside `ProtectedRoute`, which wraps the layout rather than each
-child, so a route added later cannot quietly skip it.
+**Three frames, not one layout.** `AppShell` wraps the list and settings; the notebook is a
+bare three-pane viewport with its own header; practice, the exam and the gate render inside
+`FocusFrame`, which gives them a title, padding and a single way out. Each group is wrapped
+by its own `ProtectedRoute`, so a route added later still cannot skip the guard.
+
+**`/` is no longer public, and this reverses P7.** The landing page and the marketing
+showcase were deleted at P11: `/` redirects to `/notebooks`, which is guarded, so a
+signed-out visitor lands on `/login`. P7 called making `/` public "the one thing in P7 that
+altered what an anonymous request can reach"; P11 puts that back. No anonymous request now
+reaches anything but the auth pages.
+
+**`:id` is a deck id.** The rename to *notebook* is a UI-only change and stops at
+`src/lib/notebooks.ts` — Postgres still has `decks`, and the API still serves
+`/decks/{deckId}`. The review gate keeps `:deckId` in its path because the generation
+pipeline constructs that route itself, and P10-SESSION-4 protects that contract.
 
 ### 8.3 State ownership
 
@@ -800,6 +851,10 @@ child, so a route added later cannot quietly skip it.
 even though the contents are rewritten.
 
 ### Target layout
+
+> **This is the P0 target, kept as the record of that reset.** The live layout has moved
+> on: `decks/` and `progress/` were deleted at P11 and `notebooks/` (with `sources/`,
+> `workspace/`, `studio/`) and `exam/` were added. §8.2 is the current map.
 
 ```
 src/

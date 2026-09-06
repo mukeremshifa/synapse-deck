@@ -58,7 +58,8 @@ authored against the codebase it will actually run in.
 | P8 — AWS founda. | [P8-aws-foundation.md](P8-aws-foundation.md) | ✅ Complete — 2026-09-06; dev stack live in `us-east-1`             |
 | P9 — AWS slice   | [P9-aws-slice.md](P9-aws-slice.md)           | ✅ Complete — 2026-09-06. 9/10 criteria met; Cognito deployed, DB + API local, RDS deferred |
 | P10 — Ingestion  | [P10-ingestion.md](P10-ingestion.md)         | 🔨 In progress. Tasks 1–9, 11 done. Task 10 blocked on Bedrock model access. **Start here: [P10-SESSION-4.md](P10-SESSION-4.md)** |
-| P11 — Notebook shell | [P11-notebook-shell.md](P11-notebook-shell.md) | 🔨 In progress — started 2026-09-06. Full frontend rewrite to a NotebookLM-shaped shell. Backend untouched |
+| P11 — Notebook shell | [P11-notebook-shell.md](P11-notebook-shell.md) | ✅ Complete — 2026-09-06. Frontend rewritten to a NotebookLM-shaped shell; backend untouched. Grounded chat deliberately unbuilt |
+| P12 — Grounded chat | [P12-grounded-chat.md](P12-grounded-chat.md) | 📋 Planned 2026-09-06. Fills P11's empty workspace pane. **Blocked on Bedrock model access**, embeddings included |
 
 **P7 was the last phase of v1, and the v1 board is closed.** SPEC §11 lists nothing between
 P7 and Post-v1, so for two days there was deliberately no P8 file: writing one would have

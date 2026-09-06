@@ -2,11 +2,9 @@
 
 **Status:** In progress, 2026-09-06 · Branch `aws-native` · Supersedes the frontend, not the API
 
-**Where it stands.** Tasks 1–6 and 10 are done: the shell, the notebook list, all three
-panes, the new route table, and the deletions. `verify` passes and the app serves on the
-dev server. Tasks 7–9 (the review gate, practice and exam re-homing) still render in their
-P6 chrome inside the new full-screen frame — they *work*, they are not yet restyled. Task
-11 (documentation) is last.
+**Where it stands.** Tasks 1–11 are done. The shell, the notebook list, all three panes,
+the new route table, the deletions, `FocusFrame` around practice / the gate / the exam, and
+this documentation pass. `verify` passes and every route serves on the dev server.
 
 Two isolation criteria were checked and hold: `git diff 6da615e..HEAD` on `src/lib/schemas.ts`,
 `src/lib/api-client.ts`, `src/lib/queries.ts` and `services/api/` is **empty**, and `src/`
