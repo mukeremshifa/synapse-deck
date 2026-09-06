@@ -94,6 +94,11 @@ export function ExamPage() {
             outcome={phase.outcome}
             onRetake={() => setPhase({ status: 'setup' })}
             onDone={() => void navigate(exitTo)}
+            onSeeDiagnostic={
+              notebookId
+                ? () => void navigate(notebookPath.diagnostic(notebookId))
+                : undefined
+            }
           />
         </FocusFrame>
       );
