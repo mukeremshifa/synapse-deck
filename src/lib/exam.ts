@@ -1,3 +1,4 @@
+import { MASTERY_THRESHOLDS, type MasteryBand } from '@/lib/mastery';
 import {
   DEFAULT_EXAM_CONFIG,
   type Exam,
@@ -199,6 +200,39 @@ function summariseByTopic(results: readonly QuestionResult[]): TopicResult[] {
     (a, b) => a.accuracy - b.accuracy || a.topicName.localeCompare(b.topicName),
   );
 }
+
+/**
+ * How an exam score reads as a band, on the scale the rest of the app uses.
+ *
+ * **Deliberately `MASTERY_THRESHOLDS`, not a new scale.** The obvious move is a
+ * grading scale of its own — 90 an A, 80 a B, the shape everyone recognises. It
+ * would be a second definition of "good" living beside `mastery.ts`'s, and the
+ * two would disagree: a 62% exam would read as a near-fail here and as
+ * `developing` on the diagnostic, from the same numbers, on adjacent screens.
+ * One scale, one meaning, and a band here is a claim the diagnostic will stand
+ * behind.
+ *
+ * No letter grades for the same reason. A letter is a summary judgement of a
+ * student and invites comparison to a cohort that does not exist; a band
+ * describes the material, which is the thing this product can actually speak to.
+ *
+ * `unmeasured` is unreachable from a sat exam — an attempt with no questions
+ * cannot be graded — but the band type is shared, so it is handled rather than
+ * asserted away.
+ */
+export function examBand(result: ExamResult): MasteryBand {
+  if (result.results.length === 0) return 'unmeasured';
+  if (result.score < MASTERY_THRESHOLDS.weak) return 'weak';
+  if (result.score < MASTERY_THRESHOLDS.developing) return 'developing';
+  return 'strong';
+}
+
+export const EXAM_BAND_LABEL: Record<MasteryBand, string> = {
+  unmeasured: 'Not graded',
+  weak: 'Below where you want to be',
+  developing: 'Getting there',
+  strong: 'Solid',
+};
 
 export function emptyAnswer(questionId: string): ExamAnswer {
   return { questionId, selectedOption: null, flagged: false, elapsedMs: 0 };

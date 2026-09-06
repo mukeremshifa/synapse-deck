@@ -247,8 +247,46 @@ parsed through their schema at load, with a deletion date. Both screens say so i
 not only in a comment, because these are the most convincing screens in the app and a demo
 that does not disclose its sample data misleads whoever is watching.
 
+5. **Exam results** (`/notebooks/:id/exam`). Explanations render under every question, not
+   only missed ones — `McqPayload.explanation` was in the schema from v1 and displayed
+   nowhere. Showing it only on failures would be wrong twice: a correct guess looks
+   identical to knowledge from outside, and an expanding block that appears only under
+   misses is a scarlet letter. `examBand` reads `MASTERY_THRESHOLDS` rather than defining a
+   grading scale, so a 62% cannot read as a near-fail here and `developing` on the
+   diagnostic one click later. No letter grades — a letter ranks the student against a
+   cohort that does not exist; a band describes the material. The screen now routes to the
+   diagnostic, because an exam whose only exits are retake and done is a terminal event
+   rather than an input to a plan.
+
 The three logic modules are pure and take no dependency on Supabase or AWS, so the phases
 that generate blueprints (B) and diagnostics (D) port them rather than untangle them.
+
+### 4.6 What the frontend deliberately stops at
+
+**The exam half's frontend is complete as of 2026-09-06.** Four affordances remain visible
+and inert, and each is blocked on a write path or a pipeline rather than on design:
+
+| Affordance | Where | Blocked on |
+| ---------- | ----- | ---------- |
+| Blueprint-aligned generation | Blueprint | The ingestion pipeline (Phase B) |
+| Generate cards from misses | Exam results | A write path `answers` → `cards` (D11) |
+| Plan action: review | Diagnostic | A source viewer; no route reads a source in place |
+| Plan action: questions | Diagnostic | Topic-scoped question generation (Phase C) |
+
+Each is shown rather than hidden, and says what it needs. A disabled control that explains
+itself shows a reviewer where the loop goes; a hidden one reads as a missing feature, and a
+control that navigates somewhere approximate is worse than either.
+
+**Three surfaces from the reference products were considered and not built.** The AI tutor
+chat is the significant one: it is the headline feature of the products in this space and
+it is refused for the reason `WorkspacePane` already records — **chunks are not persisted
+retrievably.** `chunking.ts` produces `{ index, text }` for pipeline fan-out and nothing
+stores them for lookup, so grounded chat would need an embedding store, a retrieval path
+and a citation path built from nothing. Shipping the box before that means a chat that
+answers from nothing, which is the worst failure mode available in a study product. A
+learning-path visual and a quiz-with-hints variant were also declined: the first is a graph
+that impresses briefly and informs never, and the second duplicates the exam runner without
+the timing that makes it worth sitting.
 
 ---
 

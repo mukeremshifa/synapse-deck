@@ -12,6 +12,12 @@ import { Exam, DEFAULT_EXAM_CONFIG } from '@/lib/schemas';
  *
  * The topics are real ones from the AWS material the owner is studying, because
  * a demo of a topic breakdown needs topics that mean something to a viewer.
+ *
+ * **One question deliberately has no `explanation`.** The field is optional on
+ * `McqPayload`, so a generator that omits one — or an older question written
+ * before the field was used — is a case the results screen has to handle. A
+ * fixture where every question carries one would demo well and prove nothing;
+ * q3 is the question that keeps the empty path honest.
  */
 
 const SAMPLE = {
@@ -32,6 +38,8 @@ const SAMPLE = {
           { text: 'An internet gateway with a route table entry', correct: false },
           { text: 'A NAT instance on t4g.nano', correct: false },
         ],
+        explanation:
+          'Gateway endpoints for S3 and DynamoDB are free — no hourly charge and no per-GB processing. Every other option here routes through something billed per hour plus per GB, which is why NAT Gateway is the classic wrong answer: it works, and it is the expensive way to make it work.',
       },
     },
     {
@@ -47,6 +55,8 @@ const SAMPLE = {
           { text: 'They support explicit deny rules', correct: false },
           { text: 'They apply to an entire subnet rather than an interface', correct: false },
         ],
+        explanation:
+          'Security groups are stateful, so a reply to an allowed inbound request is permitted regardless of outbound rules. Network ACLs are the stateless ones that apply per subnet and support explicit deny — the two are routinely confused, and the exam relies on it.',
       },
     },
     {
@@ -77,6 +87,8 @@ const SAMPLE = {
           { text: 'A DynamoDB table with a binary attribute', correct: false },
           { text: 'S3 objects queried with Athena', correct: false },
         ],
+        explanation:
+          'pgvector keeps the embeddings in the database that already holds the rows they describe, so a similarity search and a join are one query. A separate search domain is the right answer at scale and is a second system to run, pay for and keep in sync — at low volume that trade goes the other way.',
       },
     },
     {
@@ -92,6 +104,8 @@ const SAMPLE = {
           { text: 'A root account access key rotated every 90 days', correct: false },
           { text: 'An access key in an encrypted file committed to the repository', correct: false },
         ],
+        explanation:
+          'OIDC federation exchanges a short-lived GitHub token for temporary AWS credentials, so nothing durable exists to leak. Every other option stores a key somewhere; rotation and encryption reduce the window, they do not remove the secret.',
       },
     },
     {
@@ -107,6 +121,8 @@ const SAMPLE = {
           { text: 'Metric filters are billed per evaluation', correct: false },
           { text: 'Log ingestion is billed twice in multi-AZ deployments', correct: false },
         ],
+        explanation:
+          'CloudWatch log groups never expire unless retention is set, so storage accrues indefinitely on data nobody reads. It is billed on ingestion and stored volume, not per group — which is why this creeps quietly rather than appearing as a step change.',
       },
     },
   ],

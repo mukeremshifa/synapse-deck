@@ -1,9 +1,15 @@
-import { CheckIcon, CircleDashedIcon, XIcon } from 'lucide-react';
+import { ActivityIcon, CheckIcon, CircleDashedIcon, XIcon } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { formatDuration, type ExamResult, type TopicResult } from '@/lib/exam';
+import {
+  EXAM_BAND_LABEL,
+  examBand,
+  formatDuration,
+  type ExamResult,
+  type TopicResult,
+} from '@/lib/exam';
 import type { AttemptOutcome } from '@/lib/schemas';
 import { cn } from '@/lib/utils';
 
@@ -20,19 +26,41 @@ import { cn } from '@/lib/utils';
  * The "generate cards from misses" affordance is deliberately shown disabled
  * rather than hidden: it is the next step in the loop, and a reviewer being
  * shown the product should be able to see where it goes. Phase D wires it.
+ *
+ * ── Explanations are shown on every question ──────────────────────────────
+ *
+ * `McqPayload.explanation` has been in the schema since v1 and was rendered
+ * nowhere. It is shown here under every question, not only the missed ones: a
+ * correct guess is indistinguishable from knowledge from the outside, and a
+ * student right for the wrong reason is the one the sentence is for. It is
+ * model output and is rendered as text, like card content.
+ *
+ * ── The band uses the diagnostic's scale ──────────────────────────────────
+ *
+ * `examBand` reads `MASTERY_THRESHOLDS` rather than defining a grading scale, so
+ * a 62% does not read as a near-fail here and `developing` on the next screen.
+ * See `exam.ts` for why there are no letter grades.
  */
 export function ExamResults({
   result,
   outcome,
   onRetake,
   onDone,
+  onSeeDiagnostic,
 }: {
   result: ExamResult;
   outcome: AttemptOutcome;
   onRetake: () => void;
   onDone: () => void;
+  /**
+   * Where the loop actually continues. Optional because the results screen must
+   * render without a notebook in context; when it is absent the button is not
+   * shown, rather than shown and inert.
+   */
+  onSeeDiagnostic?: () => void;
 }) {
   const percent = Math.round(result.score * 100);
+  const band = examBand(result);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -55,6 +83,13 @@ export function ExamResults({
                 <span className="font-mono tabular-nums">{result.results.length}</span>{' '}
                 correct
               </p>
+              {/*
+                The band, on `mastery.ts`'s scale rather than a grading scale of
+                its own — see `examBand`. Words, not a letter: a letter grades
+                the student against a cohort that does not exist here, and a band
+                describes the material, which is what this product can speak to.
+              */}
+              <p className="mt-2 text-sm font-medium">{EXAM_BAND_LABEL[band]}</p>
             </div>
             <div className="text-muted-foreground space-y-1 text-right text-sm">
               <p>
@@ -151,6 +186,27 @@ export function ExamResults({
               {item.correct === null && (
                 <p className="text-muted-foreground text-xs">Not answered.</p>
               )}
+
+              {/*
+                Why the right answer is right.
+
+                **Shown on every question, not only the ones you got wrong.** The
+                tempting rule is to explain misses and stay quiet on hits, and it
+                is wrong twice: a correct guess is indistinguishable from
+                knowledge from the outside, and a student who was right for the
+                wrong reason is the one who most needs the sentence. Suppressing
+                it also makes the explanation itself a signal — an expanding
+                block that appears only under failures is a scarlet letter.
+
+                Untrusted model output, like card content: rendered as text.
+              */}
+              {item.question.payload.explanation ? (
+                <div className="bg-muted/40 rounded-md p-3">
+                  <p className="text-muted-foreground text-xs leading-relaxed whitespace-pre-wrap">
+                    {item.question.payload.explanation}
+                  </p>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         ))}
@@ -165,16 +221,34 @@ export function ExamResults({
             Done
           </Button>
         </div>
-        {/*
-          Shown disabled rather than hidden. This is where the loop closes — exam
-          misses become scheduled cards — and it is the thing worth pointing at
-          when demoing even before it works. Phase D wires it; the disabled
-          state is honest about that, where hiding it would just look like a
-          missing feature.
-        */}
-        <Button type="button" disabled title="Arrives with the diagnostic in Phase D">
-          Generate cards from misses
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {/*
+            The exam ends by going somewhere, not by closing. A score screen
+            whose only exits are "retake" and "done" makes the attempt a
+            terminal event; the diagnostic is what turns it into the input to a
+            plan, which is the whole argument for having sat the thing.
+          */}
+          {onSeeDiagnostic ? (
+            <Button type="button" onClick={onSeeDiagnostic}>
+              <ActivityIcon aria-hidden /> See what this means
+            </Button>
+          ) : null}
+          {/*
+            Shown disabled rather than hidden. This is where the loop closes —
+            exam misses become scheduled cards — and it is the thing worth
+            pointing at when demoing even before it works. Phase D wires it; the
+            disabled state is honest about that, where hiding it would just look
+            like a missing feature.
+          */}
+          <Button
+            type="button"
+            variant="secondary"
+            disabled
+            title="Arrives with the diagnostic in Phase D"
+          >
+            Generate cards from misses
+          </Button>
+        </div>
       </div>
     </div>
   );
