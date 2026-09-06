@@ -181,6 +181,46 @@ not send is exactly the shape of bug left in that gap, and it is cheap to find h
 
 Fix what breaks. That is the whole of task 1.
 
+**✅ Done 2026-09-06.** Driven against `dev-api.mjs` with a real Cognito access token,
+from a throwaway pool user created and deleted for the run. All 18 routes exercised:
+profile read and update, deck create/read/update/delete, cards create/list/edit/status/
+delete/accept, the queue, the summary, a rating, an undo, and the finish-gate.
+
+**The predicted bug was not there, and a subtler one was.** The row-shape mismatch this
+task expected does not exist: every field `queries.ts` reads exists in the RDS schema with
+matching nullability across `profiles`, `decks` and `cards`, all five enums match
+member-for-member, and `COLUMNS = '*'` in the data layer means the server cannot omit a
+field the client wants. Compared mechanically, not by eye.
+
+What running it found instead was **the timestamp format** (fixed, `c854e8e`). Every
+timestamp left the API as Postgres's own `2026-09-06 03:43:16.065206+04` — a space where
+ISO 8601 has a T — and `fsrs.ts` parses `due` and `last_review` with `new Date()` to
+compute intervals. That format is not one the ECMAScript specification requires any engine
+to parse; V8 accepts it, which is why Node and Chrome were fine and nothing caught it.
+Safari has historically rejected it, where it would be an `Invalid Date` feeding FSRS —
+presenting as a broken scheduler rather than as a parse error.
+
+The fix had a trap in it worth recording, because the obvious version is worse than the
+bug. `updated_at` is the optimistic-concurrency token and `review_card` compares it as
+`$5::timestamptz`; Postgres stores **microseconds** and a JS `Date` holds milliseconds,
+so parsing and re-serialising truncates `.065206` to `.065` and every rating would start
+failing `PT409`. The conversion is therefore a pure string transform on the wire text,
+carrying the fraction across untouched. Confirmed by a rating with a millisecond-truncated
+token still being refused with `PT409`.
+
+Two other things worth having on the record, both stronger than what P9 could claim:
+
+- **The cross-tenant probes were re-run as a real Cognito identity**, not P9’s synthetic
+  `1111…`/`2222…` users. `GET`, `PATCH`, `DELETE` and `POST …/cards` against another
+  user's deck all return **404, never 403**; listing its cards returns `[]`.
+- **Optimistic concurrency was exercised for real**: a stale token and a truncated token
+  are both refused with `PT409`, and a correct one graduates the card.
+
+Still open, and only a browser closes it: the app was driven through `queries.ts` and
+`api-client.ts` in Node, not from a rendered page. The network contract is proven; React
+Query's cache keys, the optimistic updates in `useReviewCard`, and the forms are not.
+That is a smaller gap than the one this task was written to close, but it is not zero.
+
 **Deferred to the RDS checkpoint** (see task 12), and deliberately not done now:
 
 - Deploying `SynapseDeck-Data-dev` and `SynapseDeck-Api-dev`
@@ -194,9 +234,21 @@ Fix what breaks. That is the whole of task 1.
 forgotten in the other is a bug that only appears at the RDS checkpoint, weeks later, in
 the least convenient place.
 
-**Every task below that adds a route adds it in both files, in the same commit.** Worth
-considering a check in `verify` that compares the two route tables — cheap, and it removes
-the only failure mode this development setup introduces that production does not have.
+**Every task below that adds a route adds it in both files, in the same commit.**
+
+**✅ Done 2026-09-06** (`cb9cb4f`), and mechanical rather than a convention.
+`scripts/check-routes.mjs` parses both route tables and compares them as sets of
+`METHOD /path`, with path parameters normalised so a rename is not drift. It runs in
+`verify`. Currently 18 routes, identical.
+
+It reports which direction drifted, because they are not equally dangerous: a route only
+in `api-stack.ts` 404s locally and is found at once, while one only in `dev-api.mjs`
+works all through development and fails only once deployed. It also fails if it ever
+parses zero routes from either file — a check that silently stops matching would pass
+forever and guard nothing.
+
+Verified by injecting drift in both directions and confirming each was caught and
+correctly attributed. Closes acceptance criterion 10.
 
 ### 2. Job state in DynamoDB — `infra/lib/pipeline-stack.ts`
 
@@ -433,6 +485,12 @@ stops billing and storage (~$2.30/mo) continues. It is the difference between ~$
 7. **The browser drives the app end to end** (task 1) — sign in, create a deck, practise —
    against `dev-api.mjs`. P9 proved the handlers with a script; this proves `queries.ts`
    and `api-client.ts`, which no browser has yet exercised.
+
+   **🟡 Proven at the network layer, not in a browser.** All 18 routes were driven through
+   `queries.ts` and `api-client.ts` with a real Cognito token on 2026-09-06, which found
+   and fixed the timestamp-format bug (`c854e8e`). That was done from Node, so React
+   Query's caching and the forms above the fetch are still unexercised. Left amber
+   deliberately rather than claimed: a rendered page is what this criterion asks for.
 8. **P9's four open items are closed at the RDS checkpoint** (task 12) and recorded in
    `P9-aws-slice.md`, not here: cold start measured, criterion 3 completed through API
    Gateway, the cross-tenant check re-run against RDS, and `describe-nat-gateways` empty
@@ -440,6 +498,11 @@ stops billing and storage (~$2.30/mo) continues. It is the difference between ~$
 9. `npm run verify` is green, including the data-access lint extended to DynamoDB.
 10. **`dev-api.mjs` and `api-stack.ts` expose the same routes.** Checked, ideally
     mechanically (task 1b).
+
+    **✅ Done 2026-09-06** (`cb9cb4f`). `scripts/check-routes.mjs` runs in `verify` and
+    compares both route tables; 18 routes, identical. Drift in either direction fails the
+    build, and so does the check parsing nothing.
+
 11. `/progress` still says it is showing pre-migration data — it is still true after this
     phase, and the sentence is only removed in Phase F.
 12. **The Bedrock spend for this phase is a measured number, not an estimate**, from task
@@ -470,9 +533,13 @@ Into `docs/plans/P9-aws-slice.md`:
 
 Fill this in as the phase runs; these are the ones already predictable:
 
-- **The client half of P9.** The handlers and data layer were executed and are evidenced;
-  `queries.ts` calling `api-client.ts` from a browser was not. Task 1 closes it, and it is
-  the most likely place to find a row-shape mismatch.
+- **The client half of P9 — now partly closed, and honestly a smaller gap than expected.**
+  Task 1 drove all 18 routes through `queries.ts` and `api-client.ts` with a real Cognito
+  token, so the network contract is evidence rather than transcription. The row-shape
+  mismatch this bullet predicted **does not exist** — checked mechanically against the RDS
+  schema. What is still unproven is the layer above the fetch: React Query cache keys, the
+  optimistic updates in `useReviewCard`, and the forms. Those need a rendered page, and
+  nothing here has rendered one.
 - **Everything that only appears at the RDS checkpoint** (task 12): API Gateway's routing
   and authorizer, PG 17 rather than 18, and cold start. Deferring them is a cost decision,
   not a claim that they work.
