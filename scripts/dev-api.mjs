@@ -60,8 +60,14 @@ process.env['CORS_ORIGIN'] ??= 'http://localhost:5173';
 // not exist. `data/jobs.ts` throws a sentence explaining itself when the
 // variable is missing, which is the better failure. Point this at a real table
 // (or DynamoDB Local) when a route that needs it is being worked on.
+// The same applies to UPLOAD_BUCKET_NAME (P10 task 3). Pointing it at a real
+// dev bucket is what makes `POST /uploads` work locally: the presigned PUT is
+// signed with the caller's own AWS credentials, so the browser uploads to real
+// S3 while the API stays local. Without it, `data/uploads.ts` throws a sentence
+// saying so.
+//
 // (No assignment here on purpose: .env.local is loaded just below, and setting
-// JOB_TABLE_NAME there is all that is needed.)
+// either variable there is all that is needed.)
 
 /*
  * The password comes from .env.local as LOCAL_PGPASSWORD rather than
@@ -186,6 +192,8 @@ const ROUTES = [
   { method: 'POST', pattern: /^\/cards\/status$/, fn: 'cards' },
   { method: 'POST', pattern: /^\/cards\/delete$/, fn: 'cards' },
   { method: 'PATCH', pattern: /^\/cards\/([^/]+)$/, fn: 'cards', params: ['cardId'] },
+
+  { method: 'POST', pattern: /^\/uploads$/, fn: 'uploads' },
 
   { method: 'GET', pattern: /^\/queue$/, fn: 'reviews' },
   { method: 'GET', pattern: /^\/summary$/, fn: 'reviews' },

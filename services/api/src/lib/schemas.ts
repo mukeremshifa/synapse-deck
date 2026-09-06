@@ -24,6 +24,9 @@ export {
   DeckInput,
   GradeSchema,
   ProfileSettings,
+  UPLOAD_LIMITS,
+  UploadRequest,
+  UploadTicket,
   type CardKind,
   type ProfileSettingsInput,
 } from '../../../../src/lib/schemas.ts';

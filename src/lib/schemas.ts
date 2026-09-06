@@ -197,6 +197,54 @@ export type ProfileSettings = z.infer<typeof ProfileSettings>;
 export type ProfileSettingsInput = z.input<typeof ProfileSettings>;
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Document upload (P10 task 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * What the browser may upload, and what the presigned URL will be issued for.
+ *
+ * **PDF only, for now.** The pipeline extracts a text layer; a .docx or .pptx
+ * would need a different extractor, and accepting a file the pipeline cannot
+ * read is a failure discovered after the upload rather than before it.
+ */
+export const UPLOAD_LIMITS = {
+  /**
+   * 20 MB. Large enough for a textbook chapter or a scanned-looking slide deck,
+   * and small enough that a failed upload has not cost the user five minutes.
+   *
+   * Enforced in three places, deliberately: the browser (so the message is
+   * immediate), the presign handler (because the client is not a security
+   * boundary), and the presigned URL's own content-length condition (because
+   * the URL is what S3 actually honours -- the handler's check alone would let
+   * a caller who obtained a URL upload any size at all).
+   */
+  maxBytes: 20 * 1024 * 1024,
+  contentTypes: ['application/pdf'],
+  extensions: ['.pdf'],
+} as const;
+
+export const UploadRequest = z.object({
+  /**
+   * The user's own filename. Kept for display only -- it never becomes the S3
+   * key, which is generated server-side. A filename is untrusted input and a
+   * key built from one is a path-traversal bug waiting to be written.
+   */
+  filename: z.string().trim().min(1).max(255),
+  contentType: z.enum(UPLOAD_LIMITS.contentTypes),
+  sizeBytes: z.number().int().positive().max(UPLOAD_LIMITS.maxBytes),
+});
+export type UploadRequest = z.infer<typeof UploadRequest>;
+
+/** What the presign endpoint returns: where to PUT, and what to reference after. */
+export const UploadTicket = z.object({
+  uploadUrl: z.string().url(),
+  /** The object key, to hand back when starting a job. Not a URL, and not secret. */
+  objectKey: z.string().min(1),
+  expiresInSeconds: z.number().int().positive(),
+});
+export type UploadTicket = z.infer<typeof UploadTicket>;
+
 // Generation request / streamed response
 // ---------------------------------------------------------------------------
 

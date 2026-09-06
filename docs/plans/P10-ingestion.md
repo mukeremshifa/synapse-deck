@@ -229,10 +229,15 @@ Two other things worth having on the record, both stronger than what P9 could cl
 - **Optimistic concurrency was exercised for real**: a stale token and a truncated token
   are both refused with `PT409`, and a correct one graduates the card.
 
-Still open, and only a browser closes it: the app was driven through `queries.ts` and
-`api-client.ts` in Node, not from a rendered page. The network contract is proven; React
-Query's cache keys, the optimistic updates in `useReviewCard`, and the forms are not.
-That is a smaller gap than the one this task was written to close, but it is not zero.
+**✅ Closed 2026-09-06 (session 2).** The owner drove the app in a browser against
+`dev-api.mjs` on `localhost:5173` and reported criterion 7 passing. React Query's cache
+keys, the optimistic updates in `useReviewCard`, and the forms all behave against the RDS
+handlers. **Criterion 7 is green**, and with it the last place a P9-era bug could hide on
+the client side.
+
+What that leaves unproven is only what was always deferred to task 12: API Gateway's own
+routing and authorizer, PG 17 rather than 18, and the Lambda-in-VPC cold start. Those need
+a deploy, not a browser.
 
 **Deferred to the RDS checkpoint** (see task 12), and deliberately not done now:
 
@@ -349,6 +354,62 @@ checked.)*
   phase; do not add it because it is tempting.
 - Lifecycle rule: delete uploads after N days. The source document is an input, not an
   archive, and S3 is only free to 5 GB.
+
+**◐ Mostly done 2026-09-06** (session 2). Everything except the scanned-PDF check,
+which the owner chose to defer rather than take the PDF-parser dependency in this pass.
+
+Built:
+
+- **`SynapseDeck-Pipeline-*` grew an upload bucket.** SSE-S3, all public access blocked,
+  SSL enforced, CORS scoped to the SPA's origin. `corsOrigin` moved up in `bin/app.ts` so
+  the bucket and the API take the same value — a mismatch there fails the browser's
+  preflight and reads as a broken upload rather than a misconfigured bucket.
+- **Lifecycle: 3 days**, plus `abortIncompleteMultipartUploadAfter: 1 day`. The second one
+  matters more than it looks: an abandoned multipart upload leaves parts that are billed
+  as storage but do not appear in the object listing, which is the classic way an
+  apparently empty bucket grows a bill.
+- **`POST /uploads`**, in both route tables (19 routes, parity green). It returns a
+  presigned PUT and nothing else.
+- **`data/uploads.ts`**, in `data/` deliberately. It is not a datastore module, but the
+  object key *is* the tenancy boundary, so it belongs in the directory ADR 0008 makes
+  auditable. `userId` is the first parameter and the only source of the prefix.
+- **`/create/document`**, with drag-and-drop, real upload progress, and copy that says
+  what it cannot do.
+
+Four decisions worth recording:
+
+1. **The key is generated, never taken from the client.** `uploads/<userId>/<uuid>.pdf`.
+   The user's filename is display metadata only — a key built from a filename is a
+   path-traversal bug waiting to be written, and it also invites collisions between users.
+2. **The size limit is signed into the URL** (`ContentLength`), not merely checked in the
+   handler. A handler check validates a *claim the client made*; signing it means S3 itself
+   refuses a body of a different size, so a caller who lies or reuses a URL is rejected by
+   S3 rather than trusted by us.
+3. **`grantPut`, not `grantReadWrite`.** A presigned URL can only carry permissions the
+   signing role holds, so a wider grant here would widen every URL the handler ever issues.
+   Confirmed against the synthesised template: the uploads role has `s3:PutObject` and
+   friends, no `GetObject` and no `DeleteObject`, and it is the only role with any S3
+   permission at all.
+4. **The browser's PUT does not go through `api-client.ts`.** That module attaches
+   `Authorization: Bearer` to everything, which is right for the API and wrong for S3 — the
+   presigned URL carries its own signature, and an unexpected `Authorization` header makes
+   S3 reject the request with an error that reads as though the URL were bad.
+   `XMLHttpRequest` rather than `fetch`, because `fetch` still cannot report upload
+   progress and a 20 MB upload with no progress bar is indistinguishable from a hang.
+
+**Deferred, and it is the part §7 question 6 actually asks about: the scanned-PDF check.**
+The page tells the user up front that the text must be selectable and that scans will not
+work, which is the copy half of the answer. Detecting a missing text layer *before* the
+upload needs a PDF parser on the client — `pdfjs-dist` is ~350 KB gzipped, which would
+roughly double the largest existing chunk unless it is dynamic-imported on this route
+alone. That is a dependency decision the owner deferred rather than a task that was
+forgotten. **Acceptance criterion 2 is therefore not met yet.**
+
+**What is not proven.** Nothing here has run against real S3: nothing is deployed, so no
+presigned URL has ever been signed or used, and the CORS rule has never been exercised by
+a browser. `POST /uploads` was confirmed *registered* — it returns 401 without a token
+rather than 404 — and that is the whole of what has been executed. `data/uploads.ts` has
+never signed anything.
 
 ### 4. The draft-card seam — §7 question 4
 
@@ -549,6 +610,13 @@ stops billing and storage (~$2.30/mo) continues. It is the difference between ~$
 1. A PDF dropped on `/create/document` produces cards, through S3 → Step Functions →
    Bedrock → DynamoDB → the review gate.
 2. A scanned PDF is refused **in the browser**, before the upload, with copy that says why.
+
+   **🔴 Not met.** `/create/document` says up front that the text must be selectable and
+   that a scan cannot be read (task 3), which is the copy half. The *detection* half is
+   deferred: it needs a PDF parser on the client, and the owner chose not to take that
+   dependency in the session that built the upload path. Until it lands, a scan uploads
+   successfully and fails later in the pipeline — exactly the outcome this criterion
+   exists to prevent.
 3. A job with failed chunks shows what failed and still offers the cards that succeeded.
 4. `/create/text` runs through the same state machine. Nothing calls the Edge Function.
 5. `npm run demo:seed` builds the demo account against the new API and its decks are
@@ -559,11 +627,12 @@ stops billing and storage (~$2.30/mo) continues. It is the difference between ~$
    against `dev-api.mjs`. P9 proved the handlers with a script; this proves `queries.ts`
    and `api-client.ts`, which no browser has yet exercised.
 
-   **🟡 Proven at the network layer, not in a browser.** All 18 routes were driven through
-   `queries.ts` and `api-client.ts` with a real Cognito token on 2026-09-06, which found
-   and fixed the timestamp-format bug (`c854e8e`). That was done from Node, so React
-   Query's caching and the forms above the fetch are still unexercised. Left amber
-   deliberately rather than claimed: a rendered page is what this criterion asks for.
+   **✅ Green, 2026-09-06 (session 2).** First proven at the network layer — all 18 routes
+   driven through `queries.ts` and `api-client.ts` with a real Cognito token, which found
+   and fixed the timestamp-format bug (`c854e8e`) — and then closed properly by the owner
+   driving the rendered app against `dev-api.mjs` at `localhost:5173`. React Query's
+   caching and the forms above the fetch are now exercised, which is what the criterion
+   asked for and what Node could not provide.
 8. **P9's four open items are closed at the RDS checkpoint** (task 12) and recorded in
    `P9-aws-slice.md`, not here: cold start measured, criterion 3 completed through API
    Gateway, the cross-tenant check re-run against RDS, and `describe-nat-gateways` empty

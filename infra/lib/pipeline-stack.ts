@@ -55,27 +55,52 @@
  * `services/api/src/data/jobs.ts` computes it in one place for that reason.
  */
 
-import { CfnOutput, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
 import {
   AttributeType,
   Billing,
   TableEncryptionV2,
   TableV2,
 } from 'aws-cdk-lib/aws-dynamodb';
+import {
+  BlockPublicAccess,
+  Bucket,
+  BucketEncryption,
+  HttpMethods,
+  ObjectOwnership,
+} from 'aws-cdk-lib/aws-s3';
 import type { Construct } from 'constructs';
 import type { EnvConfig } from './config.ts';
 
 export interface PipelineStackProps extends StackProps {
   readonly config: EnvConfig;
+  /**
+   * The SPA's origin, for the upload bucket's CORS rule. Same value the API
+   * stack uses, passed in rather than recomputed so the two cannot disagree --
+   * a mismatch here fails the browser's preflight and looks like a broken
+   * upload rather than a misconfigured bucket.
+   */
+  readonly corsOrigin: string;
 }
+
+/**
+ * How long an uploaded document survives.
+ *
+ * Three days. The pipeline consumes it within minutes; the only reason to keep
+ * it at all is so a job that failed can be retried without asking the user to
+ * upload again. Beyond that it is someone's document sitting in a bucket for no
+ * reason, which is a liability rather than a feature.
+ */
+const UPLOAD_RETENTION_DAYS = 3;
 
 export class PipelineStack extends Stack {
   readonly jobTable: TableV2;
+  readonly uploadBucket: Bucket;
 
   constructor(scope: Construct, id: string, props: PipelineStackProps) {
     super(scope, id, props);
 
-    const { config } = props;
+    const { config, corsOrigin } = props;
 
     this.jobTable = new TableV2(this, 'JobTable', {
       tableName: `synapsedeck-${config.envName}-jobs`,
@@ -114,6 +139,78 @@ export class PipelineStack extends Stack {
       // take live job state with it. Matches DataStack's reasoning on the
       // database itself.
       removalPolicy: config.envName === 'prod' ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+    });
+
+    // ── The upload bucket ───────────────────────────────────────────────────
+    //
+    // P10 task 3. The browser uploads here directly with a presigned PUT; the
+    // file never passes through the API. That is not a micro-optimisation — a
+    // 20 MB PDF through a Lambda means buying memory to hold it, and API
+    // Gateway caps a payload at 10 MB anyway, so routing uploads through the
+    // API would put a hard ceiling on document size for no benefit.
+    //
+    // **Object keys are prefixed `uploads/<userId>/…`** (D4: `sub` becomes
+    // `userId` everywhere, including S3 prefixes). Two things follow: the
+    // presigned URL the API issues names a key it built from the verified JWT,
+    // so a caller cannot obtain a URL for someone else's prefix; and the
+    // boundary is visible in the key rather than implied by a policy elsewhere.
+    this.uploadBucket = new Bucket(this, 'UploadBucket', {
+      bucketName: `synapsedeck-${config.envName}-uploads-${this.account}`,
+
+      // Nothing here is ever public. The only reads are presigned or by the
+      // pipeline's own role.
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      publicReadAccess: false,
+      enforceSSL: true,
+
+      // SSE-S3 rather than SSE-KMS, for the same reason the table uses an
+      // AWS-owned key: KMS would add a per-request charge and a key to manage,
+      // to protect documents that are deleted within the week.
+      encryption: BucketEncryption.S3_MANAGED,
+      objectOwnership: ObjectOwnership.BUCKET_OWNER_ENFORCED,
+
+      // **The source document is an input, not an archive.** S3 is free only to
+      // 5 GB, and a PDF whose cards have been generated has no further use --
+      // the cards are the product and they live in Postgres. Without this rule
+      // the bucket grows forever and quietly becomes the largest line on the
+      // bill.
+      lifecycleRules: [
+        {
+          id: 'delete-uploads',
+          enabled: true,
+          expiration: Duration.days(UPLOAD_RETENTION_DAYS),
+          // A multipart upload the browser abandoned leaves parts that are
+          // billed as storage but are invisible in the object listing -- the
+          // classic way an S3 bill grows with an apparently empty bucket.
+          abortIncompleteMultipartUploadAfter: Duration.days(1),
+        },
+      ],
+
+      // CORS, because the browser PUTs here directly from the SPA's origin.
+      // Without this the upload fails preflight and presents as an opaque
+      // network error rather than as a permissions problem.
+      //
+      // ETag is exposed deliberately: it is the one response header a client
+      // needs to confirm what S3 actually stored.
+      cors: [
+        {
+          allowedOrigins: [corsOrigin],
+          allowedMethods: [HttpMethods.PUT],
+          allowedHeaders: ['content-type'],
+          exposedHeaders: ['ETag'],
+          maxAge: 3000,
+        },
+      ],
+
+      removalPolicy: config.envName === 'prod' ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+      // Dev only: let `cdk destroy` actually succeed rather than failing on a
+      // non-empty bucket. Never on prod, where it would delete real uploads.
+      autoDeleteObjects: config.envName !== 'prod',
+    });
+
+    new CfnOutput(this, 'UploadBucketName', {
+      value: this.uploadBucket.bucketName,
+      description: 'S3 bucket receiving presigned document uploads.',
     });
 
     new CfnOutput(this, 'JobTableName', {

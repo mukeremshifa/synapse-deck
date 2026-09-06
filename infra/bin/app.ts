@@ -83,6 +83,21 @@ for (const envName of ['dev', 'prod'] as const satisfies readonly EnvName[]) {
   });
 
   /**
+   * The SPA's origin. Declared here because both PipelineStack (the upload
+   * bucket's CORS rule) and ApiStack need it, and they must agree: a mismatch
+   * fails the browser's preflight on upload and reads as a broken feature
+   * rather than as a misconfigured bucket.
+   *
+   * Never `*`: with an `Authorization` header that would let any page on the
+   * internet make authenticated calls with a stolen token. Dev is the Vite dev
+   * server; prod is a placeholder until Phase G puts CloudFront in front of the
+   * SPA, and it is a context value so changing it is not a code edit.
+   */
+  const corsOrigin =
+    (app.node.tryGetContext(`corsOrigin:${envName}`) as string | undefined) ??
+    (envName === 'dev' ? 'http://localhost:5173' : 'https://synapsedeck.invalid');
+
+  /**
    * P10. Ingestion job state, in its own stack because its lifecycle differs
    * from the API's: the table holds live job state, and a redeploy of a handler
    * should never be able to replace it. It is also the one P10 resource that is
@@ -90,6 +105,7 @@ for (const envName of ['dev', 'prod'] as const satisfies readonly EnvName[]) {
    */
   const pipeline = new PipelineStack(app, `SynapseDeck-Pipeline-${envName}`, {
     config,
+    corsOrigin,
     env,
     description: `SynapseDeck ingestion job state (${envName}) - see docs/plans/P10-ingestion.md`,
   });
@@ -99,17 +115,7 @@ for (const envName of ['dev', 'prod'] as const satisfies readonly EnvName[]) {
    * account — which is what lets the JWT authorizer take the user pool directly
    * instead of through a cross-stack export that would pin the two together at
    * the CloudFormation level.
-   *
-   * `corsOrigin` is per environment and never `*`: `*` with an `Authorization`
-   * header lets any page on the internet make authenticated calls with a stolen
-   * token. Dev is the Vite dev server; prod is a placeholder until Phase G puts
-   * a CloudFront distribution in front of the SPA, and it is a context value so
-   * that changing it is not a code edit.
    */
-  const corsOrigin =
-    (app.node.tryGetContext(`corsOrigin:${envName}`) as string | undefined) ??
-    (envName === 'dev' ? 'http://localhost:5173' : 'https://synapsedeck.invalid');
-
   const api = new ApiStack(app, `SynapseDeck-Api-${envName}`, {
     config,
     vpc: data.vpc,
@@ -119,6 +125,7 @@ for (const envName of ['dev', 'prod'] as const satisfies readonly EnvName[]) {
     userPool: auth.userPool,
     userPoolClient: auth.userPoolClient,
     jobTable: pipeline.jobTable,
+    uploadBucket: pipeline.uploadBucket,
     corsOrigin,
     env,
     description: `SynapseDeck API Gateway and Lambdas (${envName}) - see docs/plans/P9-aws-slice.md`,

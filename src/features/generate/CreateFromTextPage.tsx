@@ -98,7 +98,11 @@ export function CreateFromTextPage() {
         <h1 className="font-serif text-3xl tracking-tight">Create from text</h1>
         <p className="text-muted-foreground max-w-prose text-sm">
           Paste a passage and cards are written from it. You approve every card before it
-          enters a deck.
+          enters a deck. Have a PDF instead?{' '}
+          <Link to="/create/document" className="underline underline-offset-4">
+            Upload a document
+          </Link>
+          .
         </p>
       </header>
 

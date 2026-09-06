@@ -53,6 +53,11 @@ const CreateFromTextPage = lazy(() =>
     default: module.CreateFromTextPage,
   })),
 );
+const CreateFromDocumentPage = lazy(() =>
+  import('@/features/generate/CreateFromDocumentPage').then(module => ({
+    default: module.CreateFromDocumentPage,
+  })),
+);
 const ReviewGatePage = lazy(() =>
   import('@/features/generate/ReviewGatePage').then(module => ({
     default: module.ReviewGatePage,
@@ -150,6 +155,14 @@ export function AppRoutes() {
           element={
             <Lazy>
               <CreateFromTextPage />
+            </Lazy>
+          }
+        />
+        <Route
+          path="create/document"
+          element={
+            <Lazy>
+              <CreateFromDocumentPage />
             </Lazy>
           }
         />
