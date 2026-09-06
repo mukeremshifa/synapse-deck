@@ -1,5 +1,9 @@
 # P10, session 3 — take off from here
 
+> **⚠ Superseded for status by [P10-SESSION-4.md](P10-SESSION-4.md).** Tasks 7, 8, 9 and 11
+> are done; the "your first move" list below is stale. The pipeline design reasoning here
+> is still accurate and still worth reading.
+
 The handover from session 2 (2026-09-06). Session 2 did tasks 2, 3, 4, 5 and 6, applied a
 destructive migration, and closed criterion 7. Read this, then
 [P10-ingestion.md](P10-ingestion.md).
