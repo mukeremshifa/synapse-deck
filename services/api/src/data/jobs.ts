@@ -110,6 +110,18 @@ function jobSortKey(jobId: string): string {
   return `job#${jobId}`;
 }
 
+/**
+ * Source text for one chunk, stored separately from that chunk's result.
+ *
+ * The `#text` suffix keeps it under the job's sort-key prefix — so it is still
+ * covered by the single `begins_with` Query and by the TTL — while remaining
+ * distinguishable from the `#chunk#` result items that `getJobWithChunks`
+ * returns.
+ */
+function chunkTextSortKey(jobId: string, index: number): string {
+  return `job#${jobId}#text#${String(index).padStart(6, '0')}`;
+}
+
 export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
 
 export interface JobRecord {
@@ -125,6 +137,12 @@ export interface JobRecord {
   deckId: string | null;
   /** Set only when `status` is `'failed'`. */
   error: string | null;
+  /**
+   * True when the document was longer than the chunk cap allowed and the tail
+   * was dropped. Surfaced to the user rather than hidden -- a deck that quietly
+   * covers three quarters of a document is a product that lies.
+   */
+  truncated: boolean;
   createdAt: string;
   updatedAt: string;
   expiresAt: number;
@@ -138,6 +156,14 @@ export interface ChunkRecord {
   status: JobStatus;
   /** The draft cards this chunk produced, unvalidated LLM output. */
   cards: unknown[];
+  /**
+   * Which provider wrote these cards.
+   *
+   * Traceability rather than telemetry: the stub provider produces placeholder
+   * content, and a card it generated must stay identifiable after it is stored.
+   * Without this, fake cards become anonymous the moment they reach the table.
+   */
+  provider: string | null;
   error: string | null;
   updatedAt: string;
   expiresAt: number;
@@ -165,6 +191,7 @@ export async function createJob(
     chunksCompleted: 0,
     deckId,
     error: null,
+    truncated: false,
     createdAt: now,
     updatedAt: now,
     expiresAt: expiresAt(),
@@ -229,12 +256,17 @@ export async function getJobWithChunks(
   let job: JobRecord | null = null;
   const chunks: ChunkRecord[] = [];
 
+  const chunkPrefix = `job#${jobId}#chunk#`;
   for (const item of items) {
     if (item.sk === summarySk) {
       job = item as JobRecord;
-    } else {
+    } else if (item.sk.startsWith(chunkPrefix)) {
       chunks.push(item as ChunkRecord);
     }
+    // Anything else under this prefix is a `#text#` item -- the chunk's source
+    // text, which is an input rather than a result and is deliberately not
+    // returned to callers. Skipping it by prefix rather than by "not the
+    // summary" is what keeps the source text out of every progress response.
   }
 
   // The zero-padded sort key already returns these in order; sorting again is
@@ -259,7 +291,12 @@ export async function updateJobStatus(
   userId: string,
   jobId: string,
   status: JobStatus,
-  fields: { chunkCount?: number; deckId?: string | null; error?: string | null } = {},
+  fields: {
+    chunkCount?: number;
+    deckId?: string | null;
+    error?: string | null;
+    truncated?: boolean;
+  } = {},
 ): Promise<void> {
   const sets = ['#status = :status', 'updatedAt = :updatedAt'];
   const names: Record<string, string> = { '#status': 'status' };
@@ -275,6 +312,10 @@ export async function updateJobStatus(
   if (fields.deckId !== undefined) {
     sets.push('deckId = :deckId');
     values[':deckId'] = fields.deckId;
+  }
+  if (fields.truncated !== undefined) {
+    sets.push('truncated = :truncated');
+    values[':truncated'] = fields.truncated;
   }
   if (fields.error !== undefined) {
     sets.push('#error = :error');
@@ -295,6 +336,68 @@ export async function updateJobStatus(
 }
 
 /**
+ * Store one chunk's source text, before the fan-out begins.
+ *
+ * ── Why the text lives here and not in the state machine's payload ────────
+ *
+ * Step Functions carries state between steps as JSON, with a **256 KB limit on
+ * the whole payload**. A 40-chunk document at 3.5k characters each is ~140 KB
+ * of text alone, and that is before the Map state duplicates context per
+ * iteration — so passing chunk text through the machine works on small
+ * documents and fails on exactly the large ones this pipeline exists for.
+ *
+ * Writing the text here instead means the Map state carries three fields per
+ * chunk and the payload size is independent of the document's size. The cost is
+ * one extra read per chunk, which is a rounding error next to a model call.
+ *
+ * Written as a separate item from the chunk's *result*, under the same sort-key
+ * prefix, so the whole job still reads in one Query.
+ */
+export async function putChunkText(
+  userId: string,
+  jobId: string,
+  chunkIndex: number,
+  text: string,
+): Promise<void> {
+  await client().send(
+    new PutCommand({
+      TableName: tableName(),
+      Item: {
+        userId,
+        sk: chunkTextSortKey(jobId, chunkIndex),
+        jobId,
+        chunkIndex,
+        text,
+        expiresAt: expiresAt(),
+      },
+    }),
+  );
+}
+
+/**
+ * Read back one chunk's source text.
+ *
+ * Returns null rather than throwing when the item is missing: a worker whose
+ * chunk text has expired or was never written is a failed chunk, which the
+ * pipeline already knows how to report, not a crash.
+ */
+export async function getChunkText(
+  userId: string,
+  jobId: string,
+  chunkIndex: number,
+): Promise<string | null> {
+  const result = await client().send(
+    new GetCommand({
+      TableName: tableName(),
+      Key: { userId, sk: chunkTextSortKey(jobId, chunkIndex) },
+      ConsistentRead: true,
+    }),
+  );
+  const item = result.Item as { text?: unknown } | undefined;
+  return typeof item?.text === 'string' ? item.text : null;
+}
+
+/**
  * Record one chunk's result, and advance the job's completed counter.
  *
  * Two writes rather than one transaction, and that is a deliberate trade. A
@@ -308,7 +411,12 @@ export async function completeChunk(
   userId: string,
   jobId: string,
   chunkIndex: number,
-  result: { status: JobStatus; cards?: unknown[]; error?: string | null },
+  result: {
+    status: JobStatus;
+    cards?: unknown[];
+    provider?: string | null;
+    error?: string | null;
+  },
 ): Promise<void> {
   const record: ChunkRecord = {
     userId,
@@ -317,6 +425,7 @@ export async function completeChunk(
     chunkIndex,
     status: result.status,
     cards: result.cards ?? [],
+    provider: result.provider ?? null,
     error: result.error ?? null,
     updatedAt: new Date().toISOString(),
     expiresAt: expiresAt(),

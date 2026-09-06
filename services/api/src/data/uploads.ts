@@ -37,10 +37,11 @@
  * trusted by us.
  */
 
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'node:crypto';
 import { UPLOAD_LIMITS } from '../lib/schemas.ts';
+import { ApiError } from '../lib/rows.ts';
 
 /**
  * How long a presigned URL stays valid.
@@ -75,6 +76,58 @@ function bucketName(): string {
  */
 export function uploadKeyFor(userId: string, objectId: string): string {
   return `uploads/${userId}/${objectId}.pdf`;
+}
+
+/**
+ * Refuse an object key that is not inside this user's own prefix.
+ *
+ * **A key is not a capability.** It arrives from the client in a request body,
+ * so it can name anything — including another user's object. The prefix is the
+ * boundary (`uploads/<userId>/…`), so checking membership of that prefix is the
+ * whole of the ownership check, and it happens here rather than in a handler
+ * because that is where ADR 0008 keeps decisions of this kind.
+ *
+ * Throws rather than returning a boolean: a caller that forgets to check a
+ * returned flag is exactly the failure this must not permit.
+ */
+export function assertOwnedKey(userId: string, objectKey: string): void {
+  const prefix = `uploads/${userId}/`;
+  // `startsWith` alone would accept `uploads/<userId>/../<other>/x.pdf`, which
+  // S3 treats as a literal key but which reads as an escape to anyone auditing
+  // this. Rejecting traversal segments outright keeps the check honest.
+  if (!objectKey.startsWith(prefix) || objectKey.includes('..')) {
+    throw new ApiError(404, 'No such document.');
+  }
+}
+
+/**
+ * Read an uploaded document's text.
+ *
+ * ── This does not parse PDFs, and says so ─────────────────────────────────
+ *
+ * Extracting a text layer from a PDF needs a parser, which is a dependency
+ * decision this phase deliberately deferred (task 3's scanned-PDF check is the
+ * other half of the same deferral). Until that lands, this reads the object as
+ * UTF-8 text, which works for a `.txt` upload and produces mostly-binary noise
+ * for a real PDF.
+ *
+ * **That is a known gap, not a hidden one.** A PDF whose extracted text is
+ * unusable produces a job that fails with a message the user can act on, rather
+ * than a deck of cards generated from binary. The pipeline around it is
+ * complete; this one function is the seam a PDF parser slots into.
+ */
+export async function readDocumentText(userId: string, objectKey: string): Promise<string> {
+  assertOwnedKey(userId, objectKey);
+
+  const result = await client().send(
+    new GetObjectCommand({ Bucket: bucketName(), Key: objectKey }),
+  );
+
+  const body = await result.Body?.transformToString('utf-8');
+  if (body === undefined || body.trim() === '') {
+    throw new ApiError(400, 'That document had no readable text.');
+  }
+  return body;
 }
 
 export interface UploadTicketResult {

@@ -24,6 +24,8 @@ export {
   DeckInput,
   GradeSchema,
   ProfileSettings,
+  GENERATION_LIMITS,
+  StartJobRequest,
   UPLOAD_LIMITS,
   UploadRequest,
   UploadTicket,

@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { FileTextIcon, UploadIcon, XIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -10,18 +10,22 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { api } from '@/lib/api-client';
 import { UPLOAD_LIMITS } from '@/lib/schemas';
 import { cn } from '@/lib/utils';
+import { useJobProgress } from './useJobProgress';
 import { useUploadDocument, validateFile } from './useUploadDocument';
 
 /**
  * `/create/document` — drop a PDF, and it goes straight to S3.
  *
- * P10 task 3. The file is uploaded with a presigned PUT the API signs; it never
- * passes through the API itself. What happens *after* the upload — splitting,
- * generation, the review gate — is task 5, and this page is honest about
- * stopping where it stops rather than implying a pipeline that does not exist
- * yet.
+ * P10 tasks 3 and 5. The file is uploaded with a presigned PUT the API signs and
+ * never passes through the API itself; the page then starts an ingestion job and
+ * polls it, which is what replaced the SSE stream P2 built. A Lambda cannot hold
+ * a connection open for the length of a Step Functions fan-out, so polling is
+ * not a downgrade here — it is the only shape that composes with the pipeline.
  *
  * **No OCR, and the copy says so.** A scanned PDF is a picture of text, and
  * nothing here can read it. Textract is the real answer and it is deliberately
@@ -46,9 +50,48 @@ export function CreateFromDocumentPage() {
   const [file, setFile] = useState<File | null>(null);
   const [rejected, setRejected] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const { phase, percent, objectKey, error, upload, reset } = useUploadDocument();
+  const { phase, percent, error, upload, reset } = useUploadDocument();
+  const navigate = useNavigate();
 
-  const busy = phase === 'preparing' || phase === 'uploading';
+  const [title, setTitle] = useState('');
+  const [jobId, setJobId] = useState<string | undefined>();
+  const [startError, setStartError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+
+  const { job, percent: jobPercent, isFinished } = useJobProgress(jobId);
+
+  const busy = phase === 'preparing' || phase === 'uploading' || starting;
+
+  /**
+   * Upload, then start the job. Two calls rather than one because the file goes
+   * to S3 directly and the API only ever sees the key it issued.
+   */
+  const uploadAndStart = useCallback(
+    async (chosen: File) => {
+      setStartError(null);
+      const key = await upload(chosen);
+      if (key === null) return; // upload() has already set its own error.
+
+      setStarting(true);
+      try {
+        const started = await api.post<{ jobId: string; deckId: string }>('/jobs', {
+          objectKey: key,
+          // Fall back to the filename minus its extension: a title is required,
+          // and making the user type one they already expressed by choosing the
+          // file is friction for its own sake.
+          deckTitle: title.trim() === '' ? chosen.name.replace(/\.pdf$/i, '') : title.trim(),
+        });
+        setJobId(started.jobId);
+      } catch (caught) {
+        setStartError(
+          caught instanceof Error ? caught.message : 'The job could not be started.',
+        );
+      } finally {
+        setStarting(false);
+      }
+    },
+    [title, upload],
+  );
 
   const choose = useCallback(
     (chosen: File | undefined) => {
@@ -148,6 +191,23 @@ export function CreateFromDocumentPage() {
             </p>
           )}
 
+          {file !== null && jobId === undefined && (
+            <div className="space-y-2">
+              <Label htmlFor="deck-title">Deck title</Label>
+              <Input
+                id="deck-title"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder={file.name.replace(/\.pdf$/i, '')}
+                maxLength={200}
+                disabled={busy}
+              />
+              <p className="text-muted-foreground text-xs">
+                Left blank, the file name is used.
+              </p>
+            </div>
+          )}
+
           {file !== null && (
             <div className="bg-muted/40 flex items-center gap-3 rounded-md border px-3 py-2">
               <FileTextIcon aria-hidden className="text-muted-foreground size-4 shrink-0" />
@@ -198,32 +258,100 @@ export function CreateFromDocumentPage() {
             </p>
           )}
 
-          {phase === 'done' && objectKey !== null && (
-            <div className="space-y-2 rounded-md border border-dashed px-3 py-3">
-              <p className="text-sm font-medium">Uploaded.</p>
+          {startError !== null && (
+            <p role="alert" className="text-destructive text-sm">
+              {startError}
+            </p>
+          )}
+
+          {jobId !== undefined && job !== undefined && (
+            <div className="space-y-3 rounded-md border px-3 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium">
+                  {job.status === 'pending' && 'Reading the document…'}
+                  {job.status === 'running' && 'Writing cards…'}
+                  {job.status === 'succeeded' && 'Cards are ready to review.'}
+                  {job.status === 'failed' && 'No cards could be written.'}
+                </p>
+                {!isFinished && (
+                  <span className="text-muted-foreground font-mono text-xs tabular-nums">
+                    {job.chunksCompleted}/{job.chunkCount || '…'}
+                  </span>
+                )}
+              </div>
+
+              {!isFinished && (
+                <progress
+                  value={jobPercent}
+                  max={100}
+                  className="h-2 w-full overflow-hidden rounded-full"
+                >
+                  {jobPercent}%
+                </progress>
+              )}
+
               {/*
-                Deliberately not pretending the pipeline exists. Generation from
-                a document is P10 task 5; claiming "your cards are being written"
-                here would be a lie the next screen would expose.
+                Partial failure is stated, not hidden (task 6). A deck that
+                quietly contains three quarters of a document is a product that
+                lies, so the gap gets a line of its own.
               */}
-              <p className="text-muted-foreground text-sm">
-                The document is stored and ready. Turning it into cards is not wired up
-                yet — until it is,{' '}
-                <Link to="/create/text" className="underline underline-offset-4">
-                  create from text
-                </Link>{' '}
-                is the path that works end to end.
-              </p>
-              <Button type="button" variant="outline" size="sm" onClick={clear}>
-                Upload another
-              </Button>
+              {job.chunksFailed > 0 && (
+                <p className="text-muted-foreground text-sm">
+                  {job.chunksSucceeded} of {job.chunkCount} sections produced cards;{' '}
+                  {job.chunksFailed} could not be read. The cards that did arrive are
+                  below.
+                </p>
+              )}
+
+              {job.truncated && (
+                <p className="text-muted-foreground text-sm">
+                  This document was longer than one job covers, so only the first part
+                  was used.
+                </p>
+              )}
+
+              {/*
+                The stub provider is named in the UI, not just in a log. Fake
+                cards that look real are the risk; a user seeing where they came
+                from is the cheapest possible mitigation.
+              */}
+              {job.providers.includes('stub') && (
+                <p className="text-destructive text-sm">
+                  These are placeholder cards — no language model was called. Set a real
+                  provider to generate real cards.
+                </p>
+              )}
+
+              {job.error !== null && (
+                <p className="text-destructive text-sm">{job.error}</p>
+              )}
+
+              {job.status === 'succeeded' && job.deckId !== null && (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => navigate(`/create/review/${job.deckId!}`)}
+                >
+                  Review {job.cards.length} card{job.cards.length === 1 ? '' : 's'}
+                </Button>
+              )}
+
+              {isFinished && job.status === 'failed' && (
+                <Button type="button" variant="outline" size="sm" onClick={clear}>
+                  Try another document
+                </Button>
+              )}
             </div>
           )}
 
-          {file !== null && phase !== 'done' && (
+          {file !== null && jobId === undefined && (
             <div className="flex justify-end">
-              <Button type="button" onClick={() => void upload(file)} disabled={busy}>
-                {busy ? 'Uploading…' : 'Upload'}
+              <Button
+                type="button"
+                onClick={() => void uploadAndStart(file)}
+                disabled={busy}
+              >
+                {busy ? 'Working…' : 'Upload and write cards'}
               </Button>
             </div>
           )}

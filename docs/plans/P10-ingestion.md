@@ -521,6 +521,91 @@ D5. Map state over chunks, per-chunk retry, partial failure as a normal outcome.
   `supabase/functions/_shared/ingest.ts` re-exports them, so this is coordinated with
   retiring the Edge Function's use of them, not before.
 
+**◐ Built 2026-09-06** (session 2). The machine is complete; **no model has ever been
+called**, and that is the honest headline.
+
+**Infra.** `SynapseDeck-Pipeline-*` gained a Standard state machine:
+`SplitDocument → GenerateAllChunks (Map) → Finalise`, three Lambdas, and a DLQ. Confirmed
+in the synthesised definition, not assumed.
+
+**The retry trap the brief names, found by reading the synth.** §6 trap 4 is literally "a
+Step Functions retry loop calling Bedrock". CDK's `LambdaInvoke` adds a *default* retry of
+`MaxAttempts: 6` on Lambda service errors, which stacked on top of the explicit 3-attempt
+policy would have allowed **up to 18 model calls for one chunk**. `retryOnServiceExceptions:
+false` removes the default and the transient Lambda errors were folded into the single
+bounded policy instead. Verified in the template: `GenerateChunk` carries exactly one retry
+block, `MaxAttempts: 3`, and `MaxConcurrency: 4` caps the fan-out so a 40-chunk document is
+not 40 simultaneous model calls.
+
+**Partial failure is structural, not cosmetic.** A chunk that exhausts its retries is
+*caught* and routed to a `Succeed` state rather than propagating: without that catch, one
+bad chunk aborts the Map and discards the other 39. The chunk's failure is already recorded
+in DynamoDB by the Lambda, and `Finalise` counts what actually arrived rather than trusting
+the execution's shape. A job is `succeeded` if any cards arrived, `failed` only if none did.
+
+**Chunking.** Paragraph-based, not fixed-width — a fixed slice cuts sentences in half and
+the model then writes a card from a fragment whose subject is in the previous chunk, which
+is confidently wrong rather than obviously broken. One paragraph of overlap carries context
+across the seam. Chunk indexes are zero-padded in the sort key (task 2's reason). Capped at
+40 chunks as a **cost control**: an uncapped document is an uncapped bill.
+
+Exercised directly on: empty input, whitespace, a single short paragraph, 3/10/30
+paragraphs, a 30k-character paragraph with no breaks at all, one with sentences, and a
+document past the cap. Indexes contiguous, nothing exceeds budget, the cap truncates at
+exactly 40, and the overlap was confirmed by tagging paragraphs and reading them back
+(chunks came out `[0,1,2] [2,3,4] [4,5,6] [6,7,8]` — every paragraph present, each seam
+shared).
+
+**Chunk text does not travel through the state machine.** Step Functions caps a payload at
+256 KB and a 40-chunk document is ~140 KB of text before the Map duplicates context per
+iteration — so it works on small documents and fails on exactly the large ones this exists
+for. The text is written to DynamoDB and the Map carries `{userId, jobId, chunkIndex}`;
+each worker reads its own. One extra read per chunk, and payload size becomes independent
+of document size.
+
+**The provider seam, and the stub.** D6's interface exists with one implementation behind
+it. **`resolveProvider()` has no default and refuses every unsafe path** — verified:
+unset, empty, a bogus name, and both `bedrock` and `groq` (not implemented) all throw.
+There is no way to reach the stub without naming it. The stub itself announces itself at
+error level on every cold start, writes `provider: 'stub'` onto every chunk record, says
+`[STUB CARD — not real content]` in the card text, and **the UI prints a warning when a
+job's providers include it**. Fake cards that look real are the risk; four independent
+places say otherwise.
+
+Exercised end to end with the stub: a 12-paragraph document → 6 chunks → 18 cards, **all
+18 validating against the real `CardPayload` schema**, deterministic across runs, provider
+tagged on every chunk.
+
+**Client.** `useJobProgress` polls with backoff — 1s, ×1.5, capped at 8s, stopping at a
+terminal status. The first seconds are where the transitions are and where the user is
+watching; a job then settles into a grind that does not deserve 2 requests a second. The
+backoff resets per job id, or a second generation would start at the 8-second ceiling.
+
+**The lint was generalised, and it had a real gap.** After task 2 it knew DynamoDB only, so
+an `SFNClient` in a handler passed every gate — I confirmed that before fixing it. It now
+covers S3, Step Functions, SQS and Bedrock clients and their commands. Re-tested in all
+four directions: baseline passes, SFN in a handler is caught, S3 in a handler is caught,
+and `res.send()` / `notifier.send()` still pass.
+
+**What is not proven, and it is most of the interesting part.** Nothing is deployed. The
+state machine has never executed, no Lambda has run in AWS, no DynamoDB write has happened,
+no S3 object has been read, and the `GET /jobs/{jobId}` and `POST /jobs` handlers have never
+served a request. What ran locally was the chunker, the provider, and schema validation —
+real code on real inputs, but not the orchestration around it. The retry policy, the catch,
+the Map concurrency and the idempotent execution name are all **read from the synthesised
+template, never observed behaving**.
+
+**Two known gaps, both deliberate and neither hidden:**
+
+1. **`readDocumentText` does not parse PDFs.** It reads the object as UTF-8, which works
+   for a `.txt` upload and produces noise for a real PDF. The PDF parser is the same
+   deferred dependency as task 3's scanned-PDF check; this one function is the seam it
+   slots into, and a document whose text is unusable fails the job with a message rather
+   than generating cards from binary.
+2. **`/create/text` still uses the Edge Function.** Task 9 moves it, and the plan is
+   explicit that deleting `sse.ts`/`ndjson.ts` is coordinated with that rather than done
+   early. SSE is not dead yet.
+
 ### 6. Partial failure, in the UI — §7 question 3
 
 "31 of 40 chunks produced cards; 9 failed" is the normal case, not the exception, and the

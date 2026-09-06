@@ -103,9 +103,24 @@ for (const envName of ['dev', 'prod'] as const satisfies readonly EnvName[]) {
    * should never be able to replace it. It is also the one P10 resource that is
    * free at idle, so it can be deployed well before DataStack's RDS instance.
    */
+  /**
+   * The model provider for the ingestion pipeline. No default, on purpose.
+   *
+   * `-c cardProvider=stub` generates **placeholder cards** and is for local and
+   * dev use while Bedrock model access is blocked; `bedrock` and `groq` arrive
+   * with P10 task 10. Synth falls back to 'stub' only so CI can synthesise
+   * without context, and the stack still announces itself loudly at runtime --
+   * see services/api/src/lib/providers/stub.ts.
+   */
+  const cardProvider =
+    (app.node.tryGetContext(`cardProvider:${envName}`) as string | undefined) ??
+    (app.node.tryGetContext('cardProvider') as string | undefined) ??
+    'stub';
+
   const pipeline = new PipelineStack(app, `SynapseDeck-Pipeline-${envName}`, {
     config,
     corsOrigin,
+    cardProvider,
     env,
     description: `SynapseDeck ingestion job state (${envName}) - see docs/plans/P10-ingestion.md`,
   });
@@ -126,6 +141,7 @@ for (const envName of ['dev', 'prod'] as const satisfies readonly EnvName[]) {
     userPoolClient: auth.userPoolClient,
     jobTable: pipeline.jobTable,
     uploadBucket: pipeline.uploadBucket,
+    stateMachine: pipeline.stateMachine,
     corsOrigin,
     env,
     description: `SynapseDeck API Gateway and Lambdas (${envName}) - see docs/plans/P9-aws-slice.md`,

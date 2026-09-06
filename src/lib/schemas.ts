@@ -271,6 +271,29 @@ export type GenerateRequest = z.infer<typeof GenerateRequest>;
 export type GenerateRequestInput = z.input<typeof GenerateRequest>;
 
 /**
+ * Starting an ingestion job from an uploaded document (P10 task 5).
+ *
+ * `objectKey` is the key returned by `POST /uploads`. It is re-derived and
+ * re-checked server-side against the caller's own prefix rather than trusted:
+ * a key is not a capability, and one arriving in a request body could name
+ * anyone's object.
+ */
+export const StartJobRequest = z.object({
+  objectKey: z.string().trim().min(1).max(1024),
+  deckTitle: z.string().trim().min(1).max(200),
+  cardCount: z
+    .number()
+    .int()
+    .min(GENERATION_LIMITS.minCards)
+    .max(GENERATION_LIMITS.maxCards)
+    .default(20),
+  kinds: z.array(z.enum(CARD_KINDS)).min(1).default(['basic', 'cloze']),
+  depth: z.enum(['recall', 'balanced', 'deep']).default('balanced'),
+});
+export type StartJobRequest = z.infer<typeof StartJobRequest>;
+export type StartJobRequestInput = z.input<typeof StartJobRequest>;
+
+/**
  * One NDJSON line as emitted by the model (SPEC §7.3). Deliberately *not* the
  * same shape as a stored card: the model supplies content plus provenance, the
  * server supplies ids and scheduling state.

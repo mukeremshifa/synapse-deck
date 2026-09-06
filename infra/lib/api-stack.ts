@@ -54,6 +54,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { ITableV2 } from 'aws-cdk-lib/aws-dynamodb';
 import type { IBucket } from 'aws-cdk-lib/aws-s3';
+import type { IStateMachine } from 'aws-cdk-lib/aws-stepfunctions';
 import type { EnvConfig } from './config.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -69,6 +70,8 @@ export interface ApiStackProps extends StackProps {
   readonly jobTable: ITableV2;
   /** P10's upload bucket, from PipelineStack. Only the uploads handler signs for it. */
   readonly uploadBucket: IBucket;
+  /** P10's ingestion state machine, started when a document job is created. */
+  readonly stateMachine: IStateMachine;
   readonly vpc: IVpc;
   readonly database: DatabaseInstance;
   readonly databaseSecurityGroup: ISecurityGroup;
@@ -146,6 +149,7 @@ export class ApiStack extends Stack {
       // call if it is missing rather than failing deeper in the SDK.
       JOB_TABLE_NAME: props.jobTable.tableName,
       UPLOAD_BUCKET_NAME: props.uploadBucket.bucketName,
+      INGESTION_STATE_MACHINE_ARN: props.stateMachine.stateMachineArn,
     };
 
     const makeHandler = (name: string, entry: string) =>
@@ -192,6 +196,7 @@ export class ApiStack extends Stack {
     const cardsFn = makeHandler('CardsFn', 'cards');
     const reviewsFn = makeHandler('ReviewsFn', 'reviews');
     const uploadsFn = makeHandler('UploadsFn', 'uploads');
+    const jobsFn = makeHandler('JobsFn', 'jobs');
 
     // ── The job table's grant ───────────────────────────────────────────────
     //
@@ -213,6 +218,15 @@ export class ApiStack extends Stack {
     // this role already holds. A wider grant here would widen every URL it
     // signs.
     props.uploadBucket.grantPut(uploadsFn);
+
+    // The jobs handler reads progress and also *creates* a job, so it needs
+    // write access -- narrower than the pipeline's own Lambdas, which is why the
+    // grant is stated per function rather than once for everything.
+    props.jobTable.grantReadWriteData(jobsFn);
+    // It reads the uploaded document to seed the execution. Read-only: it has
+    // no reason to write or delete an upload.
+    props.uploadBucket.grantRead(jobsFn);
+    props.stateMachine.grantStartExecution(jobsFn);
 
     // ── The migration runner ────────────────────────────────────────────────
     //
@@ -367,6 +381,8 @@ export class ApiStack extends Stack {
     route('/cards/delete', [HttpMethod.POST], cardsFn, 'DeleteCardsInt');
 
     route('/uploads', [HttpMethod.POST], uploadsFn, 'UploadsInt');
+    route('/jobs', [HttpMethod.POST], jobsFn, 'JobsInt');
+    route('/jobs/{jobId}', [HttpMethod.GET], jobsFn, 'JobInt');
 
     route('/queue', [HttpMethod.GET], reviewsFn, 'QueueInt');
     route('/summary', [HttpMethod.GET], reviewsFn, 'SummaryInt');

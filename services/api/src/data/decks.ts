@@ -8,7 +8,7 @@
  */
 
 import { query, withTransaction } from '../lib/db.ts';
-import type { DeckRow } from '../lib/rows.ts';
+import type { DeckRow, DeckStatus, GenSource } from '../lib/rows.ts';
 
 const COLUMNS =
   'id, user_id, title, description, status, source, new_cards_per_day, created_at, updated_at';
@@ -87,14 +87,31 @@ export async function getDeck(userId: string, deckId: string): Promise<DeckRow |
 export interface DeckInsert {
   title: string;
   description: string | null;
+  /**
+   * How this deck came to exist. Defaults to a hand-made deck, which is what a
+   * user pressing "new deck" produces.
+   *
+   * The ingestion pipeline (P10 task 5) passes `'document'` with status
+   * `'generating'`: the deck must exist before the cards do, so the job has
+   * somewhere to put them and the deck list can show that something is
+   * happening.
+   */
+  source?: GenSource;
+  status?: DeckStatus;
 }
 
 export async function createDeck(userId: string, input: DeckInsert): Promise<DeckRow> {
   const result = await query<DeckRow>(
     `insert into public.decks (user_id, title, description, source, status)
-     values ($1, $2, $3, 'manual', 'active')
+     values ($1, $2, $3, $4, $5)
      returning ${COLUMNS}`,
-    [userId, input.title, input.description],
+    [
+      userId,
+      input.title,
+      input.description,
+      input.source ?? 'manual',
+      input.status ?? 'active',
+    ],
   );
   const row = result.rows[0];
   // An insert with `returning` that produces no row cannot happen without the
@@ -154,6 +171,33 @@ export async function deleteDeck(userId: string, deckId: string): Promise<boolea
  * so resuming an abandoned gate corrects the number instead of double counting
  * it. SPEC §13 (2) measures the product on that figure.
  */
+/**
+ * Set a deck's status. Used by the ingestion pipeline's final step (P10 task 5).
+ *
+ * Narrower than `updateDeck` on purpose: this is called by a Lambda closing out
+ * a generation job, and it has no business being able to rewrite a deck's title
+ * or description. Constraining what a background worker can change is cheaper
+ * than auditing what it did.
+ *
+ * `user_id = $1` still, though the caller is machinery rather than a request:
+ * the userId came from the job record, which came from the verified JWT that
+ * created it, and rule 2 admits no exceptions for trusted callers.
+ */
+export async function setDeckStatus(
+  userId: string,
+  deckId: string,
+  status: DeckStatus,
+): Promise<DeckRow | null> {
+  const result = await query<DeckRow>(
+    `update public.decks
+        set status = $3
+      where id = $2 and user_id = $1
+      returning ${COLUMNS}`,
+    [userId, deckId, status],
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function finishReviewGate(
   userId: string,
   deckId: string,

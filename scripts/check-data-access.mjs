@@ -26,7 +26,7 @@
  *      layer; the data layer is the only place that reaches a datastore. This is
  *      what makes rule 2 auditable by reading one directory.
  *
- *      DynamoDB was added at P10, when job state stopped being a Postgres table.
+ *      DynamoDB was added at P10 task 2, then S3 and Step Functions at task 5.
  *      The rule is about *where the tenancy boundary is enforced*, not about
  *      which engine enforces it - so a `DynamoDBDocumentClient.send(...)` in a
  *      handler is exactly as wrong as a SELECT, and for the same reason. The
@@ -186,19 +186,26 @@ const SQL_PATTERNS = [
   { re: /\b(?:client|pool|db|tx|conn)\s*\.\s*query\s*\(/i, what: 'a database query call' },
   { re: /\bsql\s*`/, what: 'a SQL template tag' },
   { re: /\.\s*from\s*\(\s*['"`]/, what: 'a query-builder call' },
-  // ── DynamoDB, added at P10 ───────────────────────────────────────────────
+  // ── AWS service clients, added at P10 ────────────────────────────────────
   //
-  // The client constructors are unambiguous: their presence in a handler means
-  // that handler is talking to DynamoDB directly.
+  // DynamoDB at task 2; S3 and Step Functions at task 5. The generalisation is
+  // the point -- rule 3 is about a handler reaching a *backing service*
+  // directly, whichever one it happens to be. Each client is named explicitly
+  // rather than matching `*Client`, so the check fails closed for the services
+  // this project uses without firing on unrelated classes.
   {
-    re: /\b(?:DynamoDBClient|DynamoDBDocumentClient)\b/,
-    what: 'a DynamoDB client',
+    re: /\b(?:DynamoDBClient|DynamoDBDocumentClient|S3Client|SFNClient|SQSClient|BedrockRuntimeClient)\b/,
+    what: 'an AWS service client',
   },
   // The command classes, which is what a handler would reach for even if it
   // somehow obtained a client from elsewhere.
   {
     re: /\bnew\s+(?:Get|Put|Update|Delete|Query|Scan|BatchGet|BatchWrite|TransactGet|TransactWrite)(?:Item)?Command\b/,
     what: 'a DynamoDB command',
+  },
+  {
+    re: /\bnew\s+(?:GetObject|PutObject|DeleteObject|HeadObject|ListObjectsV2|StartExecution|DescribeExecution|SendMessage|InvokeModel|Converse)Command\b/,
+    what: 'an AWS service command',
   },
   // `.send(` is the SDK's universal dispatch call - the DynamoDB equivalent of
   // `client.query(`. Deliberately narrower than a bare `send(`: an unqualified
@@ -207,7 +214,7 @@ const SQL_PATTERNS = [
   // than obeyed. Requiring the receiver keeps it specific to an SDK client
   // without needing to know that client's variable name.
   {
-    re: /\b(?:client|ddb|dynamo|docClient|documentClient)\s*(?:\(\s*\))?\s*\.\s*send\s*\(/i,
+    re: /\b(?:client|ddb|dynamo|docClient|documentClient|s3|sfn|sqs|bedrock)\s*(?:\(\s*\))?\s*\.\s*send\s*\(/i,
     what: 'an AWS SDK client send() call',
   },
 ];

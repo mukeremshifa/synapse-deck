@@ -69,8 +69,26 @@ import {
   HttpMethods,
   ObjectOwnership,
 } from 'aws-cdk-lib/aws-s3';
+import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
+import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
+import { LogGroup } from 'aws-cdk-lib/aws-logs';
+import { Queue } from 'aws-cdk-lib/aws-sqs';
+import {
+  DefinitionBody,
+  JsonPath,
+  Map as SfnMap,
+  StateMachine,
+  Succeed,
+  TaskInput,
+} from 'aws-cdk-lib/aws-stepfunctions';
+import { LambdaInvoke } from 'aws-cdk-lib/aws-stepfunctions-tasks';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Construct } from 'constructs';
 import type { EnvConfig } from './config.ts';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const HANDLERS = join(HERE, '..', '..', 'services', 'api', 'src', 'handlers');
 
 export interface PipelineStackProps extends StackProps {
   readonly config: EnvConfig;
@@ -81,6 +99,16 @@ export interface PipelineStackProps extends StackProps {
    * upload rather than a misconfigured bucket.
    */
   readonly corsOrigin: string;
+  /**
+   * Which model provider the pipeline uses: 'stub', 'bedrock' or 'groq'.
+   *
+   * **No default anywhere in the chain.** `resolveProvider()` throws when this
+   * is unset, and bin/app.ts requires it from context. That is deliberate: the
+   * only provider that works offline today returns placeholder cards, so a
+   * default would mean a forgotten setting silently generating fake content
+   * that nothing downstream can distinguish from real content.
+   */
+  readonly cardProvider: string;
 }
 
 /**
@@ -96,11 +124,12 @@ const UPLOAD_RETENTION_DAYS = 3;
 export class PipelineStack extends Stack {
   readonly jobTable: TableV2;
   readonly uploadBucket: Bucket;
+  readonly stateMachine: StateMachine;
 
   constructor(scope: Construct, id: string, props: PipelineStackProps) {
     super(scope, id, props);
 
-    const { config, corsOrigin } = props;
+    const { config, corsOrigin, cardProvider } = props;
 
     this.jobTable = new TableV2(this, 'JobTable', {
       tableName: `synapsedeck-${config.envName}-jobs`,
@@ -206,6 +235,181 @@ export class PipelineStack extends Stack {
       // Dev only: let `cdk destroy` actually succeed rather than failing on a
       // non-empty bucket. Never on prod, where it would delete real uploads.
       autoDeleteObjects: config.envName !== 'prod',
+    });
+
+    // ── The state machine ───────────────────────────────────────────────────
+    //
+    // D5: a Map state over chunks, with per-chunk retry and partial failure as a
+    // normal outcome. Standard workflow rather than Express: Express bills per
+    // GB-second and caps at 5 minutes, which a 40-chunk document with retries
+    // can exceed, and Standard's execution history is what makes the graph
+    // readable after the fact.
+    //
+    // These Lambdas are **not** in the VPC. They talk to DynamoDB (through the
+    // gateway endpoint) and to a model provider over the internet; only the
+    // finalise step touches Postgres, and it is given the VPC by the API stack's
+    // own wiring in a later task. Keeping them out avoids the ENI cold-start
+    // penalty on the hot path.
+    const pipelineLogGroup = new LogGroup(this, 'PipelineLogs', {
+      logGroupName: `/aws/lambda/synapsedeck-${config.envName}-pipeline`,
+      retention: config.logRetention,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    const makePipelineFn = (id: string, entry: string, timeout: Duration) =>
+      new NodejsFunction(this, id, {
+        functionName: `synapsedeck-${config.envName}-${entry}`,
+        entry: join(HANDLERS, `${entry}.ts`),
+        handler: 'handler',
+        runtime: Runtime.NODEJS_22_X,
+        architecture: Architecture.ARM_64,
+        memorySize: 512,
+        timeout,
+        logGroup: pipelineLogGroup,
+        environment: {
+          ENV_NAME: config.envName,
+          JOB_TABLE_NAME: this.jobTable.tableName,
+          // No default: resolveProvider() throws when this is unset, which is
+          // deliberate. A missing value must stop the pipeline, not quietly
+          // select the provider that returns placeholder cards.
+          CARD_PROVIDER: cardProvider,
+        },
+        bundling: {
+          format: OutputFormat.ESM,
+          banner:
+            "import{createRequire}from'module';const require=createRequire(import.meta.url);",
+          target: 'node22',
+          minify: true,
+          sourceMap: true,
+        },
+      });
+
+    const splitFn = makePipelineFn('SplitFn', 'pipeline-split', Duration.seconds(30));
+    // The generate step gets the long timeout: it is the one making a model
+    // call, and a Haiku-class response to a 3.5k-character chunk is seconds, not
+    // milliseconds.
+    const generateFn = makePipelineFn(
+      'GenerateFn',
+      'pipeline-generate',
+      Duration.minutes(2),
+    );
+    const finaliseFn = makePipelineFn(
+      'FinaliseFn',
+      'pipeline-finalise',
+      Duration.seconds(30),
+    );
+
+    for (const fn of [splitFn, generateFn, finaliseFn]) {
+      this.jobTable.grantReadWriteData(fn);
+    }
+
+    // ── The dead-letter queue ───────────────────────────────────────────────
+    //
+    // Brief §6 trap 4 names "a Step Functions retry loop calling Bedrock" as a
+    // way to a surprise bill. Two things prevent that here: the retry policy
+    // below is bounded (3 attempts, backed off), and a chunk that exhausts it
+    // lands here rather than being retried again by anything else.
+    const chunkDlq = new Queue(this, 'ChunkDlq', {
+      queueName: `synapsedeck-${config.envName}-chunk-dlq`,
+      retentionPeriod: Duration.days(14),
+      enforceSSL: true,
+    });
+
+    const generateChunk = new LambdaInvoke(this, 'GenerateChunk', {
+      lambdaFunction: generateFn,
+      // The Lambda's own return value, not the invocation envelope.
+      payloadResponseOnly: true,
+      // **CDK's default retry is switched off here, and that is a cost
+      // decision.** LambdaInvoke adds `MaxAttempts: 6` on Lambda service errors
+      // by default; combined with the explicit 3-attempt policy below, a single
+      // chunk could make up to 18 model calls before giving up. That is exactly
+      // the unbounded retry loop the brief's §6 trap 4 warns about, so the
+      // default is removed and the only retry policy on this state is the
+      // bounded one written below.
+      retryOnServiceExceptions: false,
+      payload: TaskInput.fromObject({
+        userId: JsonPath.stringAt('$.userId'),
+        jobId: JsonPath.stringAt('$.jobId'),
+        chunkIndex: JsonPath.numberAt('$.chunkIndex'),
+        cardCount: JsonPath.numberAt('$$.Execution.Input.cardCount'),
+        kinds: JsonPath.objectAt('$$.Execution.Input.kinds'),
+        depth: JsonPath.stringAt('$$.Execution.Input.depth'),
+      }),
+    });
+
+    // **Bounded, and the bound is the point.** Three attempts with backoff
+    // covers a rate limit or a transient 5xx; it does not cover a model that
+    // consistently refuses, which no number of retries would fix and which
+    // would cost a model call every time.
+    generateChunk.addRetry({
+      errors: [
+        'ProviderRetryableError',
+        'Lambda.TooManyRequestsException',
+        // The transient Lambda-side failures CDK's default would have covered,
+        // now under this bound rather than a second one stacked on top.
+        'Lambda.ServiceException',
+        'Lambda.SdkClientException',
+      ],
+      maxAttempts: 3,
+      interval: Duration.seconds(2),
+      backoffRate: 2,
+    });
+
+    // A chunk that still fails is **caught, not propagated**. Partial failure is
+    // a normal outcome (task 6): 31 of 40 chunks producing cards is a success
+    // with a gap, not a failed job, and without this catch one exhausted chunk
+    // would abort the Map state and discard the other 39.
+    //
+    // The catch lands on a Succeed state because the chunk's own failure is
+    // already recorded in DynamoDB by the Lambda -- there is nothing further for
+    // the machine to do with it, and the finalise step counts what actually
+    // arrived rather than trusting the execution's shape.
+    generateChunk.addCatch(new Succeed(this, 'ChunkFailedButRecorded'), {
+      errors: ['States.ALL'],
+      resultPath: JsonPath.DISCARD,
+    });
+
+    const mapChunks = new SfnMap(this, 'GenerateAllChunks', {
+      itemsPath: '$.chunks',
+      // Capped so a 40-chunk document does not become 40 simultaneous model
+      // calls -- which is a rate limit at best and a bill at worst.
+      maxConcurrency: 4,
+      resultPath: JsonPath.DISCARD,
+    });
+    mapChunks.itemProcessor(generateChunk);
+
+    const definition = new LambdaInvoke(this, 'SplitDocument', {
+      lambdaFunction: splitFn,
+      payloadResponseOnly: true,
+    })
+      .next(mapChunks)
+      .next(
+        new LambdaInvoke(this, 'Finalise', {
+          lambdaFunction: finaliseFn,
+          payloadResponseOnly: true,
+          payload: TaskInput.fromObject({
+            userId: JsonPath.stringAt('$$.Execution.Input.userId'),
+            jobId: JsonPath.stringAt('$$.Execution.Input.jobId'),
+          }),
+        }),
+      );
+
+    this.stateMachine = new StateMachine(this, 'IngestionStateMachine', {
+      stateMachineName: `synapsedeck-${config.envName}-ingestion`,
+      definitionBody: DefinitionBody.fromChainable(definition),
+      // Generous: it bounds a stuck execution rather than a normal one. A
+      // 40-chunk document at 4-way concurrency is minutes, not an hour.
+      timeout: Duration.hours(1),
+    });
+
+    new CfnOutput(this, 'StateMachineArn', {
+      value: this.stateMachine.stateMachineArn,
+      description: 'Ingestion state machine, started when a document is uploaded.',
+    });
+
+    new CfnOutput(this, 'ChunkDlqUrl', {
+      value: chunkDlq.queueUrl,
+      description: 'Dead-letter queue for chunks that exhausted their retries.',
     });
 
     new CfnOutput(this, 'UploadBucketName', {
