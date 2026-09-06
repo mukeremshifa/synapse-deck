@@ -1,3 +1,4 @@
+import { studyDayKey, studyDaysBetween } from './day';
 import {
   divergenceKind,
   masteryBand,
@@ -100,6 +101,95 @@ export const PLAN_LIMITS = {
   minMinutes: 10,
   maxMinutes: 240,
 } as const;
+
+// ---------------------------------------------------------------------------
+// The deadline
+// ---------------------------------------------------------------------------
+
+/**
+ * What an exam date does to a plan.
+ *
+ * **This is the one input the product genuinely cannot derive.** Everything else
+ * the plan needs — which topics are weak, in what way, and what to do about each
+ * — comes from evidence the app already holds. *When* the exam falls is knowledge
+ * that exists only in the student's head, and it changes the answer completely: the
+ * same five weak topics produce a different plan at twelve days than at two.
+ *
+ * ── Why the shortfall is returned rather than absorbed ────────────────────
+ *
+ * The interesting case is the one where the work does not fit. A student with
+ * nine hours of remedial work and three evenings before the exam is in a
+ * genuinely different situation from one with three weeks, and the most useful
+ * thing the product can do is *say so* — then let them cut scope or add time.
+ * Silently truncating the plan to fit the days available would hide exactly the
+ * fact they most need, and would do it while looking helpful.
+ *
+ * So `fits` is part of the result, and the UI surfaces it. A plan that quietly
+ * drops your last two topics because the exam is on Thursday is worse than no
+ * plan.
+ */
+export type ExamSchedule = {
+  /** Study days from today until the exam. Negative if it has passed. */
+  daysUntil: number;
+  /** Days the plan can actually use: `daysUntil` clamped into `PLAN_LIMITS`. */
+  days: number;
+  /** Whether the exam is in the past — the plan is retrospective, not a plan. */
+  passed: boolean;
+  /** Whether `daysUntil` exceeded `maxDays` and the plan covers only the run-up. */
+  beyondHorizon: boolean;
+};
+
+/**
+ * Study days between now and an exam date, and what the plan can do with them.
+ *
+ * Uses `studyDayKey` rather than raw date arithmetic so it agrees with the rest
+ * of the app about when a day starts — the 4am boundary in `day.ts` exists
+ * because a student reviewing at 1am is still on yesterday, and a planner that
+ * disagreed with the scheduler about the date would be off by one for exactly
+ * the users most likely to notice.
+ *
+ * `examDate` is a `YYYY-MM-DD` day key, not an instant: an exam is on a day, in
+ * the student's own timezone, and storing a timestamp would invent a precision
+ * (and a timezone) nobody supplied.
+ */
+export function examSchedule(
+  examDate: string,
+  timeZone: string,
+  now: Date = new Date(),
+): ExamSchedule {
+  const today = studyDayKey(now, timeZone);
+  const daysUntil = studyDaysBetween(today, examDate);
+
+  return {
+    daysUntil,
+    days: clamp(daysUntil, PLAN_LIMITS.minDays, PLAN_LIMITS.maxDays),
+    passed: daysUntil < 0,
+    beyondHorizon: daysUntil > PLAN_LIMITS.maxDays,
+  };
+}
+
+/**
+ * Whether a plan's work fits in the time before the exam, and by how much.
+ *
+ * `over` is minutes of work with nowhere to go. Zero means it fits.
+ */
+export function planFit(
+  plan: StudyPlan,
+  options: PlanOptions,
+): { fits: boolean; capacity: number; over: number } {
+  const days = clamp(options.days, PLAN_LIMITS.minDays, PLAN_LIMITS.maxDays);
+  const perDay = clamp(
+    options.minutesPerDay,
+    PLAN_LIMITS.minMinutes,
+    PLAN_LIMITS.maxMinutes,
+  );
+  const capacity = days * perDay;
+  return {
+    fits: plan.minutes <= capacity,
+    capacity,
+    over: Math.max(0, plan.minutes - capacity),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Estimating effort
