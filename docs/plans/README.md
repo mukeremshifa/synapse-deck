@@ -60,7 +60,31 @@ authored against the codebase it will actually run in.
 | P10 — Ingestion  | [P10-ingestion.md](P10-ingestion.md)         | 🔨 In progress. Tasks 1–9, 11 done. Task 10 blocked on Bedrock model access. **Start here: [P10-SESSION-4.md](P10-SESSION-4.md)** |
 | P11 — Notebook shell | [P11-notebook-shell.md](P11-notebook-shell.md) | ✅ Complete — 2026-09-06. Frontend rewritten to a NotebookLM-shaped shell; backend untouched. Grounded chat deliberately unbuilt |
 | P12 — Grounded chat | [P12-grounded-chat.md](P12-grounded-chat.md) | 📋 Planned 2026-09-06. Fills P11's empty workspace pane. **Blocked on Bedrock model access**, embeddings included |
+| Demo sprint | [DEMO-SPRINT-BRIEF.md](DEMO-SPRINT-BRIEF.md) | 🧭 **Decisions made 2026-09-06.** AWS unavailable; 5 phases scoped (DS1–DS5). **Start here** |
 | P13 — Exam-half UI | _(executed without a plan file — see below)_ | ✅ **Frontend closed — 2026-09-06.** Dashboard, blueprint with citations, diagnostic, exam-date study plan, answer explanations, pipeline stages. Backend deliberately untouched; four inert affordances tabulated in SPEC §4.6 |
+
+**The direction changed again on 2026-09-06, and the AWS board is paused rather than
+abandoned.** Bedrock model access was not granted and RDS was not worth paying for while the
+pipeline could not call a model — so P10 task 10 and all of P12 were blocked on something no
+session can unblock. Against a demo due in 3-4 weeks,
+[DEMO-SPRINT-BRIEF.md](DEMO-SPRINT-BRIEF.md) records the decision: **build the product
+against portable infrastructure, remove nothing, and build nothing that AWS returning would
+invalidate.**
+
+**It is smaller than it sounds, and the reason is worth recording.** The frontend has no AWS
+coupling whatsoever, the model-provider seam already exists, and the AWS-bound code is
+exactly three modules — `data/jobs.ts`, `data/uploads.ts`, `data/pipeline.ts` — each already
+behind the data-access boundary ADR 0008 drew for a different reason. The last of those
+exports **one function**. So the pivot is implementing three interfaces that have one caller
+each, not a migration.
+
+**Cognito stays and is not touched.** It is deployed, unblocked, and free at this scale;
+"off AWS" would have been the wrong scope.
+
+**P10, P12 and the AWS brief are not superseded.** DS1 and DS2 execute their substance
+against a different backend, and the brief's §8 is the table that says what changes when
+Bedrock and RDS return — six rows, of which four are environment variables. If any row of
+that table stops being true, a seam has been violated.
 
 **P7 was the last phase of v1, and the v1 board is closed.** SPEC §11 lists nothing between
 P7 and Post-v1, so for two days there was deliberately no P8 file: writing one would have
