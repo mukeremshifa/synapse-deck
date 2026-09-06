@@ -164,6 +164,16 @@ export interface ChunkRecord {
    * Without this, fake cards become anonymous the moment they reach the table.
    */
   provider: string | null;
+  /**
+   * Topic names this chunk covered, as the model named them (P10 task 7, D11).
+   *
+   * **Raw and unreconciled.** They ride here rather than being reconciled at
+   * generation time because reconciliation writes to Postgres, and a chunk that
+   * the user never accepts must not leave topics behind in their topic list.
+   * The review gate is where drafts become rows, so it is also where topics
+   * become rows -- one boundary, not two.
+   */
+  topics: string[];
   error: string | null;
   updatedAt: string;
   expiresAt: number;
@@ -467,6 +477,7 @@ export async function completeChunk(
     status: JobStatus;
     cards?: unknown[];
     provider?: string | null;
+    topics?: string[];
     error?: string | null;
   },
 ): Promise<void> {
@@ -478,6 +489,7 @@ export async function completeChunk(
     status: result.status,
     cards: result.cards ?? [],
     provider: result.provider ?? null,
+    topics: result.topics ?? [],
     error: result.error ?? null,
     updatedAt: new Date().toISOString(),
     expiresAt: expiresAt(),

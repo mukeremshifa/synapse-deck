@@ -87,6 +87,19 @@ function summarise(job: JobRecord, chunks: ChunkRecord[]) {
      * two, and because a response containing `"stub"` must be able to say so.
      */
     providers: [...new Set(succeeded.map((chunk) => chunk.provider).filter(Boolean))],
+    /**
+     * Topic names the model gave these chunks, deduplicated for display only
+     * (P10 task 7).
+     *
+     * **Not reconciled and not topic ids.** Nothing has been written to
+     * `public.topics` at this point: a job the user abandons must leave no
+     * topics behind. The `?? []` covers chunk records written before migration
+     * 0004, which have no `topics` attribute at all -- DynamoDB is schemaless,
+     * so an older item simply lacks the field rather than carrying a null.
+     */
+    topics: [
+      ...new Set(succeeded.flatMap((chunk) => chunk.topics ?? []).filter(Boolean)),
+    ],
   };
 }
 

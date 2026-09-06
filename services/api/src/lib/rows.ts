@@ -77,6 +77,14 @@ export interface CardRow {
   payload: unknown;
   status: CardStatus;
   source_excerpt: string | null;
+  /**
+   * The topic this card is filed under, or null (P10 task 7, D11).
+   *
+   * Null is an ordinary state rather than missing data: hand-made cards have no
+   * topic, every card predating migration 0004 has none, and a chunk whose
+   * model output named no topic still produces perfectly good cards.
+   */
+  topic_id: string | null;
   fsrs_state: FsrsState;
   stability: number | null;
   difficulty: number | null;
@@ -202,4 +210,20 @@ export function notFound(what: string): ApiError {
 export function pgErrorCode(error: unknown): string | undefined {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === 'string' ? code : undefined;
+}
+
+/**
+ * A topic. P10 task 7, D11.
+ *
+ * `slug` is the match key -- `name` normalised -- and is written only by
+ * `data/topics.ts`. It never comes from a client and is never displayed;
+ * `name` is the display form the model produced.
+ */
+export interface TopicRow {
+  id: string;
+  user_id: string;
+  name: string;
+  slug: string;
+  created_at: string;
+  updated_at: string;
 }

@@ -391,6 +391,49 @@ job needs it, it stays server-side and writes an explicit `user_id`.
 
 ---
 
+### 5.8 `topics` — the join (P10, RDS only)
+
+Added at P10 task 7, on **RDS only** (`services/api/migrations/0004_topics.sql`). The
+Supabase schema does not have it and will not get it; Phase F ends that split.
+
+```sql
+create table topics (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  name text not null,          -- display form, as the model produced it
+  slug text not null,          -- match key: NFKC, lower-cased, whitespace collapsed
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint topics_user_slug_key unique (user_id, slug)
+);
+
+alter table cards add column topic_id uuid references topics on delete set null;
+```
+
+Topics are the join the brief's D11 describes: cards, questions, the blueprint and the
+mastery map all read them. `cards.topic_id` is **nullable and stays nullable** — hand-made
+cards have no topic, and a chunk whose model output named none still produces good cards.
+Deleting a topic sets it null rather than cascading: the card survives, unfiled.
+
+**Where topics come from.** The model names them in the same call that writes the cards,
+never as a second pass over the same text — a separate extraction pass would double the
+token cost of every job to re-derive something the model already knew.
+
+**How they reconcile.** Names are matched against the user's existing topics on the
+normalised `slug`, so "Krebs Cycle", "krebs cycle" and "Krebs&nbsp;Cycle" are one topic and
+one row. The existing display name wins a match, so a topic list does not silently re-case
+itself as documents arrive. Reconciliation runs **at the review gate**, not at generation:
+a job the user abandons must leave no topics behind.
+
+This match is deliberately weaker than the problem deserves — "Krebs cycle" and "Citric acid
+cycle" are one topic to a person and two rows here. Closing that needs embeddings, which is
+Phase G. See [ADR 0009](adr/0009-topic-reconciliation-by-name.md) for why the phase accepted
+the weaker match rather than pulling pgvector forward.
+
+The unique constraint is `(user_id, slug)` and **not** `(slug)`: topics are per-user, and a
+global unique index would leak the existence of another user's topic through a constraint
+violation.
+
 ## 6. Scheduling (FSRS)
 
 **Library:** `ts-fsrs` — TypeScript-native, implements current FSRS, and its review-log shape

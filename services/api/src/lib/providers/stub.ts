@@ -102,6 +102,12 @@ export class StubProvider implements CardProvider {
 
     return Promise.resolve({
       cards,
+      // Named like the cards are named: a stub topic must not be mistakable for
+      // an extracted one once it is reconciled into the user's topic list,
+      // where it would otherwise sit alongside real topics with nothing marking
+      // it. Deterministic on the seed so repeated runs reconcile onto the same
+      // row instead of accumulating new ones.
+      topics: [`[STUB TOPIC — not real content] Placeholder topic ${seed % 5}`],
       provider: this.name,
       // Null rather than a fabricated number: a made-up token count would flow
       // into cost accounting (task 10) and quietly corrupt the one figure the

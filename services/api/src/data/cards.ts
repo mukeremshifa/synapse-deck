@@ -45,6 +45,19 @@ export interface CardInsert {
   kind: string;
   payload: unknown;
   sourceExcerpt: string | null;
+  /**
+   * The topic this card belongs to, already reconciled to a row id by
+   * `data/topics.ts` (P10 task 7).
+   *
+   * Null is ordinary, not a defect: cards created by hand have no topic, and a
+   * chunk whose model output named none still produces good cards. The column
+   * is nullable for the same reason.
+   *
+   * Filed here, in the insert, rather than by a follow-up update -- a second
+   * statement could fail after the cards had landed, leaving them permanently
+   * unfiled with nothing to retry against.
+   */
+  topicId?: string | null;
 }
 
 /** Fresh-card FSRS state, from `newCardScheduling` in `src/lib/fsrs.ts`. */
@@ -91,15 +104,22 @@ export async function createCards(
        select id from public.decks where id = $2 and user_id = $1
      )
      insert into public.cards (
-       user_id, deck_id, kind, payload, status, source_excerpt,
+       user_id, deck_id, kind, payload, status, source_excerpt, topic_id,
        fsrs_state, due, reps, lapses, scheduled_days, elapsed_days, learning_steps
      )
      select $1, owned_deck.id, k.kind::public.card_kind, k.payload, 'active',
             k.source_excerpt,
+            -- Confirmed to be the caller's own topic in the same statement, the
+            -- way owned_deck above guards the deck. An id is not a capability
+            -- (ADR 0008), and filing a card under another user's topic would
+            -- corrupt their mastery map. A topic that is not theirs lands as
+            -- null rather than failing the insert: the card is still good.
+            (select t.id from public.topics t
+              where t.id = k.topic_id::uuid and t.user_id = $1),
             $6::public.fsrs_state, $7::timestamptz, $8, $9, $10, $11, $12
        from owned_deck,
-            unnest($3::text[], $4::jsonb[], $5::text[])
-              as k(kind, payload, source_excerpt)
+            unnest($3::text[], $4::jsonb[], $5::text[], $13::text[])
+              as k(kind, payload, source_excerpt, topic_id)
      returning ${COLUMNS}`,
     [
       userId,
@@ -114,6 +134,7 @@ export async function createCards(
       scheduling.scheduled_days,
       scheduling.elapsed_days,
       scheduling.learning_steps,
+      cards.map(c => c.topicId ?? null),
     ],
   );
   return result.rows;

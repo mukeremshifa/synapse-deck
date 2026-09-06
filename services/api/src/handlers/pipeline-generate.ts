@@ -108,6 +108,10 @@ export async function handler(input: GenerateChunkInput): Promise<GenerateChunkO
     status: 'succeeded',
     cards: valid,
     provider: result.provider,
+    // Carried, not reconciled. Reconciliation writes to Postgres and happens at
+    // the review gate, so a job the user abandons leaves no topics behind
+    // (P10 task 7).
+    topics: result.topics,
   });
 
   return { chunkIndex, status: 'succeeded', cardCount: valid.length };

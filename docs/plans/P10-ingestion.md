@@ -813,6 +813,19 @@ stops billing and storage (~$2.30/mo) continues. It is the difference between ~$
    visible when signed in as that account.
 6. Topics extracted from two documents on the same subject **reconcile into one set**, not
    two. Checked by hand with two real documents, and the output recorded here.
+
+   **⚠ Partly closed (task 7), and blocked on a model for the rest.** The reconciliation
+   exists and was exercised against local Postgres 18: two batches naming the same topic in
+   different spellings produce **one row, not two**, the display name survives the match,
+   and eight parallel reconciles (the Step Functions fan-out shape) produce one row with
+   exactly one caller reporting `created`. Cross-tenant probes pass in four directions.
+   See [ADR 0009](../adr/0009-topic-reconciliation-by-name.md).
+
+   **What is still red is the criterion as written**: *two real documents*. Every topic
+   name in those checks was typed by hand, because no model provider is reachable to
+   extract one (session 3: Bedrock's on-demand quotas are 0 account-wide). The extraction
+   seam is in place — `GenerateChunkResult.topics`, carried to the review gate — and it has
+   never carried a model's output.
 7. **The browser drives the app end to end** (task 1) — sign in, create a deck, practise —
    against `dev-api.mjs`. P9 proved the handlers with a script; this proves `queries.ts`
    and `api-client.ts`, which no browser has yet exercised.
