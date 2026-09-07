@@ -249,19 +249,112 @@ The same shape as DS3 task 7, because it keeps working:
 
 ## 6. Decisions to record
 
-- **How topics got scoped to a notebook** (task 1) — A, B or C, and why.
-- **What task 2 found**, itemised. This is the phase's most valuable output and it will be
-  tempting to summarise it away once fixed.
-- **Anything deliberately left rough**, and why it was the right call against DS5's budget.
+### Task 1 — **option A**, scope derived from `cards`
+
+Implemented 2026-09-07 in `d0f3b6a`. `listTopicsWithCounts(userId, deckId?)` gains an
+optional deck filter; `countUnfiledCards(userId, deckId?)` narrows with it; `GET
+/topics?deckId=` passes it through; `useTopics(deckId?)` and the query key carry the scope.
+
+**No schema change, so ADR 0009 is untouched** — topics stay per-user and reconciliation
+still matches a name across every document the user owns. B was rejected because
+`topics.deck_id` breaks that outright; C because `cards` already records the deck↔topic
+relation and a join table would be a second copy of it to keep in step.
+
+Two consequences worth stating, because neither is obvious:
+
+- **A topic can appear in two notebooks, and that is correct.** It is the same topic; what
+  differs per notebook is its card count, and so its weight.
+- **The `left join` had to become an `inner join` at the same time.** Narrowing only the
+  counts leaves every other notebook's topics on the blueprint at zero cards — present,
+  named, and weighted 0%. That reads as deliberate, which makes it a worse lie than the bug
+  it replaces.
+
+`deckId` is **not** a capability: `user_id` is still `$1` in every statement, so a foreign
+deck id matches none of this user's cards and yields an empty list rather than a 403 that
+would confirm the deck exists.
+
+**Verified against live Neon, through the real handler**, with two seeded notebooks
+(`Cell biology`: Glycolysis, Krebs cycle — `AWS architecture`: VPC networking, IAM
+policies):
+
+| Request | Topics returned | `unfiledCards` |
+| ------- | --------------- | -------------- |
+| `GET /topics` | all four — **this is the DS3 bug** | 5 |
+| `GET /topics?deckId=<biology>` | Glycolysis, Krebs cycle | 1 |
+| `GET /topics?deckId=<aws>` | VPC networking, IAM policies | 1 |
+| `GET /topics?deckId=<not this user's>` | none, 200 | 0 |
+
+### Task 2 onwards — **not executed. §1's precondition failed.**
+
+**No screen was opened, because this session could not sign in.** Recorded here rather than
+in §7 because it is a decision about what the phase did *not* do, and it invalidates the
+claims tasks 2–6 exist to make.
+
+`scripts/dev-api.mjs` verifies real Cognito tokens against the live JWKS and has no local
+bypass — deliberately (its header says so). Both of §1's routes were tried:
+
+1. **Owner-supplied credentials** — `.env.local` has no `DEMO_EMAIL` / `DEMO_PASSWORD`, so
+   `demo:seed` cannot run either.
+2. **Signup through the live pool** — a real account was created
+   (`ds4-demo@example.com`, sub `04b8c468-…`) and Cognito returned `UserConfirmed: false`,
+   mailing a code to a mailbox this session cannot read. `autoVerify: { email: true }` in
+   `infra/lib/auth-stack.ts` sends the code; it does not skip confirmation. The account
+   **exists and is unconfirmed** — see the handoff for the one command that finishes it.
+
+`admin-confirm-sign-up` would have closed the gap and was refused by this session's
+permission layer. Per §1's own instruction — *"if neither works, stop and say so"* — tasks
+2–6 were left undone rather than executed blind.
+
+### Anything deliberately left rough
+
+Nothing was polished, so nothing was left deliberately rough. Task 1 shipped complete
+because its correctness is checkable in SQL; everything downstream of a browser stopped.
 
 ---
 
-## 7. What will go unverified
+## 7. What went unverified
 
-Name these in the closing report rather than letting a confident summary imply more:
+**§1's precondition failed, and it is said first and loudest because it invalidates most of
+this phase's claims.** The last bullet below was written before the phase ran, as a warning.
+It is now the headline.
 
-- **"It demos well" is a judgement, not a measurement.** One person's reading of one path.
-- **Mobile is one viewport width, not a device matrix.**
-- **Accessibility is a keyboard pass and a reading of the markup**, not an audit.
-- **Whatever could not be signed into stays unobserved** — and if §1's precondition failed,
-  say that first and loudest, because it invalidates most of this phase's claims.
+### Still unobserved, exactly as DS3 left it
+
+- **No screen has been opened in a browser.** Tasks 2–6 did not run. Every screen DS3
+  rewrote — blueprint, diagnostic, exam, and everything touched by `useCards`' changed type
+  — remains typechecked and unseen, now across two phases rather than one.
+- **`BlueprintPage` and `DiagnosticPage` were edited in this phase and not rendered.** The
+  change is one argument to a hook and the server behind it is proven, but "the query
+  returns the right rows" is not "the screen draws them".
+- **No exam has been sat in a browser**, so nothing has confirmed an attempt reaches
+  `answers` through the UI. `answers` is still empty: `select count(*) → 0`.
+- **Mobile, motion and accessibility were not touched at all.** Not "checked at one
+  viewport" — not checked.
+
+### What *was* verified, and how far it goes
+
+- **Task 1 is proven at the API boundary**, against live Neon through the real handler, with
+  two notebooks holding different topics (§6's table). That is a stronger check than a
+  browser would have given for this specific bug — but it says nothing about the blueprint
+  *screen*, which is where the wrong topics were being rendered.
+- **The cross-tenant probe passed** for the endpoint this phase changed: a deck id that is
+  not the caller's returns an empty list, not another tenant's topics. Consistent with
+  ADR 0008 rule 2, and still a discipline rather than a guarantee.
+- **`verify` is green**, `check:data-access` and `check:routes` included; the five-variable
+  seam grep returns comments only; `jobs-dynamo.ts` and `pipeline-sfn.ts` are byte-identical
+  to `46a80ec`, and `JOB_STORE=dynamo PIPELINE_RUNNER=sfn` typechecks. Criteria 7, 8 and 9
+  hold. **This proves the code builds, not that it works** (ADR 0005).
+
+### The seeded data is not the pipeline's output
+
+The two notebooks that made task 1 observable were **written directly to Postgres by a
+throwaway script**, not generated by the ingestion pipeline. The rows are shaped like real
+ones — `reconcileTopics`' own upsert and slug rule, and `cards_state_consistency` satisfied
+rather than worked around — but no model wrote them. They are live rows in the dev database
+and DS5 should expect to see `Cell biology` and `AWS architecture` there.
+
+### Standing, unchanged from the plan as written
+
+- **"It demos well" is a judgement, not a measurement** — and this phase did not even make
+  the judgement.
+- **DS2's chat is still unproven**; no embedding key, no question ever answered.

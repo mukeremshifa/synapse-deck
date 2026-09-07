@@ -275,6 +275,15 @@ here is closed when a user sees their own data, not when the plumbing behind it 
 | Plan action: review | Diagnostic | A source viewer; no route reads a source in place |
 | Plan action: questions | Diagnostic | Topic-scoped question generation (Phase C) |
 
+**A blueprint describes its own notebook, as of DS4** (2026-09-07). Until then `GET /topics`
+returned every topic the user owned and the blueprint weighted an exam by all of them — with
+one notebook indistinguishable from correct, and with two, a biology blueprint allocating
+questions to the AWS topics. The scope is derived from `cards` (a topic is in this notebook
+when it has a card here) rather than added to `topics`, so ADR 0009's cross-document
+reconciliation is untouched and a topic may legitimately appear in two notebooks with
+different weights. **Proven at the API against two notebooks; the screen itself has not been
+observed** — see DS4b.
+
 **Two of the three screens behind these affordances came off fixtures at DS3** (2026-09-07).
 The blueprint and the diagnostic now read the signed-in user's own topics, cards and exam
 history; `src/features/blueprint/fixtures.ts` was deleted, and **no screen falls back to a
