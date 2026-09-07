@@ -347,17 +347,25 @@ designed against it.
 
 | # | Phase | Delivers |
 | --- | --- | --- |
-| **FR0** | Contract & fake | `src/lib/api/` — the nouns as Zod + types, `fake.ts`, `fixtures.ts` with several notebooks and every artifact kind. Supabase removed. Nothing visual. |
-| **FR1** | Design system | Palette re-derived from the brand tone; primitives completed; tokens beyond colour; layout vocabulary; state set. Reviewed on a real screen before it carries a feature. |
-| **FR2** | Shell & routing | New route table (§3.1), home (§3.5), the modal system (§3.2). |
-| **FR3** | The notebook | Three panes; Sources as persisted entities with the CTA; Studio listing artifacts. |
-| **FR4** | Generation | The generate modal for every artifact kind, job progress, review gate as a modal. |
-| **FR5** | Study surfaces | Four runners by artifact id: practice (FSRS), quiz (untimed, reveal-on-answer), notes (reader), exam (timed). Quiz and exam are separate runners per §1.2(3). |
-| **FR6** | The overview | §3.4 — artifacts, readiness, diagnostics, heatmap, plan. |
-| **FR7** | Backend rebuild | `services/api/` and the schema rewritten to serve `contract.ts`. Flip `VITE_API_MODE`. |
+| **[FR0](FR0-contract-and-fake.md)** | Contract & fake | `src/lib/api/` — the nouns as Zod + types, `fake.ts`, `fixtures.ts` with several notebooks and every artifact kind. Supabase removed. Nothing visual. |
+| **[FR1](FR1-design-system.md)** | Design system | Palette re-derived from the brand tone; primitives completed; tokens beyond colour; layout vocabulary; state set. Reviewed on a real screen before it carries a feature. |
+| **[FR2](FR2-shell-and-routing.md)** | Shell & routing | New route table (§3.1), home (§3.5), the modal system (§3.2). |
+| **[FR3](FR3-the-notebook.md)** | The notebook | Three panes; Sources as persisted entities with the CTA; Studio listing artifacts. |
+| **[FR4](FR4-generation.md)** | Generation | The generate modal for every artifact kind, job progress, review gate as a modal. |
+| **[FR5](FR5-study-surfaces.md)** | Study surfaces | Four runners by artifact id: practice (FSRS), quiz (untimed, reveal-on-answer), notes (reader), exam (timed). Quiz and exam are separate runners per §1.2(3). |
+| **[FR6](FR6-the-overview.md)** | The overview | §3.4 — artifacts, readiness, diagnostics, heatmap, plan. |
+| **[FR7](FR7-backend-rebuild.md)** | Backend rebuild | `services/api/` and the schema rewritten to serve `contract.ts`. Flip `VITE_API_MODE`. |
 
 **FR0 is the whole bet.** If the contract is right, FR1–FR6 are ordinary work. If it is
 wrong, everything after inherits it — which is exactly what happened to the current frontend.
+
+**All eight plans were written on 2026-09-07, before any of them executed** — at the
+owner's request, so each phase can be a fresh session that starts working rather than
+planning. FR1–FR7 are therefore at *contract altitude*: scope, preconditions, acceptance
+criteria and handoffs, with **no file-by-file task lists**, because that is the part that
+would be fiction. Each opens with a mandatory reconcile step and closes by updating the
+plans after it, through [FR-DRIFT-LOG.md](FR-DRIFT-LOG.md). See
+[the plans README](README.md) for why this departs from the one-at-a-time convention.
 
 ---
 

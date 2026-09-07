@@ -4,6 +4,8 @@
 **Parent:** [FE-REARCHITECTURE-BRIEF.md](FE-REARCHITECTURE-BRIEF.md) — read it first; this
 plan executes its §2 and encodes its §1.
 **Then:** [CLAUDE.md](../../CLAUDE.md) and [AGENTS.md](../AGENTS.md).
+**Hands off to:** [FR1](FR1-design-system.md). FR1-FR7 were planned on 2026-09-07 at
+contract altitude; [FR-DRIFT-LOG.md](FR-DRIFT-LOG.md) is how they stay true.
 
 > **FR0 is the whole bet.** If the contract is right, FR1–FR6 are ordinary work. If it is
 > wrong, everything after inherits it — which is exactly what happened to the current
@@ -69,6 +71,15 @@ grep -rn "supabase" --include="*.ts" --include="*.tsx" src/ | grep -v "^src/lib/
 
 If either turns up something this plan does not name, **stop and re-scope** — do not
 improvise around it.
+
+## 1b. Reconcile — first, before any code
+
+**Mandatory, and it applies even to FR0.** Read [FR-DRIFT-LOG.md](FR-DRIFT-LOG.md). Its
+first three rows were written by the planning session and two of them change this plan's
+task order — they are already folded in below, but read them so you know why §0 exists.
+
+FR0 is the only phase with no predecessor to reconcile against. What it does have is the
+brief, and **the brief is the thing to re-read** before task 1.
 
 ---
 
@@ -350,9 +361,12 @@ the Supabase project is still live.
   ([AGENTS.md §6](../AGENTS.md)). A second ADR for **`Artifact` as one kind-tagged noun**
   is also justified — it is the central modelling move and the one a future session is
   most likely to try to "simplify" back into four tables.
-- **Write `FR1-design-system.md`** — the last task of every plan is to write the next one
-  ([README](README.md)), so FR1 is authored against the code FR0 actually produced rather
-  than against this plan's predictions.
+- **Update `FR1-design-system.md` rather than writing it.** It already exists — FR1-FR7
+  were planned ahead at contract altitude on 2026-09-07. Your job is to reconcile FR1's
+  §1b assumptions against what you actually built, and fix them.
+- **Append to [FR-DRIFT-LOG.md](FR-DRIFT-LOG.md)**, and update any later plan you
+  invalidated. This is the mechanism that makes planning seven phases ahead defensible; a
+  session that skips it hands the next one fiction.
 
 ---
 
@@ -377,7 +391,7 @@ Observable, not vibes.
 11. **The app still runs against the live API in `live` mode** — every existing screen
     works as it did before FR0, except any surface knowingly given up in task 5.
 12. `npm run verify` passes.
-13. FR1's plan exists.
+13. **FR1's plan reconciled** against what was built; drift log appended.
 
 ---
 
@@ -434,3 +448,18 @@ Roughly, so a session can pace itself:
 
 Commit per task ([AGENTS.md §3](../AGENTS.md)) — `npm run check` before each, `npm run
 verify` before the last. **Never commit with a failing `check`.**
+
+---
+
+## 9. Handoff to FR1
+
+State explicitly, at completion:
+
+- **the `ApiClient` interface's shape** — FR1 does not consume it, but FR2 onward do, and
+  this is where it gets described once;
+- **what `fixtures.ts` contains** — how many notebooks, which kinds, where the dangling
+  `sourceId` lives;
+- **how the fake's latency and error injection are configured** — FR4 depends on it
+  entirely and will be the first phase to find out if it is missing;
+- **the task-5 decision** for the four progress hooks, which FR6 inherits;
+- **anything in FR1-FR7's §1b assumptions you invalidated.**

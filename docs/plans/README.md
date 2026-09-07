@@ -40,6 +40,25 @@ every drift between plan and reality is a session confidently doing the wrong th
 So: the last task of every phase plan is to write the next one. That way each plan is
 authored against the codebase it will actually run in.
 
+### The one documented exception — the FR series
+
+FR1–FR7 were **all written on 2026-09-07, before FR0 executed**, at the owner's request:
+each phase is to be a fresh session, and a session should not have to plan before it can
+work. That is a deliberate departure from the rule above, and it is safe only because of
+how it was done:
+
+- **They are written at contract altitude** — scope, preconditions, out-of-scope,
+  acceptance criteria, and an explicit handoff — and they **name no component files**.
+  File-by-file task lists are the part that rots, so they were not written.
+- **Every FR plan opens with a mandatory `§1b Reconcile`** step: read the drift log and the
+  previous phase's handoff, and **fix your own plan before writing code.**
+- **Every FR plan closes by updating the ones after it**, and appending to
+  [FR-DRIFT-LOG.md](FR-DRIFT-LOG.md).
+
+The convention's objection still stands — a plan written against code that does not exist
+is fiction. The drift log is the answer to it, and it only works if sessions actually
+write to it. **They are not optional steps.**
+
 ## Board
 
 | Phase            | Plan                                       | Status                                                               |
@@ -69,6 +88,14 @@ authored against the codebase it will actually run in.
 | DS5 — Deploy & rehearse | [DS5-deploy-and-rehearse.md](DS5-deploy-and-rehearse.md) | 📋 **Planned 2026-09-07, next to execute.** The demo path has never been walked on deployed infrastructure |
 | **FE re-architecture** | [FE-REARCHITECTURE-BRIEF.md](FE-REARCHITECTURE-BRIEF.md) | 🧭 **Brief written 2026-09-07. Nothing executed.** Supersedes the surface direction of P11/DS4/DS4b. Audit found the UI is built on eight nouns and the schema has four — notebook, source, exam and deck-as-a-set have no backing identity. Notebook becomes the only first-class citizen; `Artifact` (deck/quiz/noteset/exam) is the new central noun; frontend detaches onto a typed in-repo fake. FR0 is planned |
 | FR0 — Contract & fake | [FR0-contract-and-fake.md](FR0-contract-and-fake.md) | 📋 **Planned 2026-09-07, next to execute.** Builds `src/lib/api/` — the brief’s nouns as Zod + an `ApiClient` interface, a typed in-repo fake, fixtures. Removes Supabase. **No screen changes**: the app keeps running against the live API in `live` mode. The seam it needs does not exist yet — today’s `api.get<T>(path)` is verb-shaped, so inventing the interface is task 1, not filling it |
+| FR1 — Design system | [FR1-design-system.md](FR1-design-system.md) | 📋 **Planned 2026-09-07** (ahead, contract altitude). Palette re-derived from the brand tone; the 15 primitives; tokens beyond colour; layout vocabulary; the four-state set. Proven on one real screen |
+| FR2 — Shell & routing | [FR2-shell-and-routing.md](FR2-shell-and-routing.md) | 📋 **Planned 2026-09-07** (ahead). The new route table, home, the modal system. **Deletes the `focus` guess** and the dead `/practice/:deckId` navigation |
+| FR3 — The notebook | [FR3-the-notebook.md](FR3-the-notebook.md) | 📋 **Planned 2026-09-07** (ahead). Three panes; sources as persisted entities with the primary CTA; Studio listing artifacts per kind |
+| FR4 — Generation | [FR4-generation.md](FR4-generation.md) | 📋 **Planned 2026-09-07** (ahead). Generate modal per artifact kind, job progress from reported fields only, the error surfaces, review gate as a modal. Deletes `/create/*` |
+| FR5 — Study surfaces | [FR5-study-surfaces.md](FR5-study-surfaces.md) | 📋 **Planned 2026-09-07** (ahead). Four runners by artifact id. Quiz and exam are **separate runners**, not one with a flag |
+| FR6 — The overview | [FR6-the-overview.md](FR6-the-overview.md) | 📋 **Planned 2026-09-07** (ahead). Notebook-scoped artifact list, readiness bundle, diagnostics, heatmap, plan. **§8 is FR7’s build list** |
+| FR7 — Backend rebuild | [FR7-backend-rebuild.md](FR7-backend-rebuild.md) | 📋 **Planned 2026-09-07** (ahead). The only FR phase that touches `services/api/`, `infra/` and migrations. Schema rewritten to serve `contract.ts`; `VITE_API_MODE` flipped. Heaviest constraints in the sequence |
+| FR drift log | [FR-DRIFT-LOG.md](FR-DRIFT-LOG.md) | 📒 **Live.** What each FR session learned that changes a later one. Appended to by every phase; read first by every phase |
 | P13 — Exam-half UI | _(executed without a plan file — see below)_ | ✅ **Frontend closed — 2026-09-06.** Dashboard, blueprint with citations, diagnostic, exam-date study plan, answer explanations, pipeline stages. Backend deliberately untouched; four inert affordances tabulated in SPEC §4.6 |
 
 **DS1 is done, and the headline is that the pipeline has now actually run.** As of
