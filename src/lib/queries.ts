@@ -91,8 +91,16 @@ export const queryKeys = {
   statsForecast: (days: number) => ['stats', 'forecast', days] as const,
   statsRetention: (days: number) => ['stats', 'retention', days] as const,
   statsCards: ['stats', 'cards'] as const,
-  /** The user's topics with their card counts. DS3 task 2. */
-  topics: ['topics'] as const,
+  /**
+   * The user's topics with their card counts. DS3 task 2, scoped to a notebook
+   * by DS4 task 1.
+   *
+   * **The scope is in the key, and has to be.** Without `deckId` here, two
+   * notebooks share one cache entry and the second renders the first's topics —
+   * the same bug DS4 set out to fix, moved from the server into the client,
+   * where it would be intermittent rather than constant and so harder to see.
+   */
+  topics: (deckId?: string) => ['topics', deckId ?? 'all'] as const,
   /** Exam answers — the mastery model's second signal. DS3 task 5. */
   answers: (days: number) => ['answers', days] as const,
 };
@@ -304,11 +312,19 @@ export type TopicsResponse = {
  * `topics` has been written at the review gate since P10 and, until this hook,
  * was never read by anything — every topic the app displayed came from a
  * fixture's inline label.
+ *
+ * **Pass `deckId` on any screen that speaks about one notebook.** Omitting it
+ * returns every topic the user owns, which is right for a global view and wrong
+ * for a blueprint: DS3 shipped it unscoped, so a two-notebook account weighted
+ * one subject's exam by another subject's topics (DS4 §0).
  */
-export function useTopics() {
+export function useTopics(deckId?: string) {
   return useQuery({
-    queryKey: queryKeys.topics,
-    queryFn: () => api.get<TopicsResponse>('/topics'),
+    queryKey: queryKeys.topics(deckId),
+    queryFn: () =>
+      api.get<TopicsResponse>(
+        deckId === undefined ? '/topics' : `/topics?deckId=${encodeURIComponent(deckId)}`,
+      ),
   });
 }
 

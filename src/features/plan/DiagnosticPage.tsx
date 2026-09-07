@@ -98,7 +98,10 @@ export function DiagnosticPage() {
    * and `mastery.ts` groups by id where it has one.
    */
   const cardsQuery = useCards(notebookId);
-  const topicsQuery = useTopics();
+  // Same scope as the cards above it. The names only decorate this page's
+  // grouping, but an unscoped fetch here is a second cache entry holding a
+  // different answer to the same question, which is how the two screens drift.
+  const topicsQuery = useTopics(notebookId);
   const answersQuery = useAnswers();
 
   const masteryCards = useMemo((): MasteryCard[] => {

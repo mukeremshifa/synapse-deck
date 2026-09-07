@@ -12,6 +12,11 @@
  * So this is the blocking task of that phase — the blueprint cannot come off
  * fixtures until there is something to read instead.
  *
+ * DS4 task 1 added `?deckId=`, because DS3 shipped this route unscoped and the
+ * blueprint it feeds claims to describe *one* notebook. See
+ * `listTopicsWithCounts` for why the scope is derived from `cards` rather than
+ * added to `topics`, and why that keeps ADR 0009 intact.
+ *
  * No SQL here. See `handlers/profile.ts` for the four steps every handler
  * follows.
  */
@@ -22,6 +27,7 @@ import {
   json,
   logRequest,
   noContent,
+  queryParam,
   requireUserId,
   type ApiEvent,
   type ApiResponse,
@@ -40,6 +46,21 @@ export async function handler(event: ApiEvent): Promise<ApiResponse> {
     if (method !== 'GET') throw new ApiError(405, `${method} is not allowed here.`);
 
     /*
+     * `?deckId=` scopes the read to one notebook (DS4 task 1). Optional, so the
+     * unscoped read survives for anything that wants every topic the user owns.
+     *
+     * **Not a capability check, and deliberately not a 404.** `userId` is still
+     * the first filter in both queries; `deckId` only narrows rows that are
+     * already the caller's. A deck id belonging to someone else therefore
+     * matches none of *this* user's cards and returns an empty topic list --
+     * which is the truthful answer to "what topics do I have in that notebook",
+     * and discloses nothing about whether it exists. Validating it against
+     * `decks` first would cost a round trip to tell an attacker the same thing
+     * a 404 would.
+     */
+    const deckId = queryParam(event, 'deckId');
+
+    /*
      * Two reads, in parallel. They touch different rows of the same table and
      * neither depends on the other, so a transaction would buy consistency
      * nobody consumes: the blueprint is a proposal recomputed on every load,
@@ -47,8 +68,8 @@ export async function handler(event: ApiEvent): Promise<ApiResponse> {
      * of a percent on the next render rather than corrupting anything.
      */
     const [topics, unfiled] = await Promise.all([
-      listTopicsWithCounts(userId),
-      countUnfiledCards(userId),
+      listTopicsWithCounts(userId, deckId),
+      countUnfiledCards(userId, deckId),
     ]);
 
     /*

@@ -251,14 +251,59 @@ export interface TopicWithCounts extends TopicRow {
  * with zero rather than vanishing — a topic that exists and holds nothing is a
  * true fact about the user's material, and the blueprint drops zero-weight
  * topics itself rather than having the query hide them.
+ *
+ * ── `deckId`: scoping a per-user table to one notebook (DS4 task 1) ───────
+ *
+ * Topics are per-user by construction and ADR 0009 needs them to stay that way:
+ * reconciliation matches a name across *all* of a user's documents so that five
+ * uploads about one subject do not produce five overlapping topic sets. But a
+ * blueprint claims to describe *one notebook*, and DS3 shipped it reading every
+ * topic the user owns — invisible with one notebook, and with two it weights a
+ * biology exam towards the AWS topics.
+ *
+ * The fix derives the scope from `cards` rather than moving it into `topics`
+ * (DS4 §0 option A; B would have broken cross-document reconciliation outright,
+ * C would have duplicated a relation `cards` already records). A topic is *in*
+ * this notebook when it has a card there, and the counts narrow to that deck
+ * too — a topic with no cards in this notebook is not in this blueprint.
+ *
+ * **A topic can therefore appear in two notebooks, and that is correct**: it is
+ * the same topic, which is the property ADR 0009 exists to protect. What
+ * changes per notebook is its count, and so its weight.
+ *
+ * Passing no `deckId` keeps the unscoped read for anything that wants every
+ * topic — the `inner join` collapses to the `left join` above.
+ *
+ * **`deckId` is not a capability.** It narrows a result set that `user_id`
+ * already bounds; a deck id belonging to someone else matches no cards of
+ * *this* user and yields an empty list rather than another tenant's rows.
+ * `userId` stays `$1` (ADR 0008 rule 1).
  */
-export async function listTopicsWithCounts(userId: string): Promise<TopicWithCounts[]> {
+export async function listTopicsWithCounts(
+  userId: string,
+  deckId?: string,
+): Promise<TopicWithCounts[]> {
+  /*
+   * One statement either way, differing in two places: the counted cards are
+   * restricted to the deck, and the join stops being a `left join`.
+   *
+   * Both are required and neither implies the other. Narrowing the counts alone
+   * would leave every other notebook's topics on the blueprint at zero cards --
+   * present, named, and weighted at 0%, which is a *worse* lie than the bug
+   * being fixed because it looks deliberate. Making the join inner alone would
+   * drop them but still count their cards from elsewhere.
+   *
+   * Scoped, `inner join` is what drops a topic holding nothing here; unscoped,
+   * `left join` is what keeps an emptied topic visible (see above).
+   */
+  const scoped = deckId !== undefined;
+
   const result = await query<TopicRow & Record<string, number>>(
     `select t.id, t.user_id, t.name, t.slug, t.created_at, t.updated_at,
             coalesce(c.card_count, 0)::int     as "cardCount",
             coalesce(c.reviewed_count, 0)::int as "reviewedCount"
        from public.topics t
-       left join (
+       ${scoped ? 'join' : 'left join'} (
          select topic_id,
                 count(*)                                        as card_count,
                 count(*) filter (where fsrs_state <> 'new')     as reviewed_count
@@ -266,17 +311,19 @@ export async function listTopicsWithCounts(userId: string): Promise<TopicWithCou
           where user_id = $1
             and status = 'active'
             and topic_id is not null
+            ${scoped ? 'and deck_id = $2' : ''}
           group by topic_id
        ) c on c.topic_id = t.id
       where t.user_id = $1
       order by t.name asc`,
-    [userId],
+    scoped ? [userId, deckId] : [userId],
   );
   return result.rows as unknown as TopicWithCounts[];
 }
 
 /**
- * How many of the user's active cards carry no topic at all.
+ * How many of the user's active cards carry no topic at all, optionally within
+ * one notebook.
  *
  * **This is the "Unfiled" bucket, and it exists because dropping these cards
  * would make the blueprint's weights wrong.** `cards.topic_id` is nullable by
@@ -290,14 +337,23 @@ export async function listTopicsWithCounts(userId: string): Promise<TopicWithCou
  * id: nothing can be filed under it, no exam can be scoped to it, and giving it
  * a fake uuid would let it flow into code paths that assume a real topic.
  */
-export async function countUnfiledCards(userId: string): Promise<number> {
+export async function countUnfiledCards(userId: string, deckId?: string): Promise<number> {
+  /*
+   * `deckId` narrows this for the same reason it narrows the topic counts, and
+   * it has to move with them: an "Unfiled" row counting every notebook's loose
+   * cards into one notebook's weights is the same bug in the one place where it
+   * would be least visible, because "Unfiled" has no name to look wrong.
+   */
+  const scoped = deckId !== undefined;
+
   const result = await query<{ n: number }>(
     `select count(*)::int as n
        from public.cards
       where user_id = $1
         and status = 'active'
-        and topic_id is null`,
-    [userId],
+        and topic_id is null
+        ${scoped ? 'and deck_id = $2' : ''}`,
+    scoped ? [userId, deckId] : [userId],
   );
   return result.rows[0]?.n ?? 0;
 }

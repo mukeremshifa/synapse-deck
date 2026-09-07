@@ -90,7 +90,10 @@ export function BlueprintPage() {
   const { notebookId } = useParams<{ notebookId: string }>();
   const navigate = useNavigate();
 
-  const topics = useTopics();
+  // Scoped to this notebook (DS4 task 1). Unscoped, this blueprint would
+  // weight an exam over *this* notebook by topics whose cards are all in
+  // another one.
+  const topics = useTopics(notebookId);
   const deck = useDeck(notebookId);
 
   const [questionCount, setQuestionCount] = useState(DEFAULT_EXAM_CONFIG.questionCount);
