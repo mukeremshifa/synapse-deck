@@ -63,7 +63,8 @@ authored against the codebase it will actually run in.
 | Demo sprint | [DEMO-SPRINT-BRIEF.md](DEMO-SPRINT-BRIEF.md) | 🧭 **Decisions made 2026-09-06.** AWS unavailable; 5 phases scoped (DS1–DS5) |
 | DS1 — Portable spine | [DS1-portable-spine.md](DS1-portable-spine.md) | ✅ **Complete — 2026-09-07.** The pipeline generates real cards for the first time. Neon + Groq + jobs in Postgres + in-process fan-out, all four seams with no defaults. **Executed, not just typechecked** — five findings in §7 |
 | DS2 — Grounded chat | [DS2-grounded-chat.md](DS2-grounded-chat.md) | ⚠️ **Built 2026-09-07, unproven end to end.** pgvector on Neon, a fifth seam for embeddings, retrieval with citations, the chat pane. Migration applied, cross-tenant probe passed against live Neon, one 500 found and fixed. **No embedding API key was supplied, so no question has ever been answered** — see [§7](DS2-grounded-chat.md#7-what-went-unverified) |
-| DS3 — Real blueprint & exam | [DS3-real-blueprint-exam.md](DS3-real-blueprint-exam.md) | 📋 **Planned 2026-09-07, next to execute.** Take the blueprint, diagnostic and exam off fixtures and onto the user's own cards and topics |
+| DS3 — Real blueprint & exam | [DS3-real-blueprint-exam.md](DS3-real-blueprint-exam.md) | ✅ **Complete — 2026-09-07.** Blueprint and diagnostic read the user's own topics, cards and exam history; `GET /topics` and the `answers` table built; `blueprint/fixtures.ts` deleted. Exam *questions* stay a fixture and the UI says so. **Two bugs found by running it**, both in [§7](DS3-real-blueprint-exam.md#7-what-went-unverified) — nothing was driven over HTTP or seen in a browser |
+| DS4 — Notebook scope & polish | [DS4-scope-and-polish.md](DS4-scope-and-polish.md) | 📋 **Planned 2026-09-07, next to execute.** Scope topics to a notebook — DS3's known gap — then the UI/motion and mobile pass the demo needs |
 | P13 — Exam-half UI | _(executed without a plan file — see below)_ | ✅ **Frontend closed — 2026-09-06.** Dashboard, blueprint with citations, diagnostic, exam-date study plan, answer explanations, pipeline stages. Backend deliberately untouched; four inert affordances tabulated in SPEC §4.6 |
 
 **DS1 is done, and the headline is that the pipeline has now actually run.** As of
@@ -115,6 +116,34 @@ the phase's single most important criterion — that a question the sources do n
 refused rather than fabricated — has been read and never observed. Add `OPENAI_API_KEY` to
 `.env.local` and work through [DS2 task 8](DS2-grounded-chat.md#task-8--run-it-this-is-the-task-the-phase-exists-for)
 before believing the feature works.
+
+**DS3 took the blueprint and the diagnostic off fixtures.** The central finding was that
+`topics` had existed since P10, been written at every review gate, and **never crossed the
+wire** — so every topic on screen was a fixture's inline label. `GET /topics` is that read;
+the blueprint's weights are now each topic's share of the user's own active cards, with
+untopiced cards counted as an "Unfiled" row rather than dropped. Migration `0008` added
+`answers`, the exam signal `mastery.ts` has always read two of and only ever had one source
+for, and submitting an exam now records it. `src/features/blueprint/fixtures.ts` is deleted.
+
+**No screen falls back to a fixture for a user with no data** — that rule (DS3 §3) is what
+stops a demo account looking perfect beside a reviewer's fresh account looking identical.
+The exam runner's *questions* are still a fixture, deliberately: generating them from a
+user's cards is model work, and `ExamSetup` says so on screen rather than in a comment.
+
+**Running it found two bugs, both invisible to `verify`.** `0008`'s append-only trigger
+refused every update — and Postgres implements `on delete set null` as an update, so
+deleting an examined card failed outright, contradicting the same migration's own argument
+(`0009` fixes it). And untopiced answers bucketed by *name* while cards bucketed by *id*,
+splitting one topic into two rows and making the diagnostic headline "Networking is the
+weakest topic at 0%" directly above a row reading 97%. That is twice in three phases that
+the run-it task earned its place.
+
+**What DS3 did not do: drive anything over HTTP, or look at a screen.** No demo credentials
+exist on this machine, so no Cognito token could be minted; the handlers were invoked with
+the authorizer's event shape instead, which exercises everything but routing and JWT
+verification. Nothing was rendered in a browser. **And `useTopics` is not notebook-scoped** —
+it returns all the user's topics while the blueprint claims to describe one notebook, which
+is invisible with one notebook and wrong with two. DS4 takes it.
 
 **Two rules DS2 established that later phases must not undo.** `job_chunks.expires_at` is
 now **load-bearing and must never be swept** — chunks are the knowledge base, and a sweep

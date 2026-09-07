@@ -123,14 +123,44 @@ export function DiagnosticPage() {
       }));
   }, [cardsQuery.data, topicsQuery.data]);
 
+  /**
+   * The exam signal, **excluding answers that belong to no topic**.
+   *
+   * `topicMastery` buckets by `topicId ?? topicName ?? 'Unclassified'`, which
+   * is right for *cards* — an unfiled card is still the user's material and its
+   * retention is still evidence about something. For answers it produces two
+   * distinct failures, both found by running this against real data rather than
+   * by reading it:
+   *
+   * 1. **A topic splits in two.** An answer carrying `topicName: 'Networking'`
+   *    with a null id keys under the *name* while the cards key under the *id*,
+   *    so one topic renders as two rows — "Networking 0%" above "Networking
+   *    97%". That is the fragmentation ADR 0009 exists to prevent, arriving
+   *    through a different door.
+   * 2. **The headline then repeats it.** `diagnosisFor` reads the weakest row,
+   *    so the screen announced "Networking is the weakest topic at 0%"
+   *    immediately above a row showing 97%.
+   *
+   * An answer with no topic cannot name a weakness, because it is not attached
+   * to anything with a name.
+   *
+   * The answers are not lost — they are recorded, and `total` still counts
+   * them, so the banner knows an exam was sat. They simply cannot name a
+   * weakness, because they are not attached to anything that has a name. This
+   * is most of a sample exam's answers today, by design: `answersFromResult`
+   * nulls fixture topic ids rather than pointing them at rows that do not
+   * exist.
+   */
   const masteryAnswers = useMemo((): MasteryAnswer[] => {
     if (!answersQuery.data) return [];
-    return answersQuery.data.answers.map(answer => ({
-      topicId: answer.topic_id,
-      topicName: answer.topic_name,
-      correct: answer.correct,
-      answered_at: answer.answered_at,
-    }));
+    return answersQuery.data.answers
+      .filter(answer => answer.topic_id !== null)
+      .map(answer => ({
+        topicId: answer.topic_id,
+        topicName: answer.topic_name,
+        correct: answer.correct,
+        answered_at: answer.answered_at,
+      }));
   }, [answersQuery.data]);
 
   /*
@@ -153,7 +183,18 @@ export function DiagnosticPage() {
    * only exam predates the window is told their history is old rather than
    * being invited to sit their first one.
    */
-  const hasExamSignal = (answersQuery.data?.total ?? 0) > 0;
+  const hasExamSignal = masteryAnswers.length > 0;
+
+  /**
+   * An exam was sat, but none of its answers can be attributed to a topic.
+   *
+   * The ordinary case today, because the sample exam's questions carry fixture
+   * topic labels rather than the user's topic rows. Distinct from having sat
+   * nothing at all, and the banner must not tell someone who just finished an
+   * exam that they have never sat one.
+   */
+  const hasUnattributedExams =
+    !hasExamSignal && (answersQuery.data?.total ?? 0) > 0;
 
   const diagnosis = useMemo(() => diagnosisFor(topics), [topics]);
   const plan = useMemo(
@@ -266,6 +307,17 @@ export function DiagnosticPage() {
               {masteryCards.length === 1 ? 'card' : 'cards'} and{' '}
               {masteryAnswers.length}{' '}
               {masteryAnswers.length === 1 ? 'exam answer' : 'exam answers'}.
+            </>
+          ) : hasUnattributedExams ? (
+            <>
+              Retention below is computed from your own review history. You have
+              sat{' '}
+              {answersQuery.data?.total === 1
+                ? 'an exam question'
+                : `${answersQuery.data?.total} exam questions`}
+              , but they came from the sample exam rather than your own material,
+              so none of them can be attributed to a topic here. The scores below
+              rest on recall alone until exams are generated from your cards.
             </>
           ) : (
             <>

@@ -264,14 +264,31 @@ that generate blueprints (B) and diagnostics (D) port them rather than untangle 
 ### 4.6 What the frontend deliberately stops at
 
 **The exam half's frontend is complete as of 2026-09-06.** Four affordances remained
-visible and inert; **the pipeline one of them waited on now exists** (DS1, 2026-09-07):
+visible and inert. The pipeline one of them waited on exists (DS1, 2026-09-07), and DS3
+built the `answers` table another waited on — **without closing either row**, because a row
+here is closed when a user sees their own data, not when the plumbing behind it exists:
 
 | Affordance | Where | Blocked on |
 | ---------- | ----- | ---------- |
-| Blueprint-aligned generation | Blueprint | ~~The ingestion pipeline~~ — **the pipeline runs**; what remains is passing a blueprint's topic weights into the job, which is DS3's |
-| Generate cards from misses | Exam results | A write path `answers` → `cards` (D11) |
+| Blueprint-aligned generation | Blueprint | ~~The ingestion pipeline~~ — **the pipeline runs**, and DS3 gave the blueprint real topic weights to pass. What remains is the generation half: getting those weights into a job. DS3 left it out of scope deliberately (its §2) — it is a change to the generation pipeline, and that phase was about *reading* what exists |
+| Generate cards from misses | Exam results | ~~A write path `answers` → `cards`~~ — **`answers` exists and is written** (migration 0008, DS3 task 4), so the *first* half of this is done. The second is a generator that accepts a topic and a set of missed questions, which does not exist. **Still inert, and still says so** |
 | Plan action: review | Diagnostic | A source viewer; no route reads a source in place |
 | Plan action: questions | Diagnostic | Topic-scoped question generation (Phase C) |
+
+**Two of the three screens behind these affordances came off fixtures at DS3** (2026-09-07).
+The blueprint and the diagnostic now read the signed-in user's own topics, cards and exam
+history; `src/features/blueprint/fixtures.ts` was deleted, and **no screen falls back to a
+fixture for a user who has no data** — an empty account gets an empty state that says what
+to do. That rule is the phase's own (DS3 §3) and it exists because the alternative is a demo
+account that looks perfect beside a reviewer's fresh account that looks identical.
+
+**The exam runner's questions are still a fixture, and the setup screen says so on screen.**
+Generating an exam from a user's own cards is model work rather than plumbing, so DS3 left
+it to Phase C rather than half-building it. What changed is that the *attempt* is now real:
+submitting records the graded answers, and the diagnostic reads them. A sample exam's
+questions carry fixture topic labels rather than the user's topic rows, so those answers are
+recorded with their topic ids nulled — the attempt counts, and it is attributed to no topic,
+which is the truth rather than a convenient approximation.
 
 **The generation loop is real as of DS1.** Paste text or upload a `.txt`/`.md` document and
 a language model writes cards from it: Groq behind the existing provider seam, job state in
@@ -679,6 +696,57 @@ measures whether it does.
 different spaces, so a corpus written by one and queried by another returns real rows in a
 plausible order with no error and no meaning. `model` is the column that lets you discover a
 table holding two models' vectors.
+
+### 5.10 `answers` — exam evidence, append-only (DS3, Neon/RDS only)
+
+Added at DS3 task 4 (`services/api/migrations/0008_answers.sql`, with `0009` fixing its
+trigger). Postgres-side only; the Supabase schema does not have it.
+
+```sql
+create table answers (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  attempt_id uuid not null,          -- groups one sitting. Not an FK: no exams table
+  question_text text not null,       -- a snapshot. The authority for what was asked
+  card_id  uuid references cards  on delete set null,   -- a pointer, not the meaning
+  topic_id uuid references topics on delete set null,
+  topic_name text,                   -- snapshotted alongside the reference
+  correct boolean not null,
+  selected_option int,               -- null = never answered, which is not the same as wrong
+  elapsed_ms int,
+  answered_at timestamptz not null default now()
+);
+```
+
+**Why this table exists.** `src/lib/mastery.ts` has always read two signals and kept them
+deliberately apart — FSRS retention (can you recall this when prompted) and exam accuracy
+(can you apply it under time). The first has had a real source since P1. **The second had
+none at all**: an exam was sat in the browser, graded in the browser, and forgotten when the
+tab closed, so the diagnostic's most valuable finding — a topic where the two disagree — was
+computed over a fixture.
+
+**An answer stores the question *and* references the card, and the copy is the authority.**
+Referencing the card alone is normalised and wrong: a card can be edited afterwards, so an
+answer whose stem is fetched through a join silently changes meaning, and a deleted card
+would take its answers with it — a user tidying their deck quietly erasing their own exam
+history. Storing the stem alone keeps the evidence honest but severs the answer from the
+material that "generate cards from my misses" needs. So both, with `question_text` never
+updated and the two ids nullable pointers that may become null.
+
+**Append-only, following `reviews` — with the exception `reviews` does not need.** An exam
+result that can be rewritten is not evidence. The trigger refuses every update **except one
+that only sets `card_id` or `topic_id` to null**, because Postgres implements `on delete set
+null` as an UPDATE on this table: the stricter first version made deleting an examined card
+impossible, contradicting the same migration's own argument that an answer must survive
+exactly that. Migration `0009` is that fix, and it is left as a separate migration rather
+than an edit because `0008` had already been applied.
+
+**Grading is still client-side, and that is stated rather than implied.** `correct` is
+computed by `gradeAttempt` in the browser and trusted by the server; there is no server-side
+exam to re-grade against. A user could post a perfect score, which matters for a leaderboard
+and does not matter here — the only consumer is their own mastery map, and falsifying it
+degrades nothing but their own study plan. When Phase C generates exams server-side, the
+answer key lives there and grading moves with it.
 
 ## 6. Scheduling (FSRS)
 

@@ -306,27 +306,125 @@ Observable, in order of what they prove:
 
 ---
 
-## 6. Decisions to record
+## 6. Decisions recorded
 
-- **How far this phase went** (task 1) — which screens came off fixtures and which did not.
-- **What a computed blueprint "weight" means**, and why that definition.
-- **What happens to untopiced cards** in the blueprint — a bucket, or excluded.
-- **Whether `answers` stores question text or references a card**, and the reasoning.
-- **What the mastery calculation does with no exam history**, stated explicitly.
-- **Whether any fixture file survived**, and what still reads it.
+**Written 2026-09-07, after execution.**
+
+**How far this phase went (task 1).** The recommendation was taken unchanged: the blueprint
+and the diagnostic came off fixtures, `answers` was built with a write path, and exam
+*question generation* stayed deferred with the UI saying so. Nothing was added to that scope
+and nothing was dropped from it.
+
+**What a computed blueprint weight means: a topic's share of the user's active cards.**
+There is no generator inferring weights from the material yet — that is Phase C — so what
+exists instead is the distribution the ingestion pipeline already produced: chunks that said
+more about networking yielded more networking cards. Card share is therefore a
+*measurement* of how much of the user's material each topic occupies, which is a weaker
+claim than a generated blueprint makes and an honest one. Two alternatives were rejected:
+equal weights say nothing and would be a fixture with extra steps; weighting by *weakness*
+conflates the two things `blueprint.ts` deliberately keeps apart, since `TopicDifficulty` is
+a property of the material and mastery is a property of the learner — a blueprint that
+reweighted itself as the student improved would stop describing the exam. The banner states
+the definition on screen, because "24%" counted and "24%" inferred are different claims
+wearing the same glyph. **Difficulty is uniformly `medium`** for the same reason: nothing
+measures how hard the material is, and inventing a spread from card counts would be exactly
+the plausible-wrong-number §7 warns about.
+
+**Untopiced cards get an "Unfiled" bucket, counted rather than excluded.** Dropping them
+would make every other weight too large: a share of the topiced cards presented as a share
+of the exam is a plausible wrong number. It sorts last rather than by size — it is a
+residue, not a topic, and putting it first when it happens to be the largest bucket would
+read as the user's main subject. It carries the id `'unfiled'` rather than a uuid, so
+nothing can mistake it for a topic it could file cards under.
+
+**`answers` stores the question text *and* references the card, with the snapshot as the
+authority.** Full reasoning in [ADR 0013](../adr/0013-answers-snapshot-the-question.md).
+Briefly: referencing alone means an edited card silently changes what a past answer meant
+and a deleted card erases exam history; storing the stem alone severs the answer from the
+material that "generate cards from misses" needs. The topic *name* follows the opposite rule
+from the stem — the live name wins where the topic still exists — because a stem is evidence
+and a topic name is a label on a grouping.
+
+**With no exam history the mastery calculation degrades correctly, and this was checked
+rather than assumed.** `topicMastery` over an empty answers array returns `exam: null`,
+`divergence: null`, and `score` falling back to retention alone. It does not compute a
+confident number from nothing, and it does not read 100% because nobody has been tested. The
+UI carries the other half: the banner says the exam signal is missing and that the scores
+rest on recall alone, rather than letting the heading's promise of "your reviews and exams
+together" stand over a retention-only number.
+
+**One fixture survived: `src/features/exam/fixtures.ts`**, read by `ExamPage` for
+`SAMPLE_EXAM`. `src/features/blueprint/fixtures.ts` was deleted outright — nothing read it
+once the blueprint and diagnostic were wired. The surviving one is declared on screen:
+`ExamSetup` takes an `isSample` prop and says the questions are not the user's own, and
+`answersFromResult` nulls fixture topic ids rather than storing pointers to rows that do not
+exist.
+
+**One decision the plan did not anticipate: untopiced *answers* are excluded from the
+mastery map.** Running it found that `topicMastery` buckets by `topicId ?? topicName`, so a
+sample exam's answer carrying `topicName: 'Networking'` with a null id keys under the *name*
+while the cards key under the *id* — rendering one topic as two rows, "Networking 0%" above
+"Networking 97%", with `diagnosisFor` then headlining the 0%. Answers with no topic id are
+therefore dropped from the mastery input. They are still recorded and still counted in
+`total`, so the banner knows an exam was sat; they simply cannot name a weakness, because
+they are not attached to anything with a name.
 
 ---
 
-## 7. What will go unverified
+## 7. What went unverified
 
-There are no tests (ADR 0005), so name these in the closing report rather than letting a
-confident summary imply more:
+**Written 2026-09-07, after execution.** The plan predicted these; what follows is what
+actually held and what did not.
 
-- **The numbers are unvalidated.** "The blueprint rendered and the weights looked plausible"
-  is an impression. Nothing checks that a weight is arithmetically right, and a plausible
-  wrong number is the hardest kind to notice.
-- **The cross-tenant probe is a handful of paths, not a proof** — as it was in DS1 and DS2.
-- **The empty states are verified by making one empty account**, which is one path through
-  the case that matters most.
-- **Whatever stays on fixtures stays unproven**, and the UI's honesty about it is the only
-  thing standing between a demo asset and a lie.
+**The blocking limitation, stated first: nothing was driven over HTTP.** `scripts/dev-api.mjs`
+verifies real Cognito tokens against live JWKS, and this machine has no demo credentials
+(`DEMO_EMAIL` / `DEMO_PASSWORD` are absent from `.env.local`), so no token could be minted.
+The handlers were instead invoked directly with the event shape the API Gateway authorizer
+produces. **Everything except JWT verification and API Gateway's own path routing ran for
+real, against live Neon** — the data layer, the handlers, the status codes, the tenancy
+filters. What is *not* proven: that the routes resolve, that CORS is right, and that a real
+token's `sub` reaches `requireUserId`. The route tables are identical in both files
+(`check:routes`, 28 routes), which is evidence about declaration rather than about
+resolution.
+
+**Nothing was verified in a browser.** No screen was rendered. The empty states, the
+banners, the `isSample` notice and the blueprint's editing controls are typechecked and
+argued for, not seen. Given that this phase's most important criterion is what a fresh
+account *sees*, this is the largest gap in it.
+
+**What was run, and it found two real bugs:**
+
+- **The `on delete set null` deadlock.** `0008`'s append-only trigger refused every update,
+  and Postgres implements `on delete set null` as an UPDATE — so deleting a card or topic
+  that had been examined failed outright, contradicting the same migration's own argument.
+  Fixed in `0009`. Nothing but running it would have found this before a user deleted a deck.
+- **The split topic and the contradictory headline.** Untopiced answers bucketed by name
+  while cards bucketed by id, rendering one topic as two rows and making `diagnosisFor`
+  announce "Networking is the weakest topic at 0%" directly above a row reading 97%. Fixed
+  by excluding untopiced answers from the mastery input; recorded in §6.
+- **The arithmetic was checked, not eyeballed.** 12, 6, 2 and 3 unfiled cards over 23 gave
+  52%, 26%, 9% and 13% against exact shares of 52.17%, 26.09%, 8.70% and 13.04%, summing to
+  exactly 100 via largest-remainder. That is one distribution, not a proof of the rounding.
+- **The cross-tenant probe passed on both new endpoints**, against live Neon: two users,
+  each seeing only their own topics, counts and answers; user B posting an answer that named
+  user A's topic id had it stored as null rather than attached. **It is a handful of paths,
+  not a proof** — `check-data-access.mjs` checks shape, not meaning, and a function that
+  takes `userId` and ignores it still passes every gate here.
+- **Deleting a topic with cards and answers** left 12 cards unfiled and all 3 answers intact.
+- **The append-only trigger refuses a real rewrite**, verified by attempting one (`PT403`).
+
+**Still unverified, and named rather than implied:**
+
+- **The empty states were verified by one empty account through the data layer**, not by
+  looking at the screens they render.
+- **The exam runner's questions remain a fixture**, and the UI's honesty about it is the
+  only thing standing between a demo asset and a lie. That honesty is a prop and a paragraph
+  no one has read on screen.
+- **`useTopics` is not notebook-scoped.** It returns *all* the user's topics, while the
+  blueprint claims to describe one notebook. With one notebook they coincide; with two, a
+  blueprint will include topics whose cards live elsewhere. Noted here rather than fixed
+  because scoping topics to a deck is a schema question — `topics` has no `deck_id` — and
+  inventing one late in a phase is how a shape gets decided by accident. **DS4 takes this.**
+- **Nothing checks that a weight is *right*, only that it is arithmetically consistent.**
+  Whether card share is a good proxy for exam emphasis is a product judgement no test could
+  settle.
