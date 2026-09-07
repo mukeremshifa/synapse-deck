@@ -6,7 +6,14 @@ import {
 } from '@tanstack/react-query';
 import { api } from './api-client';
 import { supabase } from './supabase';
-import { CardPayload, DeckInput, Grade, ProfileSettings, type CardKind } from './schemas';
+import {
+  AttemptSubmission,
+  CardPayload,
+  DeckInput,
+  Grade,
+  ProfileSettings,
+  type CardKind,
+} from './schemas';
 import { applyGrade, type SchedulePreview } from './fsrs';
 import {
   addStudyDays,
@@ -84,6 +91,10 @@ export const queryKeys = {
   statsForecast: (days: number) => ['stats', 'forecast', days] as const,
   statsRetention: (days: number) => ['stats', 'retention', days] as const,
   statsCards: ['stats', 'cards'] as const,
+  /** The user's topics with their card counts. DS3 task 2. */
+  topics: ['topics'] as const,
+  /** Exam answers — the mastery model's second signal. DS3 task 5. */
+  answers: (days: number) => ['answers', days] as const,
 };
 
 /**
@@ -249,14 +260,139 @@ export function useDeleteDeck() {
 }
 
 // ---------------------------------------------------------------------------
+// Topics
+// ---------------------------------------------------------------------------
+
+/**
+ * A topic and how much of the user's material sits under it.
+ *
+ * Mirrors `TopicWithCounts` in `services/api/src/data/topics.ts`. Declared here
+ * rather than imported from the generated `database.ts` for the same reason
+ * `DeckWithCounts` is: that file is generated from the *Supabase* project,
+ * which never received migration 0004, so it knows nothing about topics at all.
+ * The two shapes are kept in step by hand until the generator points at RDS.
+ */
+export type TopicWithCounts = {
+  id: string;
+  user_id: string;
+  name: string;
+  slug: string;
+  created_at: string;
+  updated_at: string;
+  /** Active cards filed under this topic. */
+  cardCount: number;
+  /** Of those, how many have been reviewed at least once. */
+  reviewedCount: number;
+};
+
+export type TopicsResponse = {
+  topics: TopicWithCounts[];
+  /**
+   * Active cards carrying no topic at all.
+   *
+   * Not a topic and not an error: `cards.topic_id` is nullable by design
+   * (migration 0004). The blueprint shows these as an "Unfiled" row rather than
+   * dropping them, because weights computed over only the topiced cards would
+   * claim to describe all of the user's material while describing a subset.
+   */
+  unfiledCards: number;
+};
+
+/**
+ * The user's topics. **The read that DS3 existed to build.**
+ *
+ * `topics` has been written at the review gate since P10 and, until this hook,
+ * was never read by anything — every topic the app displayed came from a
+ * fixture's inline label.
+ */
+export function useTopics() {
+  return useQuery({
+    queryKey: queryKeys.topics,
+    queryFn: () => api.get<TopicsResponse>('/topics'),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Exam answers
+// ---------------------------------------------------------------------------
+
+/** One recorded answer, as `GET /exams/answers` returns it. Mirrors `AnswerRow`. */
+export type AnswerRow = {
+  id: string;
+  user_id: string;
+  attempt_id: string;
+  question_text: string;
+  card_id: string | null;
+  topic_id: string | null;
+  topic_name: string | null;
+  correct: boolean;
+  selected_option: number | null;
+  elapsed_ms: number | null;
+  answered_at: string;
+};
+
+export type AnswersResponse = {
+  answers: AnswerRow[];
+  /**
+   * Every answer the user has, ignoring the window.
+   *
+   * The diagnostic needs it to tell "you have never sat an exam" from "your
+   * last one predates this window" — the same absence on screen, but only the
+   * first should tell the user to go and sit one.
+   */
+  total: number;
+  windowDays: number;
+};
+
+/** How far back the diagnostic reads exam history. The server caps it at 365. */
+export const ANSWER_WINDOW_DAYS = 180;
+
+export function useAnswers(days: number = ANSWER_WINDOW_DAYS) {
+  return useQuery({
+    queryKey: queryKeys.answers(days),
+    queryFn: () => api.get<AnswersResponse>(`/exams/answers?days=${days}`),
+  });
+}
+
+/**
+ * Record a finished attempt. One request for the whole sitting.
+ *
+ * Invalidates the answers so the diagnostic reflects the exam the user has just
+ * sat — the results screen links straight to it, and arriving at a diagnostic
+ * that has not noticed the exam is the bug this line prevents.
+ */
+export function useRecordAttempt() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (submission: AttemptSubmission) =>
+      api.post<{ recorded: number; attemptId: string }>(
+        '/exams/answers',
+        AttemptSubmission.parse(submission),
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['answers'] }),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Cards
 // ---------------------------------------------------------------------------
+
+/**
+ * A card as the API returns it.
+ *
+ * `CardRow` comes from `src/types/database.ts`, generated against the Supabase
+ * project — which never received migration 0004 and so has no `topic_id`. The
+ * RDS `cards` table does, `data/cards.ts` selects `*`, and the diagnostic needs
+ * it to group a user's own cards by topic. Widened here, beside
+ * `DeckWithCounts`, rather than hand-edited into a generated file.
+ */
+export type CardRowWithTopic = CardRow & { topic_id: string | null };
 
 export function useCards(deckId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.deckCards(deckId ?? ''),
     enabled: Boolean(deckId),
-    queryFn: () => api.get<CardRow[]>(`/decks/${deckId!}/cards`),
+    queryFn: () => api.get<CardRowWithTopic[]>(`/decks/${deckId!}/cards`),
   });
 }
 

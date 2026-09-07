@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MaximizeIcon, ShuffleIcon, TimerIcon } from 'lucide-react';
+import { InfoIcon, MaximizeIcon, ShuffleIcon, TimerIcon } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,19 @@ import { EXAM_LIMITS, type Exam, type ExamConfig } from '@/lib/schemas';
  * Untimed is offered because a first attempt at unfamiliar material under a
  * clock teaches less than the same attempt without one. The timer is the point
  * of exam mode; it is not the point of every sitting.
+ *
+ * ── `isSample`, and why the notice is here rather than in a comment ───────
+ *
+ * DS3 task 6: the questions are still a fixture — generating an exam from the
+ * user's own cards is Phase C's model work, and DS3 deliberately did not
+ * half-build it. **A sample exam a user can tell is a sample is a demo asset; a
+ * sample exam presented as theirs is a lie**, and the difference is entirely
+ * whether it says so where somebody reads it.
+ *
+ * This screen, rather than the runner: it is the last thing a candidate reads
+ * before committing several minutes, and a notice mid-exam is an interruption
+ * rather than information. A prop rather than a literal, so the exams Phase C
+ * generates do not inherit a disclaimer that has stopped being true.
  */
 
 const DURATION_CHOICES = [null, 5, 10, 20, 30, 45, 60, 90, 120] as const;
@@ -27,9 +40,12 @@ const DURATION_CHOICES = [null, 5, 10, 20, 30, 45, 60, 90, 120] as const;
 export function ExamSetup({
   exam,
   onStart,
+  isSample = false,
 }: {
   exam: Exam;
   onStart: (exam: Exam) => void;
+  /** Whether these questions are the shared sample rather than the user's own. */
+  isSample?: boolean;
 }) {
   const [config, setConfig] = useState<ExamConfig>(exam.config);
 
@@ -51,6 +67,22 @@ export function ExamSetup({
           available. Set the conditions, then sit it.
         </p>
       </header>
+
+      {isSample ? (
+        <div className="flex items-start gap-2 rounded-lg border border-dashed p-3">
+          <InfoIcon
+            className="text-muted-foreground mt-0.5 size-4 shrink-0"
+            aria-hidden
+          />
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            These are sample questions about cloud architecture, not questions
+            drawn from your own material — generating those is still to come.
+            Your attempt is recorded either way, and it counts towards the
+            diagnostic's overall exam signal; because the questions are not
+            yours, it is not attributed to any of your topics.
+          </p>
+        </div>
+      ) : null}
 
       <Card>
         <CardContent className="space-y-6 p-6">

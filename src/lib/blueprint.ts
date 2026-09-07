@@ -345,3 +345,150 @@ export function blueprintProblems(blueprint: Blueprint): string[] {
 
   return problems;
 }
+
+// ---------------------------------------------------------------------------
+// Deriving a blueprint from the user's own material (DS3 task 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * What the blueprint needs to know about one of the user's topics.
+ *
+ * Structurally the client's `TopicWithCounts`, restated here so this module
+ * keeps its promise of importing nothing: `blueprint.ts` is pure and has no
+ * data layer, and a `queries.ts` import would drag React Query into it.
+ */
+export type TopicMaterial = {
+  id: string;
+  name: string;
+  cardCount: number;
+};
+
+/** The id the "Unfiled" bucket carries. Not a uuid — nothing can be filed under it. */
+export const UNFILED_TOPIC_ID = 'unfiled';
+
+/**
+ * A blueprint computed from what the user actually has.
+ *
+ * ── What a computed weight *means*, which is a real decision ──────────────
+ *
+ * **Weight is a topic's share of the user's active cards.** A generated
+ * blueprint's weights are an inference from the material — the model reading
+ * page counts and repeated headings — and there is no such generator yet
+ * (that is Phase C). What exists instead is the card distribution the
+ * ingestion pipeline already produced: chunks that said more about networking
+ * yielded more networking cards, so card share is a *measurement* of how much
+ * of the user's material each topic occupies.
+ *
+ * It is a weaker claim than a generated blueprint makes and it is an honest
+ * one. The alternative definitions were considered and rejected:
+ *
+ * - **Equal weights** say nothing and would be a fixture with extra steps.
+ * - **Weight by weakness** (mastery-derived) conflates two things `blueprint.ts`
+ *   deliberately keeps apart: `TopicDifficulty` is a property of the material,
+ *   mastery bands are a property of the learner. An exam blueprint that
+ *   reweighted itself as you improved would not describe the exam any more.
+ *
+ * The UI says which definition is in force, because "24%" computed from card
+ * share and "24%" inferred by a model are different claims wearing the same
+ * glyph.
+ *
+ * ── Difficulty is `medium`, uniformly, and the UI must say so ─────────────
+ *
+ * Nothing in the database estimates how hard *the material* is. FSRS difficulty
+ * is per-user and per-card — how hard this learner finds this card — which is
+ * the learner-property this module refuses to conflate with a material-property.
+ * So every derived topic gets `medium`: a neutral placeholder the user can
+ * change, not a claim. Inventing a spread from card counts would be exactly the
+ * plausible-wrong-number DS3 §7 warns about.
+ *
+ * ── Evidence is empty, and that is the whole point of the field ───────────
+ *
+ * `TopicEvidence` is what the model saw and where it saw it. No model saw
+ * anything here; these weights are counted. An empty `evidence` array is
+ * already the shape for "the user added this topic", and `Citation.tsx` renders
+ * it as such rather than borrowing someone else's provenance. Fabricating a
+ * citation for a counted weight would be the precise failure the field exists
+ * to prevent.
+ *
+ * ── Topics with no cards are dropped ──────────────────────────────────────
+ *
+ * A topic reconciled from a document whose cards were all deleted carries zero
+ * weight, and a zero-weight row in a blueprint is noise: `allocateQuestions`
+ * gives it no questions and the meter renders empty. It stays in the user's
+ * topic list — this drops it from *this blueprint*, not from their data.
+ *
+ * Returns `null` when there is nothing to describe, so the caller renders an
+ * empty state rather than a blueprint of zero topics. `Blueprint.topics` has a
+ * `min(1)` on it, so a zero-topic blueprint cannot be constructed anyway.
+ */
+export function blueprintFromTopics(
+  input: {
+    notebookId: string;
+    title: string;
+    topics: readonly TopicMaterial[];
+    /** Active cards carrying no topic. Becomes the "Unfiled" row. */
+    unfiledCards: number;
+    sources?: readonly string[];
+    updatedAt?: string;
+  },
+): Blueprint | null {
+  const rows: { id: string; name: string; cardCount: number }[] = input.topics
+    .filter(topic => topic.cardCount > 0)
+    .map(topic => ({ id: topic.id, name: topic.name, cardCount: topic.cardCount }));
+
+  /*
+   * The "Unfiled" bucket. **Counted, not dropped** — the alternative silently
+   * makes every other weight too large, because a share of the topiced cards
+   * presented as a share of the exam is a plausible wrong number.
+   *
+   * Last in the list rather than sorted by size: it is a residue, not a topic,
+   * and putting it at the top when it happens to be the largest bucket would
+   * read as the user's main subject.
+   */
+  if (input.unfiledCards > 0) {
+    rows.push({
+      id: UNFILED_TOPIC_ID,
+      name: 'Unfiled',
+      cardCount: input.unfiledCards,
+    });
+  }
+
+  if (rows.length === 0) return null;
+
+  const totalCards = rows.reduce((sum, row) => sum + row.cardCount, 0);
+
+  /*
+   * Raw shares first, then `rebalance` to make them integers summing to exactly
+   * 100. Reusing it rather than rounding here is the point: largest-remainder
+   * is already the answer to "these must sum to 100 and stay proportional", and
+   * a second rounding rule in this file is how a column starts summing to 99.
+   */
+  const topics: BlueprintTopic[] = rebalance(
+    rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      weight: (row.cardCount / totalCards) * 100,
+      // A property of the material, which nothing here measures. See above.
+      difficulty: 'medium' as const,
+      // Counted, not inferred. Nothing was read, so nothing is cited.
+      evidence: [],
+    })),
+  );
+
+  return {
+    id: `derived-${input.notebookId}`,
+    notebookId: input.notebookId,
+    title: input.title,
+    sources: [...(input.sources ?? [])],
+    topics,
+    /*
+     * The format mix is not derived, because nothing measures it. It is the
+     * blueprint's one remaining authored value, set to what the generator can
+     * actually produce today (`GENERATABLE_FORMATS` is `['mcq']`) rather than
+     * to a plausible spread across formats no generator will honour.
+     */
+    formatMix: { mcq: 100, short: 0, problem: 0, essay: 0 },
+    updatedAt: input.updatedAt ?? new Date().toISOString(),
+    edited: false,
+  };
+}

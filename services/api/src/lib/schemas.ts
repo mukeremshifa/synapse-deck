@@ -21,6 +21,7 @@
 
 export {
   AskRequest,
+  AttemptSubmission,
   CardPayload,
   DeckInput,
   GradeSchema,

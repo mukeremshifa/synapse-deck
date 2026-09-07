@@ -1,6 +1,7 @@
 import { MASTERY_THRESHOLDS, type MasteryBand } from '@/lib/mastery';
 import {
   DEFAULT_EXAM_CONFIG,
+  type AnswerSubmission,
   type Exam,
   type ExamAnswer,
   type ExamConfig,
@@ -233,6 +234,53 @@ export const EXAM_BAND_LABEL: Record<MasteryBand, string> = {
   developing: 'Getting there',
   strong: 'Solid',
 };
+
+/**
+ * A graded result, as the answers the server records (DS3 task 5).
+ *
+ * Pure, and here rather than in the component, because it encodes two rules
+ * that are decisions rather than plumbing:
+ *
+ * **1. The stem is copied, not referenced.** `question_text` is what the user
+ * was actually asked. A card edited or deleted afterwards must not silently
+ * change what a past answer means; `migrations/0008_answers.sql` argues this at
+ * length and this is the client half of it.
+ *
+ * **2. A non-uuid topic or card id becomes null.** Questions from the sample
+ * exam carry ids like `'networking'` — labels in a fixture, not rows in the
+ * user's database. Submitting them would either be rejected by the schema or,
+ * worse, stored as pointers to nothing. They are dropped to null, so a sample
+ * exam records *that it happened and how it went* without claiming its
+ * questions were about the user's own topics. The topic *name* survives either
+ * way, because that is a label rather than a reference.
+ *
+ * `correct: null` — an unanswered question — is recorded as `correct: false`,
+ * matching `gradeAttempt`, where unanswered counts against the score as it does
+ * in a real exam. The distinction is not lost: `selectedOption` is null only
+ * for those, so anything later wanting to tell "did not know" from "ran out of
+ * time" still can.
+ */
+export function answersFromResult(result: ExamResult): AnswerSubmission[] {
+  return result.results.map(({ question, answer, correct }) => ({
+    questionText: question.payload.stem,
+    // An exam question's `id` is the card it came from only once questions are
+    // generated from cards; a fixture's is a label. `asUuid` is what keeps the
+    // two apart without the component having to know which it is holding.
+    cardId: asUuid(question.id),
+    topicId: asUuid(question.topicId),
+    topicName: question.topicName ?? null,
+    correct: correct === true,
+    selectedOption: answer.selectedOption,
+    elapsedMs: answer.elapsedMs,
+  }));
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A uuid, or null for anything that is not one. See `answersFromResult`. */
+function asUuid(value: string | undefined): string | null {
+  return typeof value === 'string' && UUID.test(value) ? value : null;
+}
 
 export function emptyAnswer(questionId: string): ExamAnswer {
   return { questionId, selectedOption: null, flagged: false, elapsedMs: 0 };

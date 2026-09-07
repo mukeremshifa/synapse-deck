@@ -210,6 +210,23 @@ export class ApiStack extends Stack {
      */
     const chatFn = makeHandler('ChatFn', 'chat');
 
+    /*
+     * Topics (DS3 task 2). Its own function rather than a route on `cardsFn`,
+     * for the reason `makeHandler` is cheap: every function here bundles the
+     * same `pg` client and differs only in which handler it entrypoints, so
+     * splitting costs a few kilobytes of template and buys the ability to give
+     * this one no grants at all. It reads two aggregate queries and touches
+     * nothing else.
+     */
+    const topicsFn = makeHandler('TopicsFn', 'topics');
+
+    /*
+     * Exam answers (DS3 task 5). Its own function for the same reason as
+     * `topicsFn`: it needs no grant beyond the database, and a submission's
+     * write burst has nothing in common with the deck list's read pattern.
+     */
+    const examsFn = makeHandler('ExamsFn', 'exams');
+
     // ── The job table's grant ───────────────────────────────────────────────
     //
     // P10 task 2 creates the table; tasks 3-5 add the routes that use it. The
@@ -428,6 +445,21 @@ export class ApiStack extends Stack {
     // Served by the jobs function because quota is read from the same table it
     // writes on dispatch (P10 task 8).
     route('/quota', [HttpMethod.GET], jobsFn, 'QuotaInt');
+
+    /*
+     * The blueprint and the mastery map's source of topics (DS3 task 2).
+     * Before this route the `topics` table was written at the review gate and
+     * never read across the wire — see the handler's header.
+     */
+    route('/topics', [HttpMethod.GET], topicsFn, 'TopicsInt');
+
+    /*
+     * The exam's write path and the diagnostic's exam signal (DS3 task 5).
+     * `/exams/answers` rather than `/exams/{id}/answers`: there is no `exams`
+     * table, so an attempt id in the URL would address a resource the server
+     * does not have. It travels in the body instead — see the handler.
+     */
+    route('/exams/answers', [HttpMethod.POST, HttpMethod.GET], examsFn, 'ExamAnswersInt');
 
     route('/queue', [HttpMethod.GET], reviewsFn, 'QueueInt');
     route('/summary', [HttpMethod.GET], reviewsFn, 'SummaryInt');

@@ -3,10 +3,19 @@ import { Exam, DEFAULT_EXAM_CONFIG } from '@/lib/schemas';
 /**
  * A sample exam, so the runner can be built and demoed before a backend exists.
  *
- * **This is scaffolding with a deletion date.** Phase B generates blueprints and
- * Phase C generates real exams from them; when `useExam` is wired to the API,
+ * **This is scaffolding with a deletion date, and DS3 was not it.** Phase C
+ * generates real exams from a blueprint; when `useExam` is wired to the API,
  * this file goes, and the runner should need no other change — which is the
- * property it is here to prove. It is parsed through the `Exam` schema at module
+ * property it is here to prove.
+ *
+ * DS3 took the blueprint and the diagnostic off fixtures and deleted
+ * `blueprint/fixtures.ts` outright, but deliberately left exam *generation*
+ * alone: it is model work rather than plumbing, and half-building it would
+ * produce exactly the failure that phase's §3 forbids. What DS3 did instead is
+ * make the state honest — `ExamSetup` takes `isSample` and says on screen that
+ * these questions are not the user's own, and an attempt sat on them is
+ * recorded with its topic ids nulled rather than pointing at fixture labels
+ * (`answersFromResult`). It is parsed through the `Exam` schema at module
  * load rather than merely typed, so a fixture that drifts from the schema fails
  * immediately and loudly rather than rendering something subtly wrong.
  *

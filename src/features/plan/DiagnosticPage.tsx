@@ -1,16 +1,17 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangleIcon, InfoIcon, SparklesIcon } from 'lucide-react';
+import { AlertTriangleIcon, InfoIcon, LayersIcon, SparklesIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { EmptyState } from '@/components/EmptyState';
 import { resolveTimeZone, studyDayKey } from '@/lib/day';
-import { topicMastery } from '@/lib/mastery';
+import { topicMastery, type MasteryAnswer, type MasteryCard } from '@/lib/mastery';
 import { notebookPath } from '@/lib/notebooks';
-import { useProfile } from '@/lib/queries';
+import { useAnswers, useCards, useProfile, useTopics } from '@/lib/queries';
 import {
   buildStudyPlan,
   diagnosisFor,
@@ -21,7 +22,6 @@ import {
   type PlanAction,
 } from '@/lib/study-plan';
 import { TopicMasteryList } from '@/features/mastery/TopicMasteryList';
-import { sampleMasteryAnswers, sampleMasteryCards } from '@/features/blueprint/fixtures';
 import { StudyPlanView } from './StudyPlanView';
 
 /**
@@ -89,10 +89,72 @@ export function DiagnosticPage() {
   // banner below explains why rather than letting the control silently do nothing.
   const days = schedule && !schedule.passed ? schedule.days : fallbackDays;
 
+  /*
+   * The two signals, each from its own source.
+   *
+   * Cards carry `topic_id` but not the topic's *name*, so the name is joined in
+   * here from the topic list rather than added to the cards query: a name on
+   * every card row is the same string repeated hundreds of times over the wire,
+   * and `mastery.ts` groups by id where it has one.
+   */
+  const cardsQuery = useCards(notebookId);
+  const topicsQuery = useTopics();
+  const answersQuery = useAnswers();
+
+  const masteryCards = useMemo((): MasteryCard[] => {
+    if (!cardsQuery.data) return [];
+    const nameById = new Map(
+      (topicsQuery.data?.topics ?? []).map(topic => [topic.id, topic.name]),
+    );
+    return cardsQuery.data
+      // Suspended and archived cards are not part of what the user is
+      // studying, so they must not drag a topic's retention down.
+      .filter(card => card.status === 'active')
+      .map(card => ({
+        topicId: card.topic_id,
+        topicName: card.topic_id ? (nameById.get(card.topic_id) ?? null) : null,
+        fsrs_state: card.fsrs_state,
+        stability: card.stability,
+        difficulty: card.difficulty,
+        // `mastery.ts` calls this `last_reviewed_at`; the column is
+        // `last_review`. Mapped here rather than renamed in either place —
+        // the module is pure and predates the schema it now reads.
+        last_reviewed_at: card.last_review,
+      }));
+  }, [cardsQuery.data, topicsQuery.data]);
+
+  const masteryAnswers = useMemo((): MasteryAnswer[] => {
+    if (!answersQuery.data) return [];
+    return answersQuery.data.answers.map(answer => ({
+      topicId: answer.topic_id,
+      topicName: answer.topic_name,
+      correct: answer.correct,
+      answered_at: answer.answered_at,
+    }));
+  }, [answersQuery.data]);
+
+  /*
+   * **No blending of real cards with fixture answers** (DS3 §3, task 3).
+   * `topicMastery` degrades correctly on an empty answers array — `exam` comes
+   * back null, `divergence` null, and `score` falls back to retention alone
+   * rather than to a confident number computed from nothing. That was checked
+   * by reading the module rather than assumed, because a mastery score reading
+   * 100% because nobody has been tested is the failure §3 names with arithmetic
+   * in front of it.
+   */
   const topics = useMemo(
-    () => topicMastery(sampleMasteryCards, sampleMasteryAnswers),
-    [],
+    () => topicMastery(masteryCards, masteryAnswers),
+    [masteryCards, masteryAnswers],
   );
+  /**
+   * Whether the exam half of the model has anything to say.
+   *
+   * `answersQuery.data.total` rather than the windowed list, so a user whose
+   * only exam predates the window is told their history is old rather than
+   * being invited to sit their first one.
+   */
+  const hasExamSignal = (answersQuery.data?.total ?? 0) > 0;
+
   const diagnosis = useMemo(() => diagnosisFor(topics), [topics]);
   const plan = useMemo(
     () => buildStudyPlan(topics, { days, minutesPerDay }),
@@ -131,21 +193,89 @@ export function DiagnosticPage() {
     });
   };
 
-  return (
-    <div className="mx-auto max-w-4xl space-y-8 px-4 py-8 sm:px-6">
-      <header>
-        <h1 className="font-serif text-3xl tracking-tight">Diagnostic</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          What your reviews and exams together say about this material.
-        </p>
-      </header>
+  // ── Before there is anything to diagnose ────────────────────────────────
 
+  if (cardsQuery.isPending || answersQuery.isPending) {
+    return (
+      <Shell>
+        <p className="text-muted-foreground text-sm">Reading your cards and attempts…</p>
+      </Shell>
+    );
+  }
+
+  if (cardsQuery.isError || answersQuery.isError) {
+    return (
+      <Shell>
+        <EmptyState
+          icon={<InfoIcon aria-hidden />}
+          title="Your study data could not be loaded"
+          description="Everything on this screen is computed from your own cards and exam attempts, so there is nothing to show until that request succeeds."
+          action={
+            <Button
+              variant="outline"
+              onClick={() => {
+                void cardsQuery.refetch();
+                void answersQuery.refetch();
+              }}
+            >
+              Try again
+            </Button>
+          }
+        />
+      </Shell>
+    );
+  }
+
+  /*
+   * No cards at all. **The common first view**, and the one the fixture used to
+   * hide behind a convincing AWS mastery map identical for every user (DS3 §3).
+   */
+  if (masteryCards.length === 0) {
+    return (
+      <Shell>
+        <EmptyState
+          icon={<LayersIcon aria-hidden />}
+          title="Nothing to diagnose yet"
+          description="This screen reads your own review history and exam attempts. Add a document, accept some cards, and study a few — the mastery map fills in as evidence accumulates."
+          action={
+            notebookId ? (
+              <Button onClick={() => void navigate(notebookPath.open(notebookId))}>
+                Back to the notebook
+              </Button>
+            ) : null
+          }
+        />
+      </Shell>
+    );
+  }
+
+  return (
+    <Shell>
+      {/*
+        The honesty banner, rewritten for DS3. Both signals are the user's own
+        now — but "your reviews say this" and "your reviews and exams together
+        say this" are different claims, and a user who has never sat an exam is
+        reading the first while the heading promises the second.
+      */}
       <div className="flex items-start gap-2 rounded-lg border border-dashed p-3">
         <InfoIcon className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden />
         <p className="text-muted-foreground text-xs leading-relaxed">
-          Running on sample review and exam data. The model behind it is real —
-          the same code will run on your own cards and attempts once topics are
-          stored with them.
+          {hasExamSignal ? (
+            <>
+              Computed from your own {masteryCards.length}{' '}
+              {masteryCards.length === 1 ? 'card' : 'cards'} and{' '}
+              {masteryAnswers.length}{' '}
+              {masteryAnswers.length === 1 ? 'exam answer' : 'exam answers'}.
+            </>
+          ) : (
+            <>
+              Retention below is computed from your own review history. There is
+              no exam signal yet — you have not sat one — so nothing here says
+              whether you can apply this material under time, and the mastery
+              scores rest on recall alone. Sit an exam and this screen gains its
+              second half.
+            </>
+          )}
         </p>
       </div>
 
@@ -333,6 +463,26 @@ export function DiagnosticPage() {
           </Button>
         ) : null}
       </div>
+    </Shell>
+  );
+}
+
+/**
+ * The page frame, shared by the loading, error, empty and populated states.
+ *
+ * Extracted so the four cannot drift apart — an empty state in a different
+ * container from the real screen reads as a broken page rather than an answer.
+ */
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mx-auto max-w-4xl space-y-8 px-4 py-8 sm:px-6">
+      <header>
+        <h1 className="font-serif text-3xl tracking-tight">Diagnostic</h1>
+        <p className="text-muted-foreground mt-1 text-sm">
+          What your reviews and exams together say about this material.
+        </p>
+      </header>
+      {children}
     </div>
   );
 }

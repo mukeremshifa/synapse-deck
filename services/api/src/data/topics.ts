@@ -199,33 +199,105 @@ export async function assignCardsToTopic(
   return result.rowCount ?? 0;
 }
 
-/** A topic plus how many active cards it holds. */
-export interface TopicWithCount extends TopicRow {
+/**
+ * A topic with the card counts the blueprint and the mastery map read.
+ *
+ * `cardCount` is every active card filed under the topic; `reviewedCount` is
+ * the subset that has been seen at least once. Both are needed and neither is
+ * derivable from the other: the blueprint weighs a topic by how much material
+ * it holds, and the empty state has to distinguish "you have cards here but
+ * have never studied them" from "you have nothing here at all".
+ */
+export interface TopicWithCounts extends TopicRow {
   cardCount: number;
+  reviewedCount: number;
 }
 
 /**
- * Topics with their card counts. What a topic list renders, and the read Phase
- * D's mastery map builds on.
+ * The user's topics, with a card count each. DS3 task 2.
  *
- * `left join` so a topic whose cards were all archived still appears with zero
- * rather than vanishing -- a topic dropping out of the list would look like
- * data loss.
+ * **The count is in the same query on purpose.** The alternative — return the
+ * topics, then have the client fetch every card and bucket them — is the exact
+ * shape `listDecks` rejected, and its comment says why: a client fetching every
+ * row to count them is a shape that only makes sense when the client *is* the
+ * API. Here it would also be wrong at the boundary, because the blueprint's
+ * weights are computed from these counts and a client-side count over a
+ * paginated card fetch would silently weigh a partial deck.
+ *
+ * ── Tenancy: both sides of the join filter ────────────────────────────────
+ *
+ * `topics` filters `user_id = $1`, and so does the `cards` subquery. The join
+ * predicate alone would be enough *given* correct data — a card's topic_id can
+ * only reference a topic row, and topics are per-user — but "given correct
+ * data" is precisely the assumption RLS used to make unnecessary. ADR 0008 rule
+ * 2 says every statement, every table, no exceptions for joins whose safety is
+ * inferable. It costs an index lookup and removes an argument.
+ *
+ * ── This replaced a narrower P10 version ─────────────────────────────────
+ *
+ * `listTopicsWithCounts` existed before DS3, returning `cardCount` alone, and
+ * **nothing ever called it** — there was no route to reach it through. Rather
+ * than leave two near-identical readers of the same table, it was widened in
+ * place: `reviewedCount` is what the empty state needs to tell "no cards here"
+ * from "cards here, never studied".
+ *
+ * ── Only `active` cards are counted ───────────────────────────────────────
+ *
+ * A suspended or archived card is not part of what the user is studying, so
+ * counting it would weigh a blueprint towards material the user has explicitly
+ * set aside. This matches `listDecks`, which counts the same way.
+ *
+ * `left join` so a topic whose cards were all deleted or unfiled still appears
+ * with zero rather than vanishing — a topic that exists and holds nothing is a
+ * true fact about the user's material, and the blueprint drops zero-weight
+ * topics itself rather than having the query hide them.
  */
-export async function listTopicsWithCounts(userId: string): Promise<TopicWithCount[]> {
-  const result = await query<TopicWithCount>(
+export async function listTopicsWithCounts(userId: string): Promise<TopicWithCounts[]> {
+  const result = await query<TopicRow & Record<string, number>>(
     `select t.id, t.user_id, t.name, t.slug, t.created_at, t.updated_at,
-            coalesce(c.card_count, 0)::int as "cardCount"
+            coalesce(c.card_count, 0)::int     as "cardCount",
+            coalesce(c.reviewed_count, 0)::int as "reviewedCount"
        from public.topics t
        left join (
-         select topic_id, count(*) as card_count
+         select topic_id,
+                count(*)                                        as card_count,
+                count(*) filter (where fsrs_state <> 'new')     as reviewed_count
            from public.cards
-          where user_id = $1 and status = 'active' and topic_id is not null
+          where user_id = $1
+            and status = 'active'
+            and topic_id is not null
           group by topic_id
        ) c on c.topic_id = t.id
       where t.user_id = $1
       order by t.name asc`,
     [userId],
   );
-  return result.rows;
+  return result.rows as unknown as TopicWithCounts[];
+}
+
+/**
+ * How many of the user's active cards carry no topic at all.
+ *
+ * **This is the "Unfiled" bucket, and it exists because dropping these cards
+ * would make the blueprint's weights wrong.** `cards.topic_id` is nullable by
+ * design (migration 0004): hand-made cards have no topic, cards predating
+ * topics have none, and a chunk whose model named none still produced good
+ * cards. A blueprint computed only over topiced cards would present weights
+ * summing to 100% of a subset of the user's material while claiming to describe
+ * all of it — which is a plausible wrong number, the hardest kind to notice.
+ *
+ * Returned separately rather than as a synthetic topic row, because it has no
+ * id: nothing can be filed under it, no exam can be scoped to it, and giving it
+ * a fake uuid would let it flow into code paths that assume a real topic.
+ */
+export async function countUnfiledCards(userId: string): Promise<number> {
+  const result = await query<{ n: number }>(
+    `select count(*)::int as n
+       from public.cards
+      where user_id = $1
+        and status = 'active'
+        and topic_id is null`,
+    [userId],
+  );
+  return result.rows[0]?.n ?? 0;
 }

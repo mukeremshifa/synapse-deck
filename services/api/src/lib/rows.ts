@@ -219,6 +219,27 @@ export function pgErrorCode(error: unknown): string | undefined {
  * `data/topics.ts`. It never comes from a client and is never displayed;
  * `name` is the display form the model produced.
  */
+/**
+ * One graded exam answer (migration 0008, DS3 task 4).
+ *
+ * `question_text` is the authority for what was asked; `card_id` and `topic_id`
+ * are pointers that become null when the thing they point at is deleted. The
+ * migration's header argues why the copy and the reference both exist.
+ */
+export interface AnswerRow {
+  id: string;
+  user_id: string;
+  attempt_id: string;
+  question_text: string;
+  card_id: string | null;
+  topic_id: string | null;
+  topic_name: string | null;
+  correct: boolean;
+  selected_option: number | null;
+  elapsed_ms: number | null;
+  answered_at: string;
+}
+
 export interface TopicRow {
   id: string;
   user_id: string;

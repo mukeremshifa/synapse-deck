@@ -192,6 +192,8 @@ const handlers = {
   uploads: (await import('../services/api/src/handlers/uploads.ts')).handler,
   jobs: (await import('../services/api/src/handlers/jobs.ts')).handler,
   chat: (await import('../services/api/src/handlers/chat.ts')).handler,
+  topics: (await import('../services/api/src/handlers/topics.ts')).handler,
+  exams: (await import('../services/api/src/handlers/exams.ts')).handler,
 };
 
 /**
@@ -232,6 +234,15 @@ const ROUTES = [
   { method: 'GET', pattern: /^\/jobs$/, fn: 'jobs' },
   { method: 'GET', pattern: /^\/jobs\/([^/]+)$/, fn: 'jobs', params: ['jobId'] },
   { method: 'GET', pattern: /^\/quota$/, fn: 'jobs' },
+
+  // DS3 task 2. The blueprint and the mastery map read this; until DS3 nothing
+  // did, and every topic on screen was a fixture's inline label.
+  { method: 'GET', pattern: /^\/topics$/, fn: 'topics' },
+
+  // DS3 task 5. The exam's write path, and the read the diagnostic's second
+  // signal comes from. No attempt id in the path -- see the handler's header.
+  { method: 'POST', pattern: /^\/exams\/answers$/, fn: 'exams' },
+  { method: 'GET', pattern: /^\/exams\/answers$/, fn: 'exams' },
 
   { method: 'GET', pattern: /^\/queue$/, fn: 'reviews' },
   { method: 'GET', pattern: /^\/summary$/, fn: 'reviews' },
