@@ -496,7 +496,11 @@ export function DiagnosticPage() {
 
         <Card>
           <CardContent className="p-5">
-            <StudyPlanView plan={plan} onStart={start} />
+            <StudyPlanView
+              plan={plan}
+              onStart={start}
+              hasSatExam={hasExamSignal || hasUnattributedExams}
+            />
           </CardContent>
         </Card>
       </section>

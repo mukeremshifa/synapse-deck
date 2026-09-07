@@ -79,7 +79,10 @@ export function AccountMenu() {
         aria-controls={panelId}
         onClick={() => setOpen(value => !value)}
         className={cn(
-          'flex items-center gap-2 rounded-full py-1 pr-3 pl-1 text-sm transition-colors',
+          'flex items-center gap-2 rounded-full py-1 pl-1 text-sm transition-colors',
+          // No right padding below `sm`, where the label is hidden and the
+          // trigger is the avatar alone.
+          'pr-1 sm:pr-3',
           'focus-visible:ring-ring outline-none focus-visible:ring-2',
           open ? 'bg-secondary' : 'hover:bg-accent',
         )}
@@ -90,7 +93,13 @@ export function AccountMenu() {
         >
           {name.slice(0, 1)}
         </span>
-        <span className="max-w-32 truncate">{name}</span>
+        {/*
+          `sr-only` rather than `hidden` below `sm`: the avatar beside it is
+          `aria-hidden`, so this span is the button's whole accessible name and
+          dropping it from the tree would leave an unlabelled control. DS4b task
+          2 — the visible label cost 74px that a 375px header could not spare.
+        */}
+        <span className="sr-only max-w-32 truncate sm:not-sr-only">{name}</span>
       </button>
 
       {open && (

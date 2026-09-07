@@ -319,8 +319,19 @@ export function BlueprintPage() {
             <ul className="divide-y">
               {blueprint.topics.map(topic => (
                 <li key={topic.id} className="p-4">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="flex min-w-0 flex-1 items-center gap-2 truncate text-sm font-medium">
+                  {/*
+                    DS4b task 2. This row carries a name, a three-way control, a
+                    number input, a count and a delete button, and at 375px the
+                    name lost every contest for space — "Glycolysis" truncated to
+                    "Gly", which makes the blueprint unreadable on a phone
+                    exactly where it needs to be read.
+
+                    So below `sm` the name gets a line of its own
+                    (`basis-full`) and the controls wrap beneath it. From `sm`
+                    up the original single-row layout is unchanged.
+                  */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                    <span className="flex min-w-0 basis-full items-center gap-2 truncate text-sm font-medium sm:flex-1 sm:basis-auto">
                       {topic.name}
                       {/*
                         The residue, marked. These cards carry no topic — hand-made
@@ -361,7 +372,13 @@ export function BlueprintPage() {
                       <span className="text-muted-foreground text-xs">%</span>
                     </div>
 
-                    <span className="text-muted-foreground w-14 shrink-0 text-right font-mono text-xs tabular-nums">
+                    {/*
+                      `ml-auto` below `sm` only: once the name takes its own
+                      line the remaining controls no longer fill the row, and
+                      without it the count and delete button float mid-row
+                      against nothing.
+                    */}
+                    <span className="text-muted-foreground ml-auto w-14 shrink-0 text-right font-mono text-xs tabular-nums sm:ml-0">
                       {questionsFor(topic.id)} Q
                     </span>
 
@@ -494,9 +511,20 @@ export function BlueprintPage() {
               <Button
                 disabled={problems.length > 0}
                 onClick={() =>
+                  /*
+                    DS4b task 1. This used to say the blocker was "the ingestion
+                    pipeline", which stopped being true at DS1 — the pipeline
+                    runs and generates real cards, and DS3 gave this screen real
+                    topic weights to pass it. What is actually missing is the
+                    generation half: a job that accepts these weights and writes
+                    questions. An inert control has to name the real reason, or
+                    it is the same dishonesty as a control that pretends to work
+                    (SPEC §4.6).
+                  */
                   toast('Blueprint-aligned generation is not built yet', {
                     description:
-                      'The exam runner works today on sample questions. Generating an exam from this blueprint needs the ingestion pipeline.',
+                      'The exam runner works today on sample questions. These weights are real, ' +
+                      'but nothing yet turns them into generated questions.',
                   })
                 }
               >

@@ -37,11 +37,26 @@ export function LogoMark({ className }: { className?: string }) {
  * already carries the accent, and colouring "Deck" as well says the same thing
  * twice.
  */
-export function LogoLockup({ className }: { className?: string }) {
+export function LogoLockup({
+  className,
+  wordmarkClassName,
+}: {
+  className?: string;
+  /**
+   * Applied to the wordmark alone, so a caller can hide it and keep the mark.
+   * The app header does this below `sm` (DS4b task 2); everywhere else the
+   * lockup is unchanged.
+   */
+  wordmarkClassName?: string;
+}) {
   return (
     <span className={cn('inline-flex items-center gap-2.5', className)}>
       <LogoMark aria-hidden />
-      <span className="font-serif text-xl leading-none tracking-tight">SynapseDeck</span>
+      <span
+        className={cn('font-serif text-xl leading-none tracking-tight', wordmarkClassName)}
+      >
+        SynapseDeck
+      </span>
     </span>
   );
 }

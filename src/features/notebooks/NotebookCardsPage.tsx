@@ -166,10 +166,17 @@ export function NotebookCardsPage() {
           action={<Button onClick={() => void cards.refetch()}>Try again</Button>}
         />
       ) : (cards.data?.length ?? 0) === 0 ? (
+        /*
+          DS4b task 1: the description said generation "arrives in the next
+          phase", which stopped being true at DS1 — the pipeline runs, and this
+          notebook's own studio has a working "Generate cards" action. An empty
+          state that understates the product is the mirror of one that oversells
+          it.
+        */
         <EmptyState
           icon={<FileQuestionIcon />}
           title="This deck is empty"
-          description="Add a card by hand — basic, cloze, or multiple choice. Generating them from text arrives in the next phase."
+          description="Add a card by hand — basic, cloze, or multiple choice — or generate a set from a document or pasted text."
           action={<Button onClick={() => setAdding(true)}>Add the first card</Button>}
         />
       ) : (

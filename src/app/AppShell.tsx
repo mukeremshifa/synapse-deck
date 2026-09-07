@@ -37,16 +37,34 @@ export function AppShell() {
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="bg-background/85 sticky top-0 z-40 border-b backdrop-blur-sm">
-        <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-6 px-4">
+        {/*
+          `gap-3` below `sm`, because at 375px the three children (a fixed-width
+          lockup, the nav, and the account menu) plus 2x24px of gap overflowed
+          the viewport by ~124px — DS4b task 2 found every shell screen scrolling
+          horizontally to 499px. The gap tightens rather than the content
+          wrapping, so the header stays one row on a phone.
+        */}
+        <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-3 px-4 sm:gap-6">
           <Link
             to="/home"
             aria-label="SynapseDeck home"
             className="focus-visible:ring-ring shrink-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
           >
-            <LogoLockup />
+            {/*
+              Mark only below `sm`. The wordmark is ~110px of a 375px header,
+              and with it present the nav pills overlapped the account avatar by
+              15px (DS4b task 2). The `aria-label` on the Link carries the name,
+              so nothing is lost to a screen reader.
+            */}
+            <LogoLockup wordmarkClassName="hidden sm:inline" />
           </Link>
 
-          <nav className="flex flex-1 items-center gap-1" aria-label="Main">
+          {/*
+            `min-w-0` lets this actually shrink: a flex item defaults to
+            `min-width:auto`, so `flex-1` alone still refuses to go below its
+            content width and pushes the account menu off screen.
+          */}
+          <nav className="flex min-w-0 flex-1 items-center gap-1" aria-label="Main">
             {NAV.map(item => (
               <NavLink
                 key={item.to}

@@ -242,3 +242,75 @@ exam runner and the blueprint's editing controls — both are new interaction su
   and builds", never "tested".
 - **Whatever could not be signed into stays unobserved** — and if §0 failed again, say that
   first and loudest, because it invalidates most of this phase's claims.
+
+---
+
+## 8. What this phase actually found — executed 2026-09-07
+
+**The blocker in §0 was not real, and that is the first finding.** No
+`admin-confirm-sign-up` was needed and no owner was involved. The account was already
+`CONFIRMED`; what DS4 hit was narrower than "cannot sign in":
+
+> `scripts/seed-demo.mjs` authenticates with **`USER_PASSWORD_AUTH`**, which
+> `infra/lib/auth-stack.ts` deliberately does not enable (it enables `userSrp` +
+> `adminUserPassword`, and its comment says why: USER_PASSWORD_AUTH sends the password in
+> the clear inside TLS). So the *script* was blocked, and the **app never was.**
+
+Signing in the way the browser does — SRP via `amazon-cognito-identity-js`, already a
+dependency — worked first try and returns `sub 04b8c468-f0d1-7007-4764-f69cb10936db`.
+**A phase blocked on "no way to sign in" was actually blocked on one script's auth flow.**
+
+**Observed as `ds4-demo@example.com` (`04b8c468…`), not the seeded user.** The notebooks DS4
+seeded belong to `447804a8…`, whose password nobody has, so the two-notebook condition was
+**rebuilt for the signed-in user** through the API (`POST /decks`, `POST /decks/{id}/cards`)
+and filed under topics through the data layer's own `reconcileTopics` + `assignCardsToTopic`
+— the review gate's path, `userId` first, no hand-written SQL. Result: `Cell biology`
+(Glycolysis 2, Krebs cycle 1, +1 unfiled) and `AWS architecture` (IAM policies 1, VPC
+networking 1, +1 unfiled).
+
+### The five defects — none of which `verify` can see
+
+| # | Defect | Where | Why it mattered |
+| - | ------ | ----- | --------------- |
+| 1 | **Every shell screen scrolled horizontally to 499px at 375px.** The header's three children (fixed lockup, nav, `shrink-0` account menu) plus `gap-6` exceeded the viewport by ~124px | `AppShell.tsx`, `AccountMenu.tsx`, `Logo.tsx` | The demo may be given on a phone. 7 of 10 screens affected |
+| 2 | **Blueprint topic names truncated to "Gly", "Kre", "Unf"** at 375px — the name lost every contest for space against the difficulty control, weight input, count and delete button on one row | `BlueprintPage.tsx` | Predicted by [§4 task 2](#task-2--mobile) as "the likely casualty", and it was. A blueprint whose topics cannot be read is not a blueprint |
+| 3 | **The diagnostic contradicted itself.** Its banner said "You have sat 6 exam questions…" while the plan panel below said "Sit an exam to get a second signal" | `StudyPlanView.tsx` | `DiagnosticPage` already computed `hasUnattributedExams` for the banner; the empty state simply never asked and hardcoded the never-sat wording. Its own comment said the banner "must not tell someone who just finished an exam that they have never sat one" — the panel below it did exactly that |
+| 4 | **An inert control named a blocker that no longer existed.** "Generating an exam from this blueprint needs the ingestion pipeline" — the pipeline has run since DS1 | `BlueprintPage.tsx` | §3's rule cuts both ways: an inert control that misstates *why* is the same dishonesty as one that pretends to work |
+| 5 | **An empty state understated the product.** "Generating them from text arrives in the next phase", beside a notebook studio with a working `Generate cards` action | `NotebookCardsPage.tsx` | The mirror of overselling, and it reads as a stale product |
+
+**Defects 1, 2, 4 and 5 were all in code DS3 or DS4 wrote and never opened.** That is the
+argument for this phase existing, and the argument against a sixth unobserved one.
+
+### What was checked and found already correct
+
+- **Two-notebook scoping, on screen** — each blueprint listed only its own topics. DS4's fix
+  holds in the browser, not only at the API.
+- **An exam sat end to end in the browser**: 6 questions answered, submitted, scored 1/6
+  (17%), broken down by topic. `answers` went **0 → 6 rows**, one attempt, `correct` = 1,
+  owned by the signed-in user — matching the screen exactly.
+- **The diagnostic noticed**, and stayed honest: it reports the 6 questions *and* that they
+  came from the sample exam so none can be attributed to a topic.
+- **Weight editing and rebalance**: total tracks to 120%, turns red, an `Edited` badge
+  appears, `Generate exam` disables, and an explicit "Topic weights sum to 120%, not 100%."
+  appears. Nothing false is made to look true.
+- **All four inert affordances** still explain themselves when pressed.
+- **Keyboard traversal** of the blueprint is complete and in visual order; `Rebalance to
+  100%` is correctly skipped while `disabled`.
+- **Accessibility**: no unlabelled controls on any screen walked, meters carry real
+  `aria-label`s and values, one `h1` per page, decorative SVGs `aria-hidden`.
+- **Reduced motion**: with `prefers-reduced-motion: reduce`, animations collapse to ~0s.
+- **Cross-tenant probe** (task 5.3): as `04b8c468…` against `447804a8…`'s rows — deck 404s,
+  cards and topics return 0 rows, while a control read of an own deck returns 4. Matches ADR
+  0008's documented behaviour.
+- **Zero console errors** across every screen, both viewports, empty and populated.
+
+### Deliberately left rough
+
+- **The exam runner's option letters are inside `sr-only` radios with visible labels.** Good
+  markup; not re-styled.
+- **Empty states were already one vocabulary** (`EmptyState`, nine screens) — task 3's
+  "make them one vocabulary" needed no work beyond the two copy fixes above.
+- **The chat pane was left exactly as it is.** DS2's embedding key is still absent; per §1
+  it was not made to look finished.
+- **375px only**, not a device matrix. No tablet breakpoint was checked.
+

@@ -270,7 +270,7 @@ here is closed when a user sees their own data, not when the plumbing behind it 
 
 | Affordance | Where | Blocked on |
 | ---------- | ----- | ---------- |
-| Blueprint-aligned generation | Blueprint | ~~The ingestion pipeline~~ — **the pipeline runs**, and DS3 gave the blueprint real topic weights to pass. What remains is the generation half: getting those weights into a job. DS3 left it out of scope deliberately (its §2) — it is a change to the generation pipeline, and that phase was about *reading* what exists |
+| Blueprint-aligned generation | Blueprint | ~~The ingestion pipeline~~ — **the pipeline runs**, and DS3 gave the blueprint real topic weights to pass. What remains is the generation half: getting those weights into a job. DS3 left it out of scope deliberately (its §2) — it is a change to the generation pipeline, and that phase was about *reading* what exists. **Its message said the blocker was the pipeline until DS4b**, which was two phases stale; it now names the generation half |
 | Generate cards from misses | Exam results | ~~A write path `answers` → `cards`~~ — **`answers` exists and is written** (migration 0008, DS3 task 4), so the *first* half of this is done. The second is a generator that accepts a topic and a set of missed questions, which does not exist. **Still inert, and still says so** |
 | Plan action: review | Diagnostic | A source viewer; no route reads a source in place |
 | Plan action: questions | Diagnostic | Topic-scoped question generation (Phase C) |
@@ -281,8 +281,22 @@ one notebook indistinguishable from correct, and with two, a biology blueprint a
 questions to the AWS topics. The scope is derived from `cards` (a topic is in this notebook
 when it has a card here) rather than added to `topics`, so ADR 0009's cross-document
 reconciliation is untouched and a topic may legitimately appear in two notebooks with
-different weights. **Proven at the API against two notebooks; the screen itself has not been
-observed** — see DS4b.
+different weights. **Observed on screen at DS4b** (2026-09-07): signed in as
+`ds4-demo@example.com`, a `Cell biology` blueprint listed Glycolysis and Krebs cycle and
+nothing else, and an `AWS architecture` blueprint listed IAM policies and VPC networking and
+nothing else, each with its own "Unfiled" row. All four inert affordances were pressed and
+all four still explain themselves.
+
+**The frontend was first run at DS4b** (2026-09-07). DS3 and DS4 wrote and edited these
+screens without opening one; DS4b signed in through the app's own form — SRP via
+`amazon-cognito-identity-js`, no admin call and no owner intervention, which is what DS4's
+§0 could not find — and walked every screen at 1280px and 375px. **Five defects that
+`verify` cannot see were found and fixed**, four of them in code DS3 and DS4 shipped
+unobserved: a header that overflowed every shell screen to 499px at 375px, a blueprint whose
+topic names truncated to "Gly" on a phone, a diagnostic inviting the user to sit an exam
+directly below a banner saying they had just sat one, and two pieces of copy that
+understated a product that had moved past them. The lesson is the phase's own: **nothing
+about a screen is known until it is opened.**
 
 **Two of the three screens behind these affordances came off fixtures at DS3** (2026-09-07).
 The blueprint and the diagnostic now read the signed-in user's own topics, cards and exam

@@ -91,16 +91,31 @@ export function StudyPlanView({
   plan,
   onStart,
   className,
+  hasSatExam = false,
 }: {
   plan: StudyPlan;
   onStart?: (action: PlanAction) => void;
   className?: string;
+  /**
+   * Whether the user has sat any exam at all, attributable or not.
+   *
+   * DS4b task 1 found this screen inviting someone to "sit an exam" in the
+   * paragraph directly below a banner telling them they had just sat six
+   * questions. `DiagnosticPage` already distinguishes the two cases for its
+   * banner (`hasUnattributedExams`); the empty state simply never asked, and
+   * hardcoded the never-sat wording. Passing the fact in keeps one screen
+   * telling one story.
+   */
+  hasSatExam?: boolean;
 }) {
   if (plan.days.length === 0) {
     return (
       <p className="text-muted-foreground text-sm leading-relaxed">
-        There is nothing to schedule: no topic is weak on the evidence so far.
-        Sit an exam to get a second signal, or keep the review schedule as it is.
+        There is nothing to schedule: no topic is weak on the evidence so far.{' '}
+        {hasSatExam
+          ? 'Your exam answers could not be attributed to a topic here, so they ' +
+            'do not change the plan yet. Keep the review schedule as it is.'
+          : 'Sit an exam to get a second signal, or keep the review schedule as it is.'}
       </p>
     );
   }
