@@ -329,6 +329,33 @@ aggregate, and deliberately actionless. Everything else the progress pages showe
 the **notebook overview** at `/notebooks/:id/overview` (FR6), scoped to one notebook, which
 is what makes it honest where a global dashboard was not.
 
+**Settled at FR6, and this is the last word on it.** The overview is built, and
+
+> **`/progress` is superseded and is not coming back.**
+
+A global progress route would have to answer "progress at what?" with no subject, which is
+the `focus` guess wearing a different hat. Every metric below now renders on the overview,
+scoped to the notebook the *route* names, from five notebook-scoped contract methods:
+`getReviewHistory` (the heatmap and streaks), `getDueForecast`, `getCardStates`,
+`getRetention` and `getTopicMastery`.
+
+**All five are aggregated server-side, and three of them must be.** A serious user's year
+is tens of thousands of review rows and `getReviewHistory` returns at most 365; retention
+would need thousands of rows to compute in a browser; and topic mastery needs every active
+card in the notebook, which the contract exposes only one deck at a time. Computing any of
+those client-side is the pre-joined graph FR0 §3 forbids. FR6 §6.3 tabulates each with the
+row counts that justify it.
+
+**What this did to `src/lib/progress.ts`, which was kept deliberately at P11.** Keeping it
+was right, but only half of it survives contact with the contract. The module was written
+to *reduce raw rows* — `dayCounts`, `countable`, `retention`, `forecast`,
+`stateDistribution`, `memoryStrength`, `memoryTrend` — and the server now serves all of
+that already reduced, so those functions have no caller and the row types they take
+describe data the client never sees. What is still used is the **layout** half:
+`heatmapGrid`, `intensityThresholds`, `intensityLevel` and `streaks`. The dead half is not
+waste and should not be deleted casually — its retention and forecast arithmetic is the
+specification for the SQL FR7 has to write.
+
 **The original P11/2026-09-06 note follows, for the reasoning it records.** A dashboard at
 `/home` rendered the streak and the due counts (`useDueSummary`, `useReviewHistory` →
 `streaks`), so those two were no longer homeless. It is deliberately not the old progress page returning: it answers "what should I
@@ -361,10 +388,23 @@ built the notebook shell and the exam runner was built on fixtures. Four surface
    carries **no "exam readiness" figure**, because readiness needs attempts stored against
    topics and a confident number derived from nothing is precisely what a student would plan
    around.
-2. **Blueprint** (`/notebooks/:id/blueprint` — **route removed at FR2**; it returns inside
-   the notebook and its overview at FR3/FR6, and §1.2(9) makes a blueprint belong to an
-   *exam* rather than to the notebook). What an exam over this material should
-   weigh, as an editable table with an evidence drawer per topic. `src/lib/blueprint.ts`
+2. **Blueprint** (`/notebooks/:id/blueprint` — **route removed at FR2**; **settled at FR6:
+   a blueprint lives on its exam's brief**, because §1.2(9) makes it belong to an *exam*
+   rather than to a notebook, and the brief is where the weighting is information a
+   candidate can still act on. `BlueprintPage` and its `Citation.tsx` were **deleted** at
+   FR6 with the old data stack they read).
+
+   **The editor is built** (FR6). FR4's generate modal had been telling users the
+   blueprint "can be adjusted once it exists" since FR4, and nothing could: the contract's
+   `updateArtifact` took `{ title }` alone, so the capability was absent entirely — FR5
+   passed the task to FR6 believing it existed. `updateArtifact` now takes
+   `{ title?, blueprint? }`; sending a blueprint sets `basis` to `'manual'`, and the
+   server checks the weights sum to the exam's `questionCount` and refuses a blueprint on
+   a non-exam artifact. The dialog shows the running total live and disables Save until it
+   balances, rather than silently rescaling numbers the user chose deliberately.
+
+   What an exam over this material should weigh, as an editable table with an evidence
+   drawer per topic. `src/lib/blueprint.ts`
    holds the arithmetic: largest-remainder normalisation to 100%, and a question allocation
    that refuses to round a weighted topic down to zero questions.
 
@@ -381,8 +421,9 @@ built the notebook shell and the exam runner was built on fixtures. Four surface
    all: a `page: number` field would be a schema inviting the generator to invent one.
    `chunkIndex` is carried and not displayed — it is the join back into the source text,
    and becomes a link the day a source viewer exists to receive one.
-3. **Diagnostic** (`/notebooks/:id/diagnostic` — **route removed at FR2**; topic mastery
-   becomes part of the notebook overview at FR6). Renders `src/lib/mastery.ts`, which had
+3. **Diagnostic** (`/notebooks/:id/diagnostic` — **route removed at FR2**; **built into
+   the notebook overview at FR6**, and `DiagnosticPage` deleted). Renders
+   `src/lib/mastery.ts`, which had
    been computing a two-signal topic model that nothing displayed. Retention and exam
    accuracy stay separate, `unmeasured` renders as absence rather than as zero, and a
    `fragile` topic is called out because its remedy is specific.
@@ -402,10 +443,13 @@ built the notebook shell and the exam runner was built on fixtures. Four surface
    and the useful thing is to say so and let them cut scope or add time. Truncating the plan
    to fit would hide exactly that fact, while looking helpful.
 
-**What is real and what is not.** The dashboard is real. The blueprint and the mastery data
-are **fixtures** (`src/features/blueprint/fixtures.ts`), on the `exam/fixtures.ts` model:
-parsed through their schema at load, with a deletion date. Both screens say so in the UI,
-not only in a comment, because these are the most convincing screens in the app and a demo
+**What is real and what is not.** *Superseded at FR6.* `src/features/blueprint/fixtures.ts`
+was deleted at DS3 and `BlueprintPage` itself at FR6. Mastery is no longer a fixture on any
+screen: the overview's diagnostic reads `getTopicMastery`, which the fake computes through
+`src/lib/mastery.ts` over its own store and which `client.ts` refuses with
+`not_implemented` rather than inventing. **What remains sample data is the exam's
+*questions*** — no model has generated one — and the exam brief says so on screen rather
+than only in a comment, because these are the most convincing screens in the app and a demo
 that does not disclose its sample data misleads whoever is watching.
 
 5. **Exam results** (`/notebooks/:id/exams/:examId` from FR2 — the runner names its exam). Explanations render under every question, not
@@ -552,6 +596,15 @@ the second duplicates the exam runner without the timing that makes it worth sit
 > served today by a typed in-repo fake. **`services/api/` and the migrations still
 > implement §5.1–5.10 and are untouched until FR7**, which rewrites them to serve the
 > contract. Both models are live at once, on purpose and temporarily.
+>
+> **As of FR6 the frontend is entirely on this contract.** `src/lib/queries.ts` — the old
+> deck-shaped stack — is deleted, and every screen reads `@/lib/api`. The interface is
+> **43 methods**; `client.ts` implements 21 against the existing AWS API and throws
+> `not_implemented` for 22, and that split is FR7's build list
+> ([FR6 §8.2](plans/FR6-the-overview.md#82-every-method-and-whether-clientts-serves-it-today)).
+> FR6 added the 43rd, `getTopicMastery`, because topic mastery needs every active card in a
+> notebook grouped by topic and the contract exposes cards only one deck at a time —
+> computing it client-side would have been an N+1 assembled in the browser.
 >
 > ```
 > Notebook                    the only first-class citizen

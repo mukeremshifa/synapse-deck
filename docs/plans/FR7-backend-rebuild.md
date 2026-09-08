@@ -32,6 +32,62 @@ affecting you.
 Then read, in order: `src/lib/api/contract.ts` (**the specification — it, not the brief, is
 the truth by now**), FR6 §8, and FR0 §6.3's `not_implemented` table.
 
+### What FR6 delivered — appended 2026-09-08 by FR6
+
+**[FR6 §8](FR6-the-overview.md#8-handoff-to-fr7--the-build-list) is your build list and is
+written for a cold session.** It has the complete 43-method table, the aggregate
+justifications with row counts, the noun list as it actually ended up, and the brief's §6
+open questions with what forced each. The five things most likely to change what you do:
+
+- **The contract has 43 methods, not the 42 FR0 left you.** FR6 added
+  `getTopicMastery(notebookId): TopicMasteryReport` and widened `updateArtifact`'s input to
+  `{ title?, blueprint? }`. Both were forced; §6.5 of that plan says why. **21 methods are
+  implemented in `client.ts` and 22 throw `not_implemented`** — FR6 §8.2 tabulates every
+  one with the reason, which doubles as the schema gap.
+
+- **Five aggregates, three of them non-negotiably server-side.** `getReviewHistory`
+  (~70,000 rows in for a serious user's year, ≤365 out), `getRetention` (thousands in, one
+  object out) and `getTopicMastery` (every active card in the notebook, one row per topic
+  out). `getCardStates` and `getDueForecast` are the same shape and cheaper. **FR6 §6.3 is
+  the table with the counts** — do not re-derive it.
+
+- **`getDueForecast`'s day 0 is a policy written twice, and you should fix it deliberately.**
+  `PracticeQueue`'s contract comment says the reads move server-side but the daily
+  new-card cap stays client-side, because one policy drives the practice queue, home's "new
+  available" and the forecast's day 0. The forecast computing `fresh` server-side is a
+  second implementation of that cap. **If they disagree, the forecast and the queue report
+  different numbers for the same minute.** Either move the cap wholly server-side or have
+  the forecast return the inputs.
+
+- **The fake does five things a literal port would make slow**, all legal and all named in
+  FR6 §8.4. The big one: `projectArtifact` and `projectNotebook` recompute readiness from
+  the card, question, attempt and note-block stores **on every read**, and `listNotebooks`
+  calls the latter per notebook. In SQL that is a correlated subquery per artifact per row
+  — fine at 6 artifacts, a table scan at 600. It wants joins with aggregates or
+  materialised counters. Also: `paginate`'s cursor is an encoded **offset**, and the
+  contract calls it opaque precisely so you can make it a keyset.
+
+- **Half of `src/lib/progress.ts` is now unreachable, and it is your specification.** The
+  row-reducing half (`dayCounts`, `retention`, `forecast`, `stateDistribution`,
+  `memoryStrength`, `memoryTrend`) has no caller because the server serves all of it
+  already reduced. **Do not delete it before you have written the SQL** — it is the
+  existing, reviewed arithmetic for exactly the aggregates you are about to implement, and
+  `mastery.ts` is the same for `getTopicMastery`.
+
+**Four things FR6 §8.7 says only you can fix**, none of which a consuming phase should
+attempt: `learning_steps` is not persisted (three columns, three fields on `Card` and
+`NextSchedule`); `abandoned` is written by nothing and needs a server-side sweep; every new
+table needs a data-access module following all four tenancy rules, of which the linter can
+enforce two; and a running `Job` cannot name the artifact it is building.
+
+**One thing FR6 could not do, and it is now two phases deep: no browser has rendered
+FR5's runners or FR6's overview.** Both sessions lacked browser automation. FR2 and FR3
+each found four real defects by opening one — including two layouts rendering at once, which
+typechecked perfectly. **Before you flip `VITE_API_MODE` (task 6) you will be the first
+session to see these screens against real data**; budget for finding surface defects that
+have nothing to do with your backend, and do not assume a broken screen means a broken
+handler.
+
 ---
 
 ## 2. Out of scope
@@ -161,8 +217,12 @@ Keep fake mode working. It is how FR8+ gets developed.
 
 ### Task 7 — `client.ts` completeness
 
-Every `not_implemented` from FR0 §6.3 is now implemented or **explicitly deferred with a
-reason**. That table started at FR0 and closes here.
+Every `not_implemented` is now implemented or **explicitly deferred with a reason**. That
+table started at FR0 §6.3 and was finished by FR6: **[FR6 §8.2](FR6-the-overview.md#82-every-method-and-whether-clientts-serves-it-today)
+is the current one — 43 methods, 21 implemented, 22 throwing** — and it closes here.
+
+Work the 22 in dependency order: **sources → artifacts** (and their contents: cards already
+exist, questions and note blocks do not) **→ attempts → the five aggregates.**
 
 ### Task 8 — Document
 
