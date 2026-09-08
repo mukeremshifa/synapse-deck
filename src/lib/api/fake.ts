@@ -163,8 +163,16 @@ const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   internal: 'Something went wrong.',
 };
 
-function fail(code: ApiErrorCode): never {
-  throw new ApiClientError(code, ERROR_MESSAGES[code]);
+/**
+ * Reject with a contract error.
+ *
+ * `message` overrides the generic per-code sentence, for the cases where the
+ * server knows something specific worth saying — "the weights add up to 38 and
+ * this exam asks 40 questions" is actionable where "the request body failed
+ * validation" is not.
+ */
+function fail(code: ApiErrorCode, message?: string): never {
+  throw new ApiClientError(code, message ?? ERROR_MESSAGES[code]);
 }
 
 /** Every method funnels through here: the latency and the injected failures. */
@@ -1188,7 +1196,38 @@ export const fakeClient: ApiClient = {
   updateArtifact: (notebookId, artifactId, input) =>
     gate(() => {
       const artifact = artifactOr404(notebookId, artifactId);
-      artifact.title = input.title;
+      if (input.title !== undefined) artifact.title = input.title;
+
+      if (input.blueprint !== undefined) {
+        // A blueprint weights an exam. Anything else has nothing to weight,
+        // and silently ignoring it would let a caller believe it worked.
+        if (artifact.payload.kind !== 'exam') {
+          fail('invalid_input', 'Only an exam has a blueprint.');
+        }
+
+        const total = input.blueprint.weights.reduce(
+          (sum, weight) => sum + weight.questions,
+          0,
+        );
+        // The exam asks a fixed number of questions; a blueprint that does not
+        // add up to it is not a weighting, it is a different exam. Checked here
+        // because the server must check it — the editor also enforces it, and
+        // one of the two is a UI convenience while this one is the rule.
+        if (total !== artifact.payload.config.questionCount) {
+          fail(
+            'invalid_input',
+            `The weights add up to ${String(total)} and this exam asks ${String(artifact.payload.config.questionCount)} questions.`,
+          );
+        }
+
+        artifact.payload = {
+          ...artifact.payload,
+          // `manual` exists for exactly this: a UI that explains how a
+          // weighting was arrived at must be able to say "you set this".
+          blueprint: { weights: input.blueprint.weights, basis: 'manual' },
+        };
+      }
+
       return projectArtifact(artifact);
     }),
 

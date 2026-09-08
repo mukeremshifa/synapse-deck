@@ -5,6 +5,7 @@ import {
   type Artifact,
   type Attempt,
   type AttemptAnswer,
+  type Blueprint,
   type Card,
   type NextSchedule,
   type NoteBlock,
@@ -235,6 +236,38 @@ export function useQuestions(notebookId: string, artifactId: string) {
  * to decide which it is doing — it reads `answers.length` and carries on.
  * That is FR5 §6.1's answer, and the reason quiz resume needs no local storage.
  */
+/**
+ * Reweight an exam — **the promise FR4's generate modal made.**
+ *
+ * That modal tells the user the blueprint "belongs to the exam, and you can
+ * adjust it once it exists". Until FR6 nothing could: `updateArtifact` took
+ * `{ title }` alone, so the capability did not exist in the contract at all.
+ * It does now, and this is the only caller.
+ *
+ * The blueprint lives with its exam (brief §1.2(9)), so the editor is on the
+ * exam brief rather than on the notebook overview — the overview's plan puts
+ * per-exam blueprints explicitly out of its own scope for that reason.
+ *
+ * Invalidates rather than writing the response into the cache, because the
+ * server sets `basis` to `'manual'` and recomputes the payload: what comes
+ * back is not what was sent.
+ */
+export function useUpdateBlueprint(notebookId: string, artifactId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (blueprint: Blueprint) =>
+      api.updateArtifact(notebookId, artifactId, { blueprint }),
+    onSuccess: artifact => {
+      queryClient.setQueryData(studyKeys.artifact(notebookId, artifactId), artifact);
+      // The notebook's artifact list and the overview show this exam too.
+      void queryClient.invalidateQueries({
+        queryKey: ['api', 'notebook', notebookId],
+      });
+    },
+  });
+}
+
 export function useStartAttempt(notebookId: string, artifactId: string) {
   const queryClient = useQueryClient();
 

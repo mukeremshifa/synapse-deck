@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { ClockIcon, FlagIcon, MaximizeIcon } from 'lucide-react';
 
 import { FocusFrame } from '@/app/FocusFrame';
+import { BlueprintEditor } from './BlueprintEditor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -235,6 +236,7 @@ function ExamSitting({
     return (
       <ExamBrief
         notebookId={notebookId}
+        examId={examId}
         title={artifact.title}
         config={payload.config}
         blueprint={payload.blueprint}
@@ -295,6 +297,7 @@ function ExamSitting({
  */
 function ExamBrief({
   notebookId,
+  examId,
   title,
   config,
   blueprint,
@@ -304,6 +307,7 @@ function ExamBrief({
   onBegin,
 }: {
   notebookId: string;
+  examId: string;
   title: string;
   config: ExamConfig;
   blueprint: Blueprint;
@@ -313,6 +317,7 @@ function ExamBrief({
   onBegin: () => void;
 }) {
   const count = Math.min(config.questionCount, available);
+  const [editing, setEditing] = useState(false);
 
   return (
     <FocusFrame title="Exam" subtitle={title} exitTo={notebookPath.open(notebookId)}>
@@ -344,9 +349,24 @@ function ExamBrief({
             <section className="space-y-snug">
               <div className="flex items-baseline justify-between gap-3">
                 <h2 className="text-sm font-medium">How it is weighted</h2>
-                <span className="text-muted-foreground text-xs">
-                  {BASIS_LABEL[blueprint.basis]}
-                </span>
+                <div className="flex items-baseline gap-snug">
+                  <span className="text-muted-foreground text-xs">
+                    {BASIS_LABEL[blueprint.basis]}
+                  </span>
+                  {/*
+                    The promise FR4's generate modal made, finally keepable: it
+                    tells the user the blueprint can be adjusted once the exam
+                    exists, and until FR6 widened `updateArtifact` nothing could.
+                  */}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setEditing(true)}
+                  >
+                    Adjust
+                  </Button>
+                </div>
               </div>
               <ul className="space-y-tight">
                 {blueprint.weights.map(weight => (
@@ -395,6 +415,15 @@ function ExamBrief({
           </Button>
         </div>
       </div>
+
+      <BlueprintEditor
+        notebookId={notebookId}
+        examId={examId}
+        blueprint={blueprint}
+        questionCount={config.questionCount}
+        open={editing}
+        onOpenChange={setEditing}
+      />
     </FocusFrame>
   );
 }

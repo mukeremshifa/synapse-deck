@@ -1261,10 +1261,26 @@ export interface ApiClient {
   getArtifact(notebookId: string, artifactId: string): Promise<Artifact>;
   /** **Returns a job.** A model writes the contents; nothing is ready yet. */
   createArtifact(notebookId: string, input: CreateArtifactInput): Promise<Job>;
+  /**
+   * Rename an artifact, and — for an exam — reweight it.
+   *
+   * **`blueprint` is why this is not just a rename** (FR6). FR4's generate
+   * modal tells the user the blueprint "belongs to the exam, and you can adjust
+   * it once it exists", and until FR6 nothing could: the input was `{ title }`
+   * alone. An exam's blueprint is the one part of a generated artifact the user
+   * is invited to overrule, because the server derives it from card counts and
+   * only the candidate knows their exam is weighted otherwise.
+   *
+   * Sending one sets `basis` to `'manual'` — that value exists for exactly
+   * this, and a UI that must explain how a weighting was arrived at needs to be
+   * able to say "you set this". The server re-checks that the weights sum to
+   * the exam's `questionCount` and that every `topicId` belongs to the
+   * notebook; a blueprint on a non-exam artifact is `invalid_input`.
+   */
   updateArtifact(
     notebookId: string,
     artifactId: string,
-    input: { title: string },
+    input: { title?: string; blueprint?: Blueprint },
   ): Promise<Artifact>;
   deleteArtifact(notebookId: string, artifactId: string): Promise<void>;
 
