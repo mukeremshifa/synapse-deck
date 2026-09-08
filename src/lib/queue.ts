@@ -9,10 +9,19 @@
  * database query stays a plain fetch.
  */
 
+/**
+ * What the policy needs of a card: an identity, and nothing else.
+ *
+ * **FR5 widened this from a card row to `{ id }`.** It named `due` and
+ * `fsrs_state` in snake_case, which was the old stack's shape — and the
+ * interleave below reads neither. Splitting due from fresh is the *caller's*
+ * job (the server does it, in `PracticeQueue`), so requiring those two fields
+ * only forced a contract card to be renamed on the way in for a check nothing
+ * performed. Narrowing the constraint is what let the policy be re-pointed at
+ * the contract with the maths untouched, which is FR5 §2's rule.
+ */
 export type QueueCard = {
   id: string;
-  due: string;
-  fsrs_state: 'new' | 'learning' | 'review' | 'relearning';
 };
 
 export type QueuePolicyInput<T extends QueueCard> = {

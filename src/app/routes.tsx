@@ -80,7 +80,7 @@ const SettingsPage = lazy(() =>
   })),
 );
 const PracticePage = lazy(() =>
-  import('@/features/practice/PracticePage').then(module => ({
+  import('@/features/study/PracticePage').then(module => ({
     default: module.PracticePage,
   })),
 );
