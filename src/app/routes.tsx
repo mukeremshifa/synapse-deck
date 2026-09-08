@@ -89,6 +89,11 @@ const ExamPage = lazy(() =>
     default: module.ExamPage,
   })),
 );
+const QuizPage = lazy(() =>
+  import('@/features/study/QuizPage').then(module => ({
+    default: module.QuizPage,
+  })),
+);
 
 /** Page-shaped, so the layout does not jump when the real page arrives. */
 function Lazy({ children }: { children: ReactNode }) {
@@ -142,21 +147,6 @@ function OverviewRoute() {
       phase="FR6"
       description="This notebook's artifacts with their provenance, readiness, topic mastery, the review heatmap and the study plan — all scoped to one notebook."
       ids={{ notebookId }}
-      backTo={notebookId ? `/notebooks/${notebookId}` : '/'}
-      backLabel="Back to the notebook"
-    />
-  );
-}
-
-/** `/notebooks/:notebookId/quizzes/:quizId` — FR5's untimed runner. */
-function QuizRoute() {
-  const { notebookId, quizId } = useParams<{ notebookId: string; quizId: string }>();
-  return (
-    <Placeholder
-      title="Quiz"
-      phase="FR5"
-      description="One question per page, revealed when answered, no time limit, resumable."
-      ids={{ notebookId, quizId }}
       backTo={notebookId ? `/notebooks/${notebookId}` : '/'}
       backLabel="Back to the notebook"
     />
@@ -239,7 +229,7 @@ export function AppRoutes() {
             path="notebooks/:notebookId/decks/:deckId/practice"
             element={<PracticePage />}
           />
-          <Route path="notebooks/:notebookId/quizzes/:quizId" element={<QuizRoute />} />
+          <Route path="notebooks/:notebookId/quizzes/:quizId" element={<QuizPage />} />
           <Route path="notebooks/:notebookId/exams/:examId" element={<ExamPage />} />
           <Route
             path="notebooks/:notebookId/notes/:noteSetId"
