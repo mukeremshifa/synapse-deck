@@ -212,19 +212,73 @@ above, and it is what the deck list now reads to mark a deck resumable.
 1. `/notebooks/:id/decks/:deckId/practice` (**FR2**: the route now names the deck, because a
    notebook may hold many). **There is no all-notebooks queue** — practice is launched from
    a notebook, because the reason to practise is that you want to work on *that material*.
-   The contract's `getPracticeQueue` still takes an optional `artifactId` to queue every deck
-   in one notebook, which is a scope *within* a notebook rather than a missing one.
+   The contract's `getPracticeQueue` takes an *optional* `artifactId`: omitting it queues
+   every deck in one notebook, which is a scope *within* a notebook rather than a missing
+   one. **The runner does not omit it** (FR5) — it is reached from a route that names a
+   deck, and the old page's bug was falling back to the every-deck queue when the id was
+   read under the wrong name.
 2. Queue = cards where `due <= now()`, ordered by due, with new cards interleaved subject to
    a per-day new-card cap (default 20).
 3. Show front → user self-reveals → rates **Again / Hard / Good / Easy** (FSRS's 4 grades).
 4. Each rating writes a `reviews` row and updates the card's FSRS state in one transaction.
 5. Session summary: count reviewed, rating breakdown, next-due forecast.
 
-Keyboard-first: `Space` reveal, `1`–`4` rate, `E` edit, `U` undo last.
+**The queue policy runs on the client** (`src/lib/queue.ts`), against a server that fetches
+rather than decides — the same policy drives this queue, home's "new available" figure and
+the forecast's day 0, and a second implementation server-side is how those three start
+disagreeing about today's allowance. **The FSRS conversion has one home**,
+`src/features/study/scheduling.ts`; see FR5 §6.1 in the drift log for the three scheduler
+fields the contract cannot yet carry.
+
+Keyboard-first: `Space` reveal, `1`–`4` rate, `U` undo last. **`E` (edit) was removed at
+FR5**: a card editor is a surface of its own and belongs with the deck, and mid-review is
+the moment someone is least able to judge a card fairly.
 
 **Undo** is required, not a nicety — mis-hitting `1` on a mature card damages its schedule.
 Undo restores the pre-review FSRS snapshot from the `reviews` row, which is why that row
 stores state _before_ as well as after.
+
+### 4.2a The other three runners (FR5)
+
+An artifact is what a notebook produces, and each kind has a surface that runs it. **All
+four are entered by the artifact id in the route** — that is the fix for a screen that had
+to guess which deck or exam it meant.
+
+**Quiz** — `/notebooks/:id/quizzes/:quizId`. Untimed, **one question per page**, revealing
+**on answer or on demand**, repeatable and **resumable**. Looking is not answering: a
+question whose answer was revealed without a choice stays unanswered rather than scoring
+zero.
+
+**Resume lives in the attempt, server-side.** `startAttempt` on a quiz with a sitting in
+progress returns *that* sitting rather than opening a second, and answers are saved after
+every one. So a quiz survives a refresh, a closed tab and a different device — which
+`localStorage` would not, and which component state would lose outright.
+
+**Exam** — `/notebooks/:id/exams/:examId`. Timed, the whole paper navigable, flagging, a
+question grid, and **nothing revealed until it is submitted**. It runs **its own blueprint**
+(§1.2(9) of the brief), shown read-only on a brief screen before the clock starts — a
+deliberate start, because landing on question 1 with the timer already running spends the
+candidate's time on reading the page.
+
+> **Quiz and exam are separate runners, not one with a `timed` flag.** They differ in
+> delivery — timing, one-per-page versus a paper, when the answer appears — and merging
+> them produces a bad quiz *and* an untrustworthy exam. What they *share* is the record:
+> both write one `Attempt`, and the results screen is one component that switches on
+> nothing.
+
+**One sitting is one `Attempt`.** It ends `submitted` (the candidate confirms) or `expired`
+(the timer auto-submits what stands). **`abandoned` is written by nothing**: a runner cannot
+tell walking away from losing the network, so filing a real sitting under the outcome that
+says someone gave up would be a false record. It needs a server-side sweep of attempts left
+`in-progress`, which is FR7's. Unanswered questions record `selectedOption: null` and are
+counted apart from wrong ones; a sitting with nothing answered has **no score**, not 0%.
+
+**Notes** — `/notebooks/:id/notes/:noteSetId`. A **reader**; the editor is later, and the
+block structure is what keeps it cheap. Blocks are rendered **as elements, never as HTML** —
+note content is untrusted model output, and the renderer never builds a string anything
+parses as markup, so the safety is structural rather than a setting someone can flip.
+Reading is the unit of progress: blocks are marked read **by observation**, monotonically,
+which is what a note set contributes to readiness.
 
 ### 4.3 Manage
 
@@ -1269,19 +1323,27 @@ them a title, padding and a single way out. Each group is wrapped by its own
 home itself and guarded, so a signed-out visitor lands on `/login`. No anonymous request
 reaches anything but the auth pages and the 404.
 
-**Placeholders are current, deliberate state.** `/notebooks/:id` (FR3), `.../overview`
-(FR6), `.../quizzes/:quizId` and `.../notes/:noteSetId` (FR5) resolve and render a screen
-naming the phase that builds them. FR2 creates the routes FR3–FR6 fill.
+**One placeholder is left.** FR3 built `/notebooks/:id` and **FR5 built all four runners**;
+`/notebooks/:id/overview` is the last route rendering a screen that names the phase which
+builds it (FR6).
 
 **`:id` is a notebook id on the wire from FR0 onward.** The contract in
-`src/lib/api/contract.ts` says notebook throughout. `src/lib/notebooks.ts` survives only as
-route construction plus a deck→notebook adapter for the screens still on the old
-`src/lib/queries.ts` stack; both halves die when FR3, FR5 and FR6 re-point their screens.
+`src/lib/api/contract.ts` says notebook throughout. `src/lib/notebooks.ts` is now **route
+construction and nothing else** — FR3 deleted the deck→notebook adapter with its last
+caller — so it outlives `src/lib/queries.ts` rather than dying with it. After FR5,
+`queries.ts` serves only `useProfile`, and FR6 re-points the last of it.
 
 ### 8.3 State ownership
 
-- **Server state** (decks, cards, queue, stats) → TanStack Query, keyed `['deck', id]`,
-  `['queue', deckId]`, `['stats', window]`.
+- **Server state** (notebooks, artifacts, cards, queue, attempts, stats) → TanStack Query.
+  Keys are namespaced under `['api', 'notebook', notebookId, …]` from FR3 onward, so
+  **every key names its notebook** and an invalidation stays scoped to the one on screen;
+  the study keys name their artifact too (`queue`, `questions`, `attempt`, `blocks`).
+- **A sitting is session-local, and its record is not.** A practice queue, a quiz's current
+  question, an exam's timer are component state — refetching under someone mid-session
+  reorders what they are working through. **A quiz's answers are the exception**: they are
+  saved to the attempt after every answer, which is what makes a quiz resumable across a
+  refresh or a different device (FR5 §6.1).
 - **Session-local** (current card index, revealed flag, the staging list during generation) →
   component state or a small reducer. Not Query.
 - **Rating is optimistic:** advance the UI immediately; roll back and toast on RPC failure.

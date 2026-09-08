@@ -90,6 +90,38 @@ and still model-independent.
 
 ---
 
+### What FR5 delivered — appended 2026-09-08 by FR5
+
+**All four runners are on the contract**, each entered by the artifact id in its route.
+`src/features/study/` is where a study surface lives now. Six things changed under you:
+
+- **`queries.ts` is down to `useProfile`.** The old practice page and session, and the old
+  exam page/runner/results/setup/navigator/fixtures, are **deleted**. `@/lib/api` serves
+  home, the notebook and every runner — so **the two-stack seam is one screen wide, and it
+  is yours.** Re-point `useProfile` and `queries.ts`, `api-client.ts` and most of
+  `src/lib/exam.ts` all die with it (only `shuffled`, `formatDuration` and
+  `TIMER_WARNING_MS` still have a caller).
+- **What the runners emit, for `progress.ts` / `mastery.ts` / `study-plan.ts`:** practice
+  writes `Review` rows and **undo tombstones them** (`undoneAt`), so any aggregate must
+  exclude those — the fake's `countableReviews` is the reference. Quiz and exam both write
+  `Attempt`. The note reader writes `readBlockCount`, **monotonically**.
+- **`abandoned` is written by nothing** (FR5 §6.2). You will see quiz attempts stuck at
+  `in-progress` for ever; do not count them as sittings. The server-side sweep is FR7's.
+- **The blueprint editor is yours, and it is a promise already made to the user.** FR4's
+  generate modal says the blueprint can be adjusted once the exam exists. FR5 renders it
+  **read-only** on the exam brief; `updateArtifact` takes a payload and `Blueprint.basis`
+  has `'manual'` for exactly this.
+- **A note block's `sourceId` can name a source the artifact's own `sourcesSnapshot` never
+  recorded** — so the FR3 provenance pattern has **three** states here, not two. See the
+  drift row.
+- **`@tanstack/react-virtual` is still unused.** FR5 declined it: the contract caps
+  generation at 50, and the runners render one card or one question at a time. **If your
+  lists are short too, drop the dependency** rather than carry it further.
+
+Reusable, and built to be: **`WrongKind` / `NotReady`** in `src/features/study/` are the
+guards for any artifact-keyed route, and **`AttemptReview`** renders an `Attempt` for
+either kind if the diagnostic wants to show a past sitting.
+
 ## 2. Out of scope
 
 | Tempting | Where it goes |
