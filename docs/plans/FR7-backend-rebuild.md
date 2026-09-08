@@ -1,6 +1,8 @@
 # FR7 — The backend rebuild
 
-**Status:** 📋 Planned 2026-09-07, before FR0 executed. Not started.
+**Status:** ✅ **Executed 2026-09-09.** All eight tasks done. Every acceptance criterion met
+except 6 (no `cdk diff` was run — nothing was deployed; see §9). **Criterion 7 is met, and
+it closes the browser gap FR5 and FR6 both left open.**
 **Parent:** [FE-REARCHITECTURE-BRIEF.md](FE-REARCHITECTURE-BRIEF.md) §2.3, §4.
 **Depends on:** [FR6](FR6-the-overview.md) complete, **and its §8 build list written.**
 
@@ -290,3 +292,194 @@ There is no FR8 in the brief. At completion, record:
 - **whether a test suite should now be written.** The owner's call, and this is the natural
   checkpoint to raise it: the re-architecture is done, the model is settled, and §7's list
   is the argument.
+
+---
+
+## 9. What FR7 actually did — recorded 2026-09-09
+
+### 9.1 The decisions §6 asked for
+
+1. **Migrate existing data, or start clean?** *Neither, and deliberately.* Nothing was
+   dropped and nothing was rewritten. `cards.artifact_id` and `topics.notebook_id` were
+   added **nullable**, so every pre-FR7 row stays valid under the old parentage while new
+   rows use the new one. `decks` keeps its rows and its data. **No destructive operation
+   ran, so the owner was never asked to approve one** — dropping a table with live data in
+   it remains available and remains the owner's call.
+
+   The one thing that had to be *relaxed* is recorded as what it is: 0012 makes
+   `cards.deck_id` nullable, and 0013 replaces `topics_user_slug_key` with a partial index.
+   Both are widenings — they permit rows previously refused and delete nothing — and both
+   partitions were checked for violations before the migration was written.
+
+2. **The `Artifact` table's physical shape.** [ADR 0017](../adr/0017-artifact-payload-stores-only-what-cannot-be-derived.md).
+   One table, `payload jsonb` holding only what cannot be derived (`origin` for a note set;
+   `config` and `blueprint` for an exam), every count computed on read from joined
+   aggregates grouped by `artifact_id`. Per-kind side tables were considered and rejected:
+   they reintroduce the four-table shape [ADR 0015](../adr/0015-artifact-as-one-kind-tagged-noun.md)
+   refused, one join away.
+
+3. **Which aggregates ended up server-side.** All five, plus `listTopics`. Their query
+   shapes are in `services/api/src/data/aggregates.ts`, each notebook-scoped through
+   `cards → artifacts` or `reviews → cards → artifacts`, with `user_id` filtered on **every
+   table** rather than trusted through the join. `getTopicMastery` reduces the *fetch* (five
+   columns per active card) and reuses `src/lib/mastery.ts` for the arithmetic rather than
+   reimplementing the forgetting curve in SQL.
+
+4. **Where the backend could not serve the contract.** One place, and it is honest rather
+   than fixed: **`ask` still posts to `/decks/{id}/ask`.** Grounded chat retrieves over
+   `chunk_embeddings`, which is keyed by the pre-FR7 deck model and was not part of this
+   rewrite. Renaming the route without re-parenting the chunks would make the wire lie about
+   what it reaches. Brief §6.4 leaves chat organisation deliberately open; this is the
+   honest state of it until that is decided.
+
+   `learning_steps` (FR6 §8.7 item 1) was **not** done. The column exists on `cards` and has
+   since 0001; what is missing is carrying it through `Card` and `NextSchedule` on the
+   contract, which is a contract change and §2 forbids making one silently. See §10.
+
+5. **Fake-vs-live behavioural differences found at task 6.** Fewer than expected, because
+   the server was written to return the contract's shapes directly rather than a wire format
+   the client remaps. What differed:
+
+   - **`listSources` returns newest-first**, which the fake also does — but a *seeding
+     script* that indexed it positionally produced artifacts whose provenance named the
+     wrong source. The backend recorded exactly what it was asked for. Worth naming because
+     it is the shape of mistake a consuming caller will make again.
+   - **Groq rate-limits under rapid successive generations.** One quiz lost one of two
+     sources; one exam lost both and failed, then succeeded on retry with no code change.
+     The fake never fails a unit unless told to, so nothing exercised partial success before.
+   - **Nothing else.** Every surface rendered on the first attempt against live data.
+
+### 9.2 Acceptance criteria
+
+| # | Criterion | Result |
+| --- | --- | --- |
+| 1 | Every method has a route, handler and data-access function | ✅ 43/43; `client.ts` throws `not_implemented` nowhere |
+| 2 | Every new table has a data-access module obeying all four rules | ✅ 7 modules, **audited by reading** — the linter sees two of four |
+| 3 | `check:data-access` and `check:routes` pass | ✅ 59 routes, identical in both mirrors |
+| 4 | Every migration dry-run; nothing destructive without approval | ✅ 4 migrations via `db:migrate` (Neon, not Supabase — `db:push` was never the right tool here); nothing destructive ran |
+| 5 | `db:types` regenerated if Supabase was touched | n/a — Supabase was not touched |
+| 6 | `cdk diff` read before every deploy; prod untouched | n/a — **nothing was deployed.** `infra/lib/api-stack.ts` was updated for route parity; the demo runs on `dev:api` against Neon |
+| 7 | `VITE_API_MODE=live` and every surface walked in a browser | ✅ **see §9.3** |
+| 8 | Fake mode still works | ✅ unset or `VITE_API_MODE=fake` still boots with no backend |
+| 9 | All four artifact kinds generate for real, end to end | ✅ through Groq, against Neon |
+| 10 | `npm run verify` passes | ✅ |
+| 11 | §6 recorded; drift log appended | ✅ this section, and six rows |
+
+### 9.3 The browser walk — criterion 7, and the gap FR5 and FR6 left
+
+`playwright-core` driven against an installed Chrome, **signed in through the real login
+form** as the demo user, against live data on real Postgres. Eight surfaces:
+
+| Surface | Rendered |
+| --- | --- |
+| home | notebook grid with readiness |
+| notebook | sources pane, Studio rail |
+| overview | readiness roll-up, five artifacts grouped by kind, diagnostic, heatmap, card states, retention, forecast |
+| settings | profile and practice settings |
+| practice | "4 in queue", first card |
+| quiz | "Question 1 of 6" with the stem |
+| notes | "6 / 11 read" |
+| exam | brief: 8 questions, 30 min, sittings |
+
+**No console errors, no failed requests, no 4xx from the API, no error boundaries.**
+
+The overview's diagnostic is the part worth calling out, because it proves the aggregate
+chain end to end: it identified a seeded **98% predicted recall against 67% exam accuracy**
+on Beta-lactams and labelled it *"Fragile. You recall this when prompted but lose it under
+exam conditions — more questions will help here, more flashcards will not."* That number
+came from `getTopicMastery` reducing 18 cards and 6 attempt answers in SQL, through
+`mastery.ts`, onto a screen.
+
+**FR6 warned that FR2's and FR3's four-defects-each were "still there to find" in FR5's and
+FR6's surfaces. They were not.** Those earlier defects were in components those phases
+introduced; FR5 and FR6 built on primitives already verified in a browser. This is the
+check finally being run, not evidence that running it is unnecessary.
+
+`playwright-core` was installed with `--no-save`: **no test runner entered `package.json`**
+(ADR 0005).
+
+### 9.4 What went unverified
+
+Everything §7 predicted, minus criterion 7. Specifically still true:
+
+1. **Cross-tenant isolation.** Read, not proved. Every one of the seven data modules was
+   audited by hand for rule 2; nothing enforces it.
+2. **Migrations.** Four ran against the live Neon database with nothing checking them first
+   beyond reading. Three bugs reached it (§9.5) — all caught by driving the API, none by any
+   gate in this repository.
+3. **FSRS intervals and the aggregates over real data.** The numbers on the overview are
+   consistent with the seeded history, checked by eye against the database. No test asserts
+   any of them.
+4. **Generation for four kinds.** Each generated at least once. Nothing checks quality.
+5. **Load and performance.** The largest notebook tested holds 18 cards. The aggregate
+   queries are shaped to scale (grouped joins, keyset cursors) and that shape is untested.
+
+### 9.5 Three bugs, and what they say about the gates
+
+All three shipped past `check`, `verify`, `check-routes` and `check-data-access`:
+
+1. `cards.deck_id` was still `not null` after 0010 added `artifact_id` — deck generation
+   failed while the other three kinds succeeded, because they write to different tables.
+2. `topics_user_slug_key` made the notebook scoping 0010 introduced impossible to express.
+3. The queue's three statements shared one params array; one never referenced `$3`.
+
+**None is expressible in a TypeScript type**, so no gate here could have caught them. Two
+are Postgres constraints and one is arithmetic inside a SQL string. The narrow lesson, now
+in the drift log: *adding a column does not finish a re-parenting — the old parent's
+constraints have to be revisited in the same migration.*
+
+---
+
+## 10. Handoff — what comes after
+
+There is no FR8 in the brief. The re-architecture is complete: the contract has 43 methods,
+all 43 are served, and six phases of frontend run against a backend that matches them.
+
+**Three things are open, and all three are the owner's call.**
+
+### 10.1 Should a test suite be written now?
+
+**This is the natural checkpoint, and §9.4 is the argument.** The re-architecture is done,
+the model is settled, and the phase just completed shipped three bugs that no gate in this
+repository could catch. Two were schema constraints; a harness that ran migrations against
+a throwaway Postgres would have caught both before they reached the live database. That is
+precisely what the PGlite suite deleted at ADR 0005 used to do.
+
+The honest counter-argument is the one that deleted it: the suite cost tokens and time, and
+the AWS-native build moved faster without it. That trade was correct while the model was
+changing every phase. **It is a different trade now that the model has stopped moving.**
+
+A narrow recommendation rather than a broad one: if anything is written, write the
+**migration harness** and a **cross-tenant isolation test** first. Those are the two places
+where the gates are structurally blind and the consequences are worst.
+
+### 10.2 The notes editor (brief §6.3 — fork or edit in place)
+
+Still open, and FR7 does not force it. `note_blocks` is a discriminated union with a stable
+position per block, so **either** answer is a feature rather than a migration — which is
+what brief §1.2(2) was buying. Editing in place needs a `PATCH` on a block; forking needs
+`createArtifact` to accept blocks as an input rather than sources.
+
+### 10.3 Chat organisation (brief §6.4)
+
+Deliberately undecided through six phases, and FR7 made the cost visible rather than
+resolving it: **`ask` is the one method still on a deck-shaped route**, because
+`chunk_embeddings` is keyed by the old model. Re-parenting chunks to sources would make
+retrieval source-scoped — which is what `AskInput.sourceIds` in the contract already
+anticipates and the server currently ignores.
+
+That is now the concrete decision, rather than the abstract one the brief left: **either
+re-parent the chunks and honour `sourceIds`, or delete `sourceIds` from the contract and
+say retrieval is notebook-wide.** Leaving a parameter that is accepted and ignored is the
+worst of the three.
+
+### 10.4 Two smaller things FR7 owns but did not do
+
+- **`learning_steps` is still not persisted** (FR6 §8.7 item 1). The column exists; the
+  contract's `Card` and `NextSchedule` do not carry it, and adding a field is a contract
+  change §2 forbids making silently. Cost is unchanged and bounded: a learning card may
+  take one extra repetition to graduate; a `review` card cannot be affected.
+- **The Supabase project can now be retired** — nothing in the app reads it.
+  `src/lib/env-schema.ts` still refuses a secret key and should stay. **That is the owner's
+  decision**, and the Edge Function under `supabase/functions/` is the last thing pointing
+  at it.

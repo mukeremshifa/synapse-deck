@@ -175,10 +175,14 @@ the bug the old gate had of navigating to a route that did not exist.
 **Restoring card-by-card triage requires a contract change.** It is recorded in the drift
 log so that whoever wants it decides it deliberately.
 
-### 4.1a The v1 generation pipeline (still what the backend does, until FR7)
+### 4.1a The v1 generation pipeline — superseded by FR7
 
-Retained because `services/api/` and the Edge Function still work this way; the frontend
-above no longer talks to it.
+**Retained as history.** FR7 replaced this: generation now creates an **artifact inside a
+notebook** rather than a new deck, `createArtifact` returns a `Job` the client polls, and
+all four kinds generate (deck, quiz, note set, exam) rather than cards alone. See §7.6.
+
+The Supabase Edge Function under `supabase/functions/` still implements the flow below and
+is the last thing pointing at that project.
 
 1. User pastes text (100 – 20,000 chars) on `/create/text`, now deleted as a page.
 2. Chooses: number of cards (3–50), allowed card types, difficulty/depth, deck title
@@ -593,9 +597,14 @@ the second duplicates the exam runner without the timing that makes it worth sit
 > The noun list below replaces it. It is **already the frontend's contract**, encoded as
 > Zod schemas and an `ApiClient` interface in
 > [`src/lib/api/contract.ts`](../src/lib/api/contract.ts) (FR0, executed 2026-09-08), and
-> served today by a typed in-repo fake. **`services/api/` and the migrations still
-> implement §5.1–5.10 and are untouched until FR7**, which rewrites them to serve the
-> contract. Both models are live at once, on purpose and temporarily.
+> served today by a typed in-repo fake. **FR7 (executed 2026-09-09) built the other half:
+> `services/api/` and the migrations now serve this contract**, and `VITE_API_MODE=live`
+> runs the app against it. See §5.11.
+>
+> **Both models are still live in the database, on purpose.** FR7 added the new tables and
+> made the new parent columns nullable rather than dropping anything, so every §5.1–5.10
+> table still holds its rows and still works. Retiring `decks` is a destructive operation
+> on live data and therefore the owner's decision, not a phase's.
 >
 > **As of FR6 the frontend is entirely on this contract.** `src/lib/queries.ts` — the old
 > deck-shaped stack — is deleted, and every screen reads `@/lib/api`. The interface is
@@ -639,7 +648,7 @@ the second duplicates the exam runner without the timing that makes it worth sit
 > Why the frontend runs against a fake rather than waiting for the backend:
 > [ADR 0014](adr/0014-typed-fake-as-the-frontend-backend.md).
 
-### 5.0b The v1 model — still what the database implements
+### 5.0b The v1 model — still in the database, no longer what the app reads
 
 Postgres on Supabase. Every table has `id uuid default gen_random_uuid()`, `created_at`,
 `updated_at`, and `user_id uuid references auth.users not null`. RLS on **every** table.
@@ -1036,6 +1045,46 @@ and does not matter here — the only consumer is their own mastery map, and fal
 degrades nothing but their own study plan. When Phase C generates exams server-side, the
 answer key lives there and grading moves with it.
 
+### 5.11 The FR7 model — what the database implements for the app
+
+Added 2026-09-09 by [FR7](plans/FR7-backend-rebuild.md), in migrations `0010`–`0013`. This
+is what `src/lib/api/contract.ts` is served from; §5.1–5.10 remain in the database and are
+no longer read by the app.
+
+Every table carries `user_id uuid not null` — **not** because a query joins its way to it,
+but because [ADR 0008](adr/0008-application-level-tenancy.md) makes `where user_id = $1` the
+security boundary, and a table without the column cannot participate in it. There is no
+RLS: RDS has no `auth.uid()` and no `authenticated` role.
+
+| Table | What it is |
+| --- | --- |
+| `notebooks` | The only first-class citizen. `readiness` and `counts` are **computed**, never columns — storing them would mean every card review wrote back up the tree |
+| `sources` | A notebook's inputs, persisted at last. `status` exists because adding one is a job: a source is visible before it is usable |
+| `artifacts` | **The central noun.** One kind-tagged row (`deck`/`quiz`/`noteset`/`exam`), never four tables ([ADR 0015](adr/0015-artifact-as-one-kind-tagged-noun.md)). `payload` holds only what cannot be derived ([ADR 0017](adr/0017-artifact-payload-stores-only-what-cannot-be-derived.md)) |
+| `questions` | A quiz's or exam's contents. **Deliberately not cards**: a question answered once under time is not on a schedule, and forcing it into `cards` would mean nullable scheduling columns |
+| `note_blocks` | A note set's contents, as a discriminated union — never one text blob, so the later editor is a feature rather than a migration. `read_at` per block, marked monotonically |
+| `attempts` | One sitting of a quiz or an exam, the same record for both. Closes the gap `0008_answers.sql` recorded about itself: *"there is no `exams` table"* |
+| `attempt_answers` | One answer within a sitting. `question_text` is **copied, not joined** ([ADR 0013](adr/0013-answers-snapshot-the-question.md)). Not append-only, unlike `answers`, because a quiz is resumable |
+
+**Provenance is two columns doing different jobs.** `artifacts.source_ids` is a `uuid[]`
+with **no foreign key**, so deleting a source leaves the id dangling rather than blocking
+the delete or nulling the reference — that is the record of what the artifact was built
+from. `sources_snapshot` is frozen at generation, complete, and never dangles; it is what
+the provenance line renders, with a deleted source struck through rather than omitted.
+
+**Re-parenting, and why nothing was dropped.** `cards.artifact_id` and `topics.notebook_id`
+were added nullable (`0010`), so pre-FR7 rows stay valid under the old parentage. A card
+must have exactly one parent, which `cards_one_parent` enforces (`0012`) — nullable without
+that check would permit an orphan no query returns.
+
+**Topics are notebook-scoped now** (`0013`), which fixes a live bug: reconciliation was
+per-user, so two notebooks studying the same subject shared one topic row and contaminated
+each other's mastery numbers. Two partial unique indexes govern the two partitions.
+
+**`sweep_abandoned_attempts(user_id, interval)`** marks stale `in-progress` attempts
+`abandoned` on elapsed time. Only the server can make that call: a browser that closed
+cannot report why, and one that is merely offline must not be told its attempt is over.
+
 ## 6. Scheduling (FSRS)
 
 **Library:** `ts-fsrs` — TypeScript-native, implements current FSRS, and its review-log shape
@@ -1300,6 +1349,44 @@ Controls, all enforced in the Edge Function, never client-side:
    only the Edge Function can refuse.
 
 ---
+
+### 7.6 The FR7 pipeline — four kinds, inside a notebook
+
+Added 2026-09-09 by [FR7](plans/FR7-backend-rebuild.md). Replaces §4.1a and §7.1–7.3 for
+everything the app does; the Edge Function still implements the older flow.
+
+**Everything that takes seconds is a job.** `addSource` and `createArtifact` both return a
+`Job` immediately and never the finished thing. The artifact row is created `generating`
+*before* the work starts, so it is a real, listable row — greyed and unopenable — while the
+job runs, and a failed job flips it to `failed` with a reason rather than leaving it
+spinning for ever.
+
+**Stages are the ones the UI displays.** `queued → extracting → splitting → generating →
+saving → done`, reported from fields the job actually has. A job can fail before any stage
+reports — a quota refusal does exactly that, with `unitsTotal` still 0 — and that is not the
+same as "no progress yet".
+
+**One provider call per source.** The sources are the unit the user chose, so
+`unitsTotal`/`unitsCompleted` count them and the progress bar means something visible on
+screen. **A source that fails does not cost the others**: `unitsFailed` records the loss,
+the artifact keeps what the rest produced, and `truncated` says so. A generation that
+produces nothing at all fails the artifact.
+
+**All four kinds come from the same call.** Decks take the requested card kinds; quizzes
+and exams request MCQs only, because grading free text needs a model and a rubric and the
+contract leaves it out; a note set is the same material rendered as prose blocks, with
+cloze markers stripped — a note is read, not answered.
+
+**Topics are reconciled once per generation**, per notebook, by normalised slug
+([ADR 0009](adr/0009-topic-reconciliation-by-name.md)), from the names the model returned
+while writing the content rather than in a second pass over the same text.
+
+**Grading moved server-side, and this is the change §5.10 anticipated.** An attempt's
+`correct` per answer and its final score are computed by the server against the stored
+question — never sent by the client. §5.10 noted that client-side grading "matters for a
+leaderboard and does not matter here", and that when exams are generated server-side the
+answer key lives there and grading moves with it. That is now the case for quizzes and
+exams both.
 
 ## 8. Frontend
 
