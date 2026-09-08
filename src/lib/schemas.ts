@@ -579,9 +579,16 @@ export type AttemptOutcome = z.infer<typeof AttemptOutcome>;
  * rather than joined for.
  *
  * **`correct` is computed on the client and trusted by the server**, which is
- * worth stating plainly rather than leaving implicit. Grading lives in
- * `gradeAttempt`, the questions currently come from a fixture, and there is no
- * server-side exam to re-grade against — so a user could POST a perfect score.
+ * worth stating plainly rather than leaving implicit. The questions currently
+ * come from a fixture and there is no server-side exam to re-grade against — so
+ * a user could POST a perfect score.
+ *
+ * *(This shape and the `Exam` / `ExamQuestion` / `ExamAnswer` types below it are
+ * the **old** flat model, serving the live AWS backend until FR7 replaces it.
+ * The frontend no longer uses any of them: FR5 moved sittings onto `Attempt`
+ * and FR6 deleted the last of the client-side grader — `gradeAttempt`, which
+ * this comment used to name, no longer exists. They are FR7's to remove along
+ * with the routes that read them.)*
  * That matters for a leaderboard and does not matter here: the only consumer is
  * the user's own mastery map, and falsifying it degrades nothing but their own
  * study plan. When Phase C generates exams server-side, the correct answer key
