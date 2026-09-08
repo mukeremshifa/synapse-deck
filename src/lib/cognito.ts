@@ -41,12 +41,39 @@ import {
 } from 'amazon-cognito-identity-js';
 import { env } from './env';
 
-const userPool = new CognitoUserPool({
-  UserPoolId: env.VITE_COGNITO_USER_POOL_ID,
-  ClientId: env.VITE_COGNITO_CLIENT_ID,
-  // No `ClientSecret`: the app client is created without one, because a browser
-  // SPA cannot hold a secret (ADR 0007).
-});
+/**
+ * The user pool, constructed on first use rather than at module load.
+ *
+ * **Lazy because of the mode split** (FR0 task 4). The Cognito variables are
+ * required only when `VITE_API_MODE=live`, so in fake mode they are absent —
+ * and a `new CognitoUserPool(…)` at module scope would throw the moment
+ * anything imported this file, which in fake mode is exactly the situation the
+ * split exists to make work.
+ *
+ * The trade is named in FR0 §7.5: a missing variable is now a failure at first
+ * sign-in rather than at boot. The message below is written to make that
+ * failure legible when it happens.
+ */
+let pool: CognitoUserPool | null = null;
+
+function userPoolOrThrow(): CognitoUserPool {
+  if (pool) return pool;
+  const poolId = env.VITE_COGNITO_USER_POOL_ID;
+  const clientId = env.VITE_COGNITO_CLIENT_ID;
+  if (poolId === undefined || clientId === undefined) {
+    throw new Error(
+      'Cognito is not configured. Authentication needs VITE_API_MODE=live plus ' +
+        'VITE_COGNITO_USER_POOL_ID and VITE_COGNITO_CLIENT_ID — see .env.example.',
+    );
+  }
+  pool = new CognitoUserPool({
+    UserPoolId: poolId,
+    ClientId: clientId,
+    // No `ClientSecret`: the app client is created without one, because a
+    // browser SPA cannot hold a secret (ADR 0007).
+  });
+  return pool;
+}
 
 /**
  * The session, in the shape the app uses.
@@ -115,7 +142,7 @@ function friendlyError(error: unknown): Error {
 }
 
 export async function signIn(email: string, password: string): Promise<AuthSession> {
-  const user = new CognitoUser({ Username: email, Pool: userPool });
+  const user = new CognitoUser({ Username: email, Pool: userPoolOrThrow() });
   const details = new AuthenticationDetails({ Username: email, Password: password });
 
   return new Promise<AuthSession>((resolve, reject) => {
@@ -168,7 +195,7 @@ export async function signUp(
   }
 
   return new Promise<SignUpResult>((resolve, reject) => {
-    userPool.signUp(email, password, attributes, [], (error, result) => {
+    userPoolOrThrow().signUp(email, password, attributes, [], (error, result) => {
       if (error) {
         reject(friendlyError(error));
         return;
@@ -180,7 +207,7 @@ export async function signUp(
 
 /** Confirm a signup with the emailed code. */
 export async function confirmSignUp(email: string, code: string): Promise<void> {
-  const user = new CognitoUser({ Username: email, Pool: userPool });
+  const user = new CognitoUser({ Username: email, Pool: userPoolOrThrow() });
   return new Promise<void>((resolve, reject) => {
     user.confirmRegistration(code, true, error => {
       if (error) reject(friendlyError(error));
@@ -190,7 +217,7 @@ export async function confirmSignUp(email: string, code: string): Promise<void> 
 }
 
 export async function resendConfirmationCode(email: string): Promise<void> {
-  const user = new CognitoUser({ Username: email, Pool: userPool });
+  const user = new CognitoUser({ Username: email, Pool: userPoolOrThrow() });
   return new Promise<void>((resolve, reject) => {
     user.resendConfirmationCode(error => {
       if (error) reject(friendlyError(error));
@@ -211,7 +238,7 @@ export async function resendConfirmationCode(email: string): Promise<void> {
  * ordinary state, not an error.
  */
 export async function getSession(): Promise<AuthSession | null> {
-  const user = userPool.getCurrentUser();
+  const user = userPoolOrThrow().getCurrentUser();
   if (!user) return null;
 
   return new Promise<AuthSession | null>(resolve => {
@@ -235,7 +262,7 @@ export async function getSession(): Promise<AuthSession | null> {
  * what actually clears this browser.
  */
 export async function signOut(): Promise<void> {
-  const user = userPool.getCurrentUser();
+  const user = userPoolOrThrow().getCurrentUser();
   if (!user) return;
 
   await new Promise<void>(resolve => {

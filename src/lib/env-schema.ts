@@ -1,31 +1,54 @@
 import { z } from 'zod';
 
 /**
- * Side-effect-free so it can be tested directly. `env.ts` applies it to
+ * Side-effect-free so it can be reasoned about directly. `env.ts` applies it to
  * `import.meta.env` and throws; this module only describes the contract.
  *
- * ── Two backends, deliberately, for one phase ─────────────────────────────
+ * ── Which variables are required depends on the mode ──────────────────────
  *
- * P9 moved identity, decks, cards and reviews to Cognito and the AWS API. It
- * did **not** move `/progress` or card generation, which still read Supabase —
- * see the split table in docs/plans/P9-aws-slice.md for why porting either now
- * would mean building it twice. So both sets of variables are required, and
- * both will be until Phase F retires the Supabase project.
+ * `VITE_API_MODE` chooses the backend: `fake` (the default) runs against the
+ * in-memory implementation in `src/lib/api/fake.ts`, `live` runs against
+ * Cognito and API Gateway.
  *
- * SPEC §10: only the Supabase URL and the *publishable* key may reach the
- * browser. Supabase's modern key system (`sb_publishable_…` / `sb_secret_…`)
- * replaces the legacy `anon` / `service_role` JWTs, which are deprecated at the
- * end of 2026. The publishable key carries no privileges of its own — requests
- * run as the `anon` or `authenticated` Postgres role, so RLS remains the
- * security boundary **on Supabase**.
+ * **The AWS variables are required only in `live` mode**, and that conditional
+ * is load-bearing rather than tidy. They used to be unconditionally required,
+ * so `env.ts` threw at startup for anyone without them — meaning a fresh clone
+ * could not run `npm run dev` at all. The whole point of the fake (FR0, brief
+ * §2.2(3)) is that the frontend can be built with no backend and no
+ * credentials, and a schema that refuses to boot without them defeats it.
  *
- * **It is not the boundary on AWS.** There, the JWT authorizer verifies the
- * token and the data-access layer filters every query by `user_id` (ADR 0008).
- * None of the AWS values below is a secret either: a user pool id and a public
- * app client id are in every browser bundle that talks to Cognito, by design.
+ * The cost is named in FR0 §7.5 and is real: **a missing variable in `live`
+ * mode is now a runtime failure where it used to be a startup one.** A
+ * misconfigured deployment fails at the first request rather than at boot. That
+ * is the price of a repo a new session can run, and it was paid knowingly.
+ *
+ * None of the AWS values is a secret: a user pool id and a public app client id
+ * are in every browser bundle that talks to Cognito, by design, and the API
+ * endpoint is useless without a valid token.
+ *
+ * ── What happened to the Supabase variables ───────────────────────────────
+ *
+ * Removed at FR0, with the Supabase client itself (brief §2.3). Carrying a
+ * second backend into a re-architecture is how "two backends, for one phase"
+ * becomes permanent.
+ *
+ * **The `sb_secret_…` refusal went with them, and that is not a weakening.**
+ * Three `.refine` calls used to guard `VITE_SUPABASE_PUBLISHABLE_KEY` against a
+ * secret key reaching the browser bundle. That variable no longer exists and is
+ * no longer read anywhere, so the refusal had nothing left to refuse — a check
+ * on a variable nothing reads is dead code, not a security boundary.
+ *
+ * It **looks** identical to a weakening in a diff, which is exactly why it is
+ * written down here, in the commit message, and in FR0 §6.2. If any Supabase
+ * variable is ever reintroduced, **its refusal is reintroduced with it,
+ * unchanged.** CLAUDE.md, AGENTS.md §7 and the brief each say separately not to
+ * weaken it, and none of them is being overridden here.
  */
-export const ClientEnv = z.object({
-  // ── AWS (P9) ──────────────────────────────────────────────────────────────
+
+export const ApiMode = z.enum(['fake', 'live']);
+export type ApiMode = z.infer<typeof ApiMode>;
+
+const AwsVars = z.object({
   VITE_API_URL: z
     .string()
     .url('VITE_API_URL must be a URL — the API Gateway endpoint from SynapseDeck-Api-dev'),
@@ -55,34 +78,22 @@ export const ClientEnv = z.object({
         'Expected a Cognito app client id — the UserPoolClientId output of the ' +
         'SynapseDeck-Auth-dev stack.',
     }),
-
-  // ── Supabase (until Phase F) ──────────────────────────────────────────────
-  VITE_SUPABASE_URL: z.string().url('VITE_SUPABASE_URL must be a URL'),
-
-  VITE_SUPABASE_PUBLISHABLE_KEY: z
-    .string()
-    .min(1, 'VITE_SUPABASE_PUBLISHABLE_KEY is required')
-    /*
-     * The important check. A secret key in a client bundle is a total RLS bypass:
-     * it maps to `service_role`, which holds BYPASSRLS. Supabase refuses secret
-     * keys sent from a browser User-Agent, but the key would still sit in the
-     * shipped JavaScript for anyone to lift and replay from curl. Refuse to boot
-     * rather than ship it.
-     */
-    .refine(key => !key.startsWith('sb_secret_'), {
-      message:
-        'That is a SECRET key. It bypasses row level security and must never reach the ' +
-        'browser — use the publishable key (sb_publishable_…) here.',
-    })
-    .refine(key => !key.startsWith('eyJ'), {
-      message:
-        'That looks like a legacy JWT key (anon/service_role). This project uses the ' +
-        'modern key system — copy the publishable key (sb_publishable_…) from ' +
-        'Supabase → Settings → API Keys.',
-    })
-    .refine(key => key.startsWith('sb_publishable_'), {
-      message: 'Expected a publishable key beginning with "sb_publishable_".',
-    }),
 });
+
+/**
+ * The client's environment.
+ *
+ * A discriminated union on the mode rather than a `superRefine`, so the *type*
+ * carries the difference too: in `fake` mode the AWS fields are optional and
+ * anything reading them has to say what it does when they are absent.
+ */
+export const ClientEnv = z.discriminatedUnion('VITE_API_MODE', [
+  z
+    .object({ VITE_API_MODE: z.literal('fake') })
+    // Still parsed when present, so a developer with a `.env.local` who flips to
+    // fake mode finds a malformed value now rather than when they flip back.
+    .merge(AwsVars.partial()),
+  z.object({ VITE_API_MODE: z.literal('live') }).merge(AwsVars),
+]);
 
 export type ClientEnv = z.infer<typeof ClientEnv>;

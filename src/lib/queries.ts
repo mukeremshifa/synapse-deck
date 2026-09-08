@@ -5,7 +5,6 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 import { api } from './api-client';
-import { supabase } from './supabase';
 import {
   AttemptSubmission,
   CardPayload,
@@ -15,25 +14,13 @@ import {
   type CardKind,
 } from './schemas';
 import { applyGrade, type SchedulePreview } from './fsrs';
-import {
-  addStudyDays,
-  detectTimeZone,
-  resolveTimeZone,
-  startOfStudyDay,
-  studyDayKey,
-  studyDayStart,
-} from './day';
+import { detectTimeZone } from './day';
 import { buildQueue, remainingNewAllowance } from './queue';
-import {
-  countable,
-  forecast,
-  HEATMAP_DAYS,
-  memoryStrength,
-  stateDistribution,
-  type CountedReviews,
-  type ForecastDay,
-  type MemoryStrength,
-  type StateDistribution,
+import type {
+  CountedReviews,
+  ForecastDay,
+  MemoryStrength,
+  StateDistribution,
 } from './progress';
 import type { Database } from '@/types/database';
 
@@ -137,15 +124,6 @@ export const QUEUE_FETCH_LIMIT = 400;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-type PostgrestResult<T> = { data: T | null; error: { message: string } | null };
-
-/** Throw supabase-js errors so TanStack Query sees a rejected promise. */
-function unwrap<T>(result: PostgrestResult<T>): T {
-  if (result.error) throw result.error;
-  if (result.data === null) throw new Error('The server returned no row.');
-  return result.data;
-}
 
 /**
  * A card's content, validated.
@@ -841,221 +819,34 @@ export function useQuotaUsage() {
 }
 
 // ---------------------------------------------------------------------------
-// Progress (SPEC §4.4)
+// Progress
 //
-// Four reads, keyed under `['stats', …]` per §8.3 so one invalidation after a
-// rating refreshes the whole page. Three of them wait for `useProfile` the way
-// `usePracticeQueue` does: the timezone decides where every day starts, and
-// guessing UTC produces a heatmap that is subtly wrong for most of the world.
+// ── The four Supabase stats hooks were removed at FR0 ─────────────────────
 //
-// `staleTime` is a minute throughout. This is a dashboard, not a session — it
-// should reflect the last review without refetching on every focus change.
+// `useReviewHistory`, `useDueForecast`, `useCardStates` and `useRetention` were
+// the last four readers of `supabase-js`, and the brief (§2.3) removes Supabase
+// here: carrying a second backend into a re-architecture is how "two backends,
+// for one phase" becomes permanent.
+//
+// **FR0's plan expected them to feed `/progress`. That route does not exist** —
+// it was removed before this phase, so three of the four hooks had no consumer
+// at all and the fourth, `useReviewHistory`, was read by `DashboardPage` for one
+// number: the streak. See FR-DRIFT-LOG.md.
+//
+// So the plan's two options collapsed. Re-pointing four hooks at the contract to
+// serve zero screens would be dead code with a new backend behind it; deleting
+// them loses nothing, because the aggregates they computed now live on
+// `ApiClient` as `getReviewHistory`, `getDueForecast`, `getCardStates` and
+// `getRetention` — notebook-scoped, which is what FR6's overview needs and what
+// a global `/progress` could never be.
+//
+// `DashboardPage`'s streak is re-pointed at `getGlobalSummary().streakDays`,
+// which is the same number computed the same way, and is the one aggregate the
+// contract deliberately keeps un-scoped (§3.5's global strip).
+//
+// The re-exported types below are kept because components still name them.
 // ---------------------------------------------------------------------------
 
-const STATS_STALE_TIME = 60_000;
-
-export type ReviewDayCount =
-  Database['public']['Functions']['review_day_counts']['Returns'][number];
-
-export type ReviewHistory = {
-  timeZone: string;
-  /** The study day the client is in — the heatmap's last cell. */
-  today: string;
-  rows: ReviewDayCount[];
-  /** Reviews per study day, the shape `heatmapGrid` and `streaks` want. */
-  counts: Map<string, number>;
-  total: number;
-};
-
-/**
- * A year of daily counts, aggregated in Postgres.
- *
- * The aggregate is the point of P3's migration: a serious user's year is
- * ~70,000 review rows and this returns at most 365 of them. See
- * supabase/migrations/20260812210000_progress_stats.sql for why the day bucket
- * is written the way it is.
- */
-export function useReviewHistory(days: number = HEATMAP_DAYS) {
-  const { data: profile } = useProfile();
-
-  return useQuery({
-    queryKey: queryKeys.statsHistory(days),
-    enabled: profile !== undefined,
-    staleTime: STATS_STALE_TIME,
-    queryFn: async (): Promise<ReviewHistory> => {
-      const timeZone = resolveTimeZone(profile?.timezone);
-      const today = studyDayKey(new Date(), timeZone);
-      const from = studyDayStart(addStudyDays(today, -(days - 1)), timeZone);
-
-      const rows = unwrap(
-        await supabase.rpc('review_day_counts', {
-          p_timezone: timeZone,
-          p_from: from.toISOString(),
-        }),
-      );
-
-      let total = 0;
-      const counts = new Map<string, number>();
-      for (const row of rows) {
-        counts.set(row.day, row.reviews);
-        total += row.reviews;
-      }
-      return { timeZone, today, rows, counts, total };
-    },
-  });
-}
-
-export type DueForecast = {
-  timeZone: string;
-  takenAt: string;
-  buckets: ForecastDay[];
-};
-
-/**
- * What the next `days` study days cost.
- *
- * Bucketed on the client rather than in SQL: `cards` is small next to `reviews`
- * — this fetches only active, non-new cards inside the horizon — and one fewer
- * function is one fewer thing to close to `anon`.
- *
- * Day 0 has to equal what `/practice` would serve this minute, so it carries the
- * overdue cards *and* today's remaining new-card allowance, counted by the same
- * §6 policy the queue uses.
- */
-export function useDueForecast(days = 30) {
-  const { data: profile } = useProfile();
-
-  return useQuery({
-    queryKey: queryKeys.statsForecast(days),
-    enabled: profile !== undefined,
-    staleTime: STATS_STALE_TIME,
-    queryFn: async (): Promise<DueForecast> => {
-      const now = new Date();
-      const timeZone = resolveTimeZone(profile?.timezone);
-      const dailyNewLimit = profile?.daily_new_limit ?? 20;
-      const horizon = studyDayStart(
-        addStudyDays(studyDayKey(now, timeZone), days),
-        timeZone,
-      );
-
-      const [scheduled, fresh, introduced] = await Promise.all([
-        supabase
-          .from('cards')
-          .select('due, fsrs_state')
-          .eq('status', 'active')
-          // A new card's `due` is its creation time; new cards are counted
-          // through the daily cap below, never through the schedule.
-          .neq('fsrs_state', 'new')
-          .lt('due', horizon.toISOString()),
-        supabase
-          .from('cards')
-          .select('id', { count: 'exact', head: true })
-          .eq('status', 'active')
-          .eq('fsrs_state', 'new'),
-        supabase
-          .from('reviews')
-          .select('id', { count: 'exact', head: true })
-          .eq('state_before', 'new')
-          .is('undone_at', null)
-          .gte('reviewed_at', startOfStudyDay(now, timeZone).toISOString()),
-      ]);
-
-      if (scheduled.error) throw scheduled.error;
-      if (fresh.error) throw fresh.error;
-      if (introduced.error) throw introduced.error;
-
-      const newToday = Math.min(
-        fresh.count ?? 0,
-        remainingNewAllowance(dailyNewLimit, introduced.count ?? 0),
-      );
-
-      return {
-        timeZone,
-        takenAt: now.toISOString(),
-        buckets: forecast(scheduled.data, now, days, { timeZone, newToday }),
-      };
-    },
-  });
-}
-
-export type CardStates = {
-  distribution: StateDistribution;
-  strength: MemoryStrength;
-};
-
-/**
- * The card-state mix, and the mean stability and difficulty behind it.
- *
- * Not gated on the profile: nothing here is bucketed by day, so there is no
- * timezone to get wrong, and waiting on a query it does not use would only make
- * the page slower. Stability and difficulty have to come back as values rather
- * than counts — a mean cannot be made from `head: true` — and this is the same
- * fetch shape `useDecks` already performs over the card table.
- */
-export function useCardStates() {
-  return useQuery({
-    queryKey: queryKeys.statsCards,
-    staleTime: STATS_STALE_TIME,
-    queryFn: async (): Promise<CardStates> => {
-      const rows = unwrap(
-        await supabase
-          .from('cards')
-          .select('fsrs_state, stability, difficulty')
-          .eq('status', 'active'),
-      );
-      return { distribution: stateDistribution(rows), strength: memoryStrength(rows) };
-    },
-  });
-}
-
-export type RetentionHistory = {
-  timeZone: string;
-  today: string;
-  from: Date;
-  to: Date;
-  /** Undone ratings already dropped — twice, and deliberately. */
-  reviews: CountedReviews;
-};
-
-/**
- * Reviews inside the widest retention window, fetched once.
- *
- * One request rather than three: 7, 30 and 90 days are nested, so the caller
- * slices this with `retention()` rather than asking the server the same question
- * at three lengths. Six columns, because row count is the cost here — a heavy
- * user's 90 days is thousands of rows, and `select *` would drag the whole FSRS
- * snapshot along with each one.
- *
- * `undone_at` is filtered server-side *and* selected, so `countable` has
- * something real to filter and the exclusion is provable rather than assumed.
- */
-export function useRetention(days = 90) {
-  const { data: profile } = useProfile();
-
-  return useQuery({
-    queryKey: queryKeys.statsRetention(days),
-    enabled: profile !== undefined,
-    staleTime: STATS_STALE_TIME,
-    queryFn: async (): Promise<RetentionHistory> => {
-      const now = new Date();
-      const timeZone = resolveTimeZone(profile?.timezone);
-      const today = studyDayKey(now, timeZone);
-      const from = studyDayStart(addStudyDays(today, -(days - 1)), timeZone);
-
-      const rows = unwrap(
-        await supabase
-          .from('reviews')
-          .select(
-            'rating, state_before, reviewed_at, undone_at, stability_after, difficulty_after',
-          )
-          .is('undone_at', null)
-          .gte('reviewed_at', from.toISOString())
-          .order('reviewed_at', { ascending: true }),
-      );
-
-      return { timeZone, today, from, to: now, reviews: countable(rows) };
-    },
-  });
-}
+export type { CountedReviews, ForecastDay, MemoryStrength, StateDistribution };
 
 export type { CardKind };

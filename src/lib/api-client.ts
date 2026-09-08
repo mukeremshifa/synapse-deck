@@ -1,10 +1,14 @@
 /**
  * The API client. `fetch`, with a Cognito access token attached.
  *
- * Replaces `src/lib/supabase.ts` for everything P9 moved: identity, decks,
- * cards, reviews and the practice queue. `supabase.ts` **stays** for what P9
- * deliberately did not move — `/progress` and card generation — until Phase F.
- * See the split table in docs/plans/P9-aws-slice.md.
+ * Replaced `src/lib/supabase.ts`, which was **deleted at FR0** along with the
+ * four `/progress` stats hooks that were its last readers (brief §2.3). There
+ * is one backend on the wire now.
+ *
+ * This is the transport, not the seam. Since FR0 the seam is the `ApiClient`
+ * interface in `src/lib/api/contract.ts`, and `src/lib/api/client.ts` is what
+ * implements it on top of this file. New callers go there; this stays as the
+ * fetch-plus-token layer beneath it.
  *
  * ── The token is fetched per request, never cached ────────────────────────
  *
@@ -24,7 +28,7 @@
  */
 
 import { getSession } from './cognito';
-import { env } from './env';
+import { requireApiUrl } from './env';
 
 /**
  * An error carrying the status and the server's error code.
@@ -63,7 +67,7 @@ async function request<T>(
     throw new ApiError(401, 'You are signed out. Sign in and try again.');
   }
 
-  const response = await fetch(`${env.VITE_API_URL}${path}`, {
+  const response = await fetch(`${requireApiUrl()}${path}`, {
     method: init.method ?? 'GET',
     headers: {
       authorization: `Bearer ${session.accessToken}`,

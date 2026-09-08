@@ -739,7 +739,19 @@ function buildReviews(): Review[] {
     const intensity = [0, 0, 3, 7, 0, 12, 5, 1, 0, 9][day % 10] ?? 0;
     // A two-week gap 40 days back, so "longest streak" is not just "all of it".
     const onHoliday = day <= 54 && day >= 41;
-    const count = onHoliday ? 0 : intensity;
+    /*
+     * **The last five days are always active, and that is deliberate.**
+     *
+     * The pattern above put zeros on the most recent days, which computed a
+     * perfectly correct `streakDays: 0` — and a home screen designed against a
+     * permanently-zero streak never sees the streak card working at all. Found
+     * by actually running the aggregate rather than reading it.
+     *
+     * Five days, not thirty: a current streak shorter than the longest one is
+     * what makes "Best: N days" mean anything on screen.
+     */
+    const recent = day <= 4 ? [6, 4, 9, 3, 7][day] ?? 5 : null;
+    const count = onHoliday ? 0 : (recent ?? intensity);
 
     for (let i = 0; i < count; i++) {
       const pool = day % 3 === 0 && neuroCards.length > 0 ? neuroCards : pharmCards;

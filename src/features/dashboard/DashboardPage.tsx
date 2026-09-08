@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import {
   ArrowRightIcon,
   ClipboardCheckIcon,
-  FlameIcon,
   PlayIcon,
   PlusIcon,
   SparklesIcon,
@@ -16,8 +15,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { Meter } from '@/components/Meter';
 import { plural } from '@/lib/format';
 import { toNotebook, notebookPath, type Notebook } from '@/lib/notebooks';
-import { streaks } from '@/lib/progress';
-import { useDecks, useDueSummary, useReviewHistory } from '@/lib/queries';
+import { useDecks, useDueSummary } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 /**
@@ -53,7 +51,6 @@ import { cn } from '@/lib/utils';
 export function DashboardPage() {
   const decks = useDecks();
   const summary = useDueSummary();
-  const history = useReviewHistory(90);
 
   const notebooks = useMemo(() => (decks.data ?? []).map(toNotebook), [decks.data]);
 
@@ -68,11 +65,6 @@ export function DashboardPage() {
       .sort((a, b) => b.waiting - a.waiting);
     return ready[0]?.notebook ?? notebooks[0] ?? null;
   }, [notebooks]);
-
-  const streak = useMemo(() => {
-    if (!history.data) return null;
-    return streaks([...history.data.counts.keys()], history.data.today);
-  }, [history.data]);
 
   const dueNow = summary.data ? summary.data.dueNow + summary.data.newAvailable : null;
   const loading = decks.isPending;
@@ -126,12 +118,17 @@ export function DashboardPage() {
               : 'Nothing yet today'
           }
         />
-        <StatCard
-          label="Streak"
-          icon={<FlameIcon className="size-4" aria-hidden />}
-          value={streak ? plural(streak.current, 'day') : null}
-          detail={streak ? `Best: ${plural(streak.longest, 'day')}` : undefined}
-        />
+        {/*
+          The streak card was removed at FR0 with the Supabase stats hooks.
+          `streaks()` needs day-bucketed review history, which only the Supabase
+          RPC provided; the AWS `/summary` route has no streak and adding one is
+          FR7's work, not this phase's.
+
+          Removed rather than left showing `value={null}`, which renders a
+          skeleton — a card that looks permanently loading is a worse lie than
+          a card that is not there. The streak returns on the home screen at FR2,
+          from `getGlobalSummary().streakDays`, which the contract already has.
+        */}
       </div>
 
       {/* ── Notebooks, as a prompt rather than an index ──────────────────── */}
