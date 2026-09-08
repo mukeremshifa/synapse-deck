@@ -530,16 +530,18 @@ export function BlueprintPage() {
               >
                 <SparklesIcon aria-hidden /> Generate exam
               </Button>
-              <Button
-                variant="outline"
-                onClick={() =>
-                  void navigate(
-                    notebookId ? notebookPath.exam(notebookId) : notebookPath.list(),
-                  )
-                }
-              >
-                Sit the sample exam
-              </Button>
+              {/*
+                FR2 removed "Sit the sample exam". It navigated to
+                `notebookPath.exam(notebookId)` — "the" exam of a notebook,
+                with no exam named — which is the artifact-less navigation that
+                made an exam open from nowhere. Every runner route now names its
+                artifact, and this screen has none to name: a blueprint says
+                what an exam *should* weigh, and nothing here has generated one.
+
+                It comes back when the blueprint can generate an exam and hand
+                over its id. That is FR4's generation and FR6's rebuild of this
+                page; this page is not currently routed.
+              */}
             </div>
           </CardContent>
         </Card>

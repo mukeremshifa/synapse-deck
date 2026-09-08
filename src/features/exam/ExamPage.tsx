@@ -56,7 +56,11 @@ export function ExamPage() {
   const recordAttempt = useRecordAttempt();
   const [phase, setPhase] = useState<Phase>({ status: 'setup' });
 
-  const exitTo = notebookId ? notebookPath.open(notebookId) : notebookPath.list();
+  /*
+   * FR2: the way out is the notebook, or home when the route gave no id.
+   * There is no notebook *list* any more — `/` is the one front door.
+   */
+  const exitTo = notebookId ? notebookPath.open(notebookId) : notebookPath.home();
 
   const start = useCallback((exam: typeof SAMPLE_EXAM) => {
     setPhase({ status: 'running', attempt: prepareAttempt(exam) });
@@ -144,11 +148,17 @@ export function ExamPage() {
             outcome={phase.outcome}
             onRetake={() => setPhase({ status: 'setup' })}
             onDone={() => void navigate(exitTo)}
-            onSeeDiagnostic={
-              notebookId
-                ? () => void navigate(notebookPath.diagnostic(notebookId))
-                : undefined
-            }
+            {...(notebookId
+              ? {
+                  /*
+                   * FR2: the diagnostic is no longer its own route. Topic
+                   * mastery is part of the notebook's overview (brief §3.4),
+                   * which FR6 builds — the route resolves today and renders a
+                   * placeholder naming that phase.
+                   */
+                  onSeeDiagnostic: () => void navigate(notebookPath.overview(notebookId)),
+                }
+              : {})}
           />
         </FocusFrame>
       );

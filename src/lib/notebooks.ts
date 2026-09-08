@@ -1,23 +1,41 @@
 /**
- * The notebook vocabulary, and the one place it meets the wire's.
+ * Where a notebook's surfaces live, and the last of the deck→notebook adapter.
  *
- * P11 renamed the product's top-level object from **deck** to **notebook**. The
- * rename stops here. Postgres still has a `decks` table, the API still serves
- * `/decks/:deckId`, `schemas.ts` still exports `DeckInput`, and every hook in
- * `queries.ts` still says `useDecks`. Nothing below this file knows the word
- * notebook exists.
+ * ── What this file was, and what FR2 left of it ───────────────────────────
  *
- * **Why the rename does not cross the wire.** P10 left the pipeline coupled to
- * the frontend through exactly four routes, and P10-SESSION-4 is explicit that
- * keeping that coupling narrow is what makes task 10 (Bedrock) a backend-only
- * change. A rename that reached the API would touch handlers, the data layer and
- * the schemas to buy nothing but a consistent noun in files no user opens — and
- * it would do it in the same commit range as a full UI rewrite, so a regression
- * in either would be indistinguishable from a regression in the other.
+ * P11 renamed the product's top-level object from **deck** to **notebook** and
+ * this file was where the rename stopped: Postgres had a `decks` table, the API
+ * served `/decks/:deckId`, and one adapter translated so that "a component says
+ * notebook, a hook says deck".
  *
- * So: one adapter, and a rule. **A component says notebook. A hook says deck.**
- * The translation happens here and nowhere else, which also means the day the
- * backend does rename, this file is the diff.
+ * FR0 ended that arrangement by writing a contract in which **the wire says
+ * notebook too** (`src/lib/api/contract.ts`). So the translation half of this
+ * file is now legacy by definition — it exists only for the screens still on
+ * the old `queries.ts` stack, and it dies with them.
+ *
+ * **FR2's decision (§6.2): kept, narrowed, and re-pointed — not deleted.**
+ * Deleting it outright would have meant rewriting `NotebookPage`, `StudioRail`,
+ * `BlueprintPage`, `DiagnosticPage` and the runners in this commit, which is
+ * FR3, FR5 and FR6's work done badly and all at once. What FR2 did instead:
+ *
+ * - **`notebookPath` re-pointed at the new route table.** Every path here was
+ *   a route that FR2 deleted or renamed, so leaving it alone would have left a
+ *   dozen callers navigating to 404s. This is the reason the file survives:
+ *   route construction in one place is what made that a one-file fix.
+ * - **`list()` is gone.** There is no notebook list any more — `/` is the one
+ *   home (brief §3.1), and `home()` says so.
+ * - **`gate()` is gone**, with the `/create/*` family it pointed into.
+ * - **The runners take an artifact id**, because every runner route now names
+ *   its artifact. That is not cosmetic: it is what makes "many decks, many
+ *   exams per notebook" expressible, and callers that had no artifact id to
+ *   give are exactly the surfaces that were guessing.
+ *
+ * ── For FR3, FR5 and FR6 ─────────────────────────────────────────────────
+ *
+ * `toNotebook` and `isResumable` are **deprecated on arrival**: they map a
+ * `DeckWithCounts` that only the old stack produces. When your phase re-points
+ * its screens at `@/lib/api`, delete the one you stop using. When the last goes,
+ * `queries.ts`, `api-client.ts` and the bottom half of this file go together.
  */
 
 import type { DeckRow, DeckWithCounts } from './queries';
@@ -78,17 +96,23 @@ export function isResumable(deck: Pick<DeckRow, 'status'>): boolean {
   return deck.status === 'draft';
 }
 
-/** Where a notebook lives. Route construction in one place, for the same reason. */
+/**
+ * Where a notebook's surfaces live. Route construction in one place, so the
+ * next table change is one file rather than a grep.
+ *
+ * **Every runner names its artifact** (brief §3.1). `practice`, `quiz`, `exam`
+ * and `notes` all require an artifact id, and requiring it is deliberate: a
+ * caller with no id to pass is a surface that was going to guess which deck or
+ * exam it meant, and now cannot compile instead.
+ */
 export const notebookPath = {
-  list: () => '/notebooks',
+  /** The one front door. There is no notebook list; `/` is it. */
+  home: () => '/',
   open: (id: string) => `/notebooks/${id}`,
-  /** The review gate. Still `/create/review/:deckId` on the router. */
-  gate: (id: string) => `/create/review/${id}`,
-  cards: (id: string) => `/notebooks/${id}/cards`,
-  practice: (id: string) => `/notebooks/${id}/practice`,
-  exam: (id: string) => `/notebooks/${id}/exam`,
-  /** The exam blueprint — what an exam over this notebook should weigh. */
-  blueprint: (id: string) => `/notebooks/${id}/blueprint`,
-  /** Topic mastery and the plan derived from it. */
-  diagnostic: (id: string) => `/notebooks/${id}/diagnostic`,
+  /** The notebook's centre — artifacts, readiness, diagnostics, plan (FR6). */
+  overview: (id: string) => `/notebooks/${id}/overview`,
+  practice: (id: string, deckId: string) => `/notebooks/${id}/decks/${deckId}/practice`,
+  quiz: (id: string, quizId: string) => `/notebooks/${id}/quizzes/${quizId}`,
+  exam: (id: string, examId: string) => `/notebooks/${id}/exams/${examId}`,
+  notes: (id: string, noteSetId: string) => `/notebooks/${id}/notes/${noteSetId}`,
 } as const;

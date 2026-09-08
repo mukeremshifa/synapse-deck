@@ -30,7 +30,8 @@ export function PracticePage() {
   // Every branch below renders inside the frame, so the way out exists even
   // when the queue failed to load — an error state you cannot leave is the
   // worst one to ship.
-  const exitTo = deckId ? notebookPath.open(deckId) : notebookPath.list();
+  // FR2: out to the notebook, or home — there is no notebook list any more.
+  const exitTo = deckId ? notebookPath.open(deckId) : notebookPath.home();
   const frameProps = {
     title: 'Practice',
     ...(deck.data ? { subtitle: deck.data.title } : {}),

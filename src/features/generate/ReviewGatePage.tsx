@@ -294,7 +294,22 @@ function ReviewGate({
         deckTitle={deckTitle}
         tally={tally}
         unreadable={unreadable}
-        onPractise={() => navigate(`/practice/${deckId}`)}
+        /*
+         * ── FR2 fixed a 404 on the happy path ────────────────────────────
+         *
+         * This navigated to `/practice/${deckId}` — a route that has never
+         * existed in this app's table. Accepting your generated cards and
+         * pressing "practise" landed on the not-found page, and nothing
+         * typechecked it because it was a template string.
+         *
+         * It is now a real notebook-scoped runner path. Both ids are the same
+         * value here, and that is not a bug: under the pre-FR7 backend a
+         * notebook's own id doubles as its implicit deck's id (the synthetic
+         * translation in `src/lib/api/client.ts`). **FR4 replaces this screen
+         * with a modal and FR5 rebuilds the runner** — when a notebook holds
+         * many decks, the deck being accepted supplies the second id.
+         */
+        onPractise={() => navigate(notebookPath.practice(deckId, deckId))}
       />
     );
   }

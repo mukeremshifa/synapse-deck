@@ -1,5 +1,4 @@
 import { useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
@@ -241,9 +240,14 @@ export function SettingsPage() {
                 The allowance resets on {formatDate(new Date(quota.data.resetsAt), 'UTC')}{' '}
                 (UTC).
               </p>
-              <Button variant="outline" className="self-start" asChild>
-                <Link to="/create/text">Generate cards</Link>
-              </Button>
+              {/*
+                No "Generate cards" button any more, and its absence is the
+                point. Generation is a modal inside a notebook (brief §3.2), so
+                a button here would have to pick *which* notebook to generate
+                into — which is the `focus` guess FR2 deletes. The quota is a
+                fact about the account; acting on it happens where the sources
+                are. Same rule as the home strip's.
+              */}
             </>
           )}
         </CardContent>

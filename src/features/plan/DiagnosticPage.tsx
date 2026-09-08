@@ -221,19 +221,31 @@ export function DiagnosticPage() {
    */
   const start = (action: PlanAction) => {
     if (!notebookId) return;
-    if (action.kind === 'drill') {
-      void navigate(notebookPath.practice(notebookId));
-      return;
-    }
-    if (action.kind === 'mini-exam') {
-      void navigate(notebookPath.exam(notebookId));
-      return;
-    }
+    /*
+     * ── FR2: drill and mini-exam lost their destinations, on purpose ──────
+     *
+     * Both used to navigate to "the" practice and "the" exam of a notebook —
+     * `notebookPath.practice(notebookId)`, no deck named. That only typechecked
+     * while a notebook had exactly one implicit deck and one sample exam, which
+     * is the assumption brief §1.2(1) deletes: there are now many decks and
+     * many exams per notebook, and every runner route names the artifact it is
+     * a sitting of.
+     *
+     * This screen has no artifact to name. It reasons about *topics*, and the
+     * mapping from a weak topic to the deck or exam that drills it needs the
+     * artifact list — which is FR6's job, when it rebuilds this page against
+     * the contract. So both now say what they need, exactly as `review` and
+     * `questions` already did, rather than navigating somewhere approximate.
+     *
+     * This page is not currently routed (FR2 task 1); FR6 rebuilds it.
+     */
     toast(`${action.topicName}: not wired up yet`, {
       description:
-        action.kind === 'review'
-          ? 'Reading a source in place needs the source viewer, which is not built.'
-          : 'Topic-scoped question generation needs the exam generator behind the blueprint.',
+        action.kind === 'drill' || action.kind === 'mini-exam'
+          ? 'Starting this needs the deck or exam it belongs to. FR6 rebuilds this screen against the notebook’s artifacts.'
+          : action.kind === 'review'
+            ? 'Reading a source in place needs the source viewer, which is not built.'
+            : 'Topic-scoped question generation needs the exam generator behind the blueprint.',
     });
   };
 

@@ -2,76 +2,75 @@ import { lazy, Suspense, type ReactNode } from 'react';
 import { Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom';
 import { AppShell } from './AppShell';
 import { NotFoundPage } from './NotFoundPage';
+import { Placeholder } from './Placeholder';
 import { RouteErrorBoundary } from './ErrorBoundary';
+import { ModalProvider } from './modals';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AuthCallbackPage } from '@/features/auth/AuthCallbackPage';
 import { LoginPage, SignupPage } from '@/features/auth/AuthPages';
 import { ProtectedRoute, PublicOnlyRoute } from '@/features/auth/ProtectedRoute';
-import { NotebookListPage } from '@/features/notebooks/NotebookListPage';
-import { DashboardPage } from '@/features/dashboard/DashboardPage';
+import { HomePage } from '@/features/home/HomePage';
 
 /**
- * The route table, rewritten for the notebook shell (P11).
+ * The route table, rewritten for the notebook model (FR2 task 1, brief §3.1).
  *
- * ── What changed, and why the shape of this file changed with it ──────────
+ * ═══ What changed, and the one rule behind all of it ═════════════════════
  *
- * P6's table was six sibling destinations under one layout, because the product
- * was six activities. P11's top-level object is a **notebook**, so there are now
- * three kinds of route and they want three different frames:
+ * > **Every screen answers "which notebook?" from the route, never from a
+ * > heuristic.** A surface that cannot name its notebook is not a valid
+ * > surface. (Brief §1.)
  *
- * 1. **`AppShell`** — the notebook list and settings. A max-width page with a
- *    thin header.
- * 2. **`NotebookPage`** — the three-pane shell. Full-viewport, its own header,
- *    no outer chrome; nesting it inside `AppShell` would put a header above a
- *    header and cost the panes the vertical space they need.
- * 3. **Full-screen routes** — practice, exam, the review gate. Launched *from* a
- *    notebook and owning the screen while they run. These are deliberately not
- *    children of the notebook layout: a timed exam inside a 380px rail is a
- *    worse exam (P11 §2), and focus mode needs the viewport.
+ * P11's table had three top-level frames because the model had no centre:
+ * `/home` prompted, `/notebooks` listed, and `/create/*` created — and the
+ * dashboard had to *guess* a notebook to prompt about, because nothing in the
+ * URL told it. That guess is deleted with this file (see `HomePage`).
  *
- * The guard still wraps a layout rather than each leaf, so no route can be added
- * later that quietly skips it — but there are now three guarded groups instead
- * of one, and each `ProtectedRoute` below is load-bearing.
+ * Four consequences, each a deliberate deletion rather than a move:
  *
- * ── `/` is no longer public ───────────────────────────────────────────────
+ * 1. **One home.** `/home` and `/notebooks` were two views of one list behind
+ *    two nav items. `/` is now the only front door.
+ * 2. **Every runner names its artifact.** `/notebooks/:id/exam` could only ever
+ *    mean "the exam", which is what made an exam open from nowhere. It is now
+ *    `/notebooks/:id/exams/:examId`, and "many exams per notebook" is
+ *    expressible for the first time.
+ * 3. **`/create/*` is gone.** Creating is a modal over the place you already
+ *    are (brief §3.2), so the flow that made a *new notebook* when the user
+ *    meant to add to an existing one no longer exists to be walked into.
+ * 4. **The `/decks/*` redirects are gone.** They dated from a rename two
+ *    phases back; the paths they forwarded are themselves now gone, so they
+ *    would have been redirects to 404s.
  *
- * P7 made `/` a landing page and called it "the one thing in P7 that altered
- * what an anonymous request can reach". P11 reverses that: the marketing page is
- * gone (P11 §4), and `/` now redirects to the notebook list, which is guarded.
- * A signed-out visitor to `/` lands on `/login`. This is a deliberate product
- * change, not an oversight — recorded in P11 §8.
+ * ── Three frames, for three kinds of screen ──────────────────────────────
  *
- * ── What is eager ─────────────────────────────────────────────────────────
+ * 1. **`AppShell`** — home and settings. A page with a thin header.
+ * 2. **The notebook** — FR3's three-pane shell. Full-viewport and its own
+ *    header, so it is not nested inside `AppShell`: a header above a header
+ *    would cost the panes the vertical space they exist for.
+ * 3. **Full-screen runners** — practice, quiz, exam, and the note reader.
+ *    Launched *from* a notebook and owning the screen while they run. A timed
+ *    exam inside a 380px rail is a worse exam.
  *
- * The auth pages and the notebook list. That is the whole of what a user needs
- * to see something real after signing in. Everything else is behind
- * `React.lazy`: the notebook shell and its panes, the generation pipeline and
- * its schemas, `ts-fsrs`, the exam engine and its timer.
+ * The guard wraps each frame rather than each leaf, so a route added later
+ * cannot quietly skip it — each `ProtectedRoute` below is load-bearing.
+ *
+ * ── Placeholders are finished work here ──────────────────────────────────
+ *
+ * FR2 creates the routes FR3–FR6 fill. A route that renders `Placeholder` and
+ * names the phase that owns it is a *complete* FR2 deliverable (plan §2); a
+ * route filled in early is another phase done badly and in the wrong commit.
+ * Each one below says which plan builds it.
+ *
+ * ── Two data stacks, on purpose, until FR6 ───────────────────────────────
+ *
+ * `HomePage` is the first screen on FR0's contract (`@/lib/api`). Every screen
+ * still routed to below — settings, the runners — remains on the old
+ * `src/lib/queries.ts` stack until the phase that owns it re-points it. That
+ * split is recorded in FR2 §1c and the drift log; the route table is the seam.
  */
 
-const NotebookPage = lazy(() =>
-  import('@/features/notebooks/NotebookPage').then(module => ({
-    default: module.NotebookPage,
-  })),
-);
-const NotebookCardsPage = lazy(() =>
-  import('@/features/notebooks/NotebookCardsPage').then(module => ({
-    default: module.NotebookCardsPage,
-  })),
-);
-const CreateFromTextPage = lazy(() =>
-  import('@/features/generate/CreateFromTextPage').then(module => ({
-    default: module.CreateFromTextPage,
-  })),
-);
-const CreateFromDocumentPage = lazy(() =>
-  import('@/features/generate/CreateFromDocumentPage').then(module => ({
-    default: module.CreateFromDocumentPage,
-  })),
-);
-const ReviewGatePage = lazy(() =>
-  import('@/features/generate/ReviewGatePage').then(module => ({
-    default: module.ReviewGatePage,
+const SettingsPage = lazy(() =>
+  import('@/features/settings/SettingsPage').then(module => ({
+    default: module.SettingsPage,
   })),
 );
 const PracticePage = lazy(() =>
@@ -84,28 +83,13 @@ const ExamPage = lazy(() =>
     default: module.ExamPage,
   })),
 );
-const SettingsPage = lazy(() =>
-  import('@/features/settings/SettingsPage').then(module => ({
-    default: module.SettingsPage,
-  })),
-);
-const BlueprintPage = lazy(() =>
-  import('@/features/blueprint/BlueprintPage').then(module => ({
-    default: module.BlueprintPage,
-  })),
-);
-const DiagnosticPage = lazy(() =>
-  import('@/features/plan/DiagnosticPage').then(module => ({
-    default: module.DiagnosticPage,
-  })),
-);
 
 /** Page-shaped, so the layout does not jump when the real page arrives. */
 function Lazy({ children }: { children: ReactNode }) {
   return (
     <Suspense
       fallback={
-        <div className="space-y-6">
+        <div className="flex flex-col gap-gutter">
           <Skeleton className="h-9 w-40" />
           <Skeleton className="h-28 w-full rounded-xl" />
           <Skeleton className="h-48 w-full rounded-xl" />
@@ -129,7 +113,7 @@ function FullScreen({ children }: { children: ReactNode }) {
 /**
  * The frame for routes that own the viewport. It contributes no chrome of its
  * own — it exists so the guard and the Suspense boundary are declared once
- * rather than repeated on each of the five routes beneath it.
+ * rather than repeated on each runner.
  */
 function FullScreenOutlet() {
   return (
@@ -141,131 +125,180 @@ function FullScreenOutlet() {
   );
 }
 
+/* ── The screens FR3–FR6 replace ──────────────────────────────────────── */
+
 /**
- * `/decks/:id` → `/notebooks/:id`. The ids are the same — the rename never
- * crossed the wire (`src/lib/notebooks.ts`), so an old deck link addresses a
- * notebook correctly and only the noun in the path has to change.
+ * `/notebooks/:notebookId` — FR3's three-pane shell.
+ *
+ * The old `NotebookPage` is deliberately **not** routed here. It is built on
+ * `queries.ts`'s deck shape and on `SourcesRail`'s `useState([])`, both of
+ * which brief §1.4 lists as not surviving; routing to it would make FR3's first
+ * job "unpick FR2's wiring" rather than "build the notebook".
  */
-function LegacyDeckRedirect() {
+function NotebookRoute() {
   const { notebookId } = useParams<{ notebookId: string }>();
-  return <Navigate replace to={notebookId ? `/notebooks/${notebookId}` : '/notebooks'} />;
+  return (
+    <Placeholder
+      title="The notebook"
+      phase="FR3"
+      description="Sources on the left, grounded chat in the centre, the Studio on the right — the three-pane shell, with add-source as its primary action."
+      ids={{ notebookId }}
+    />
+  );
+}
+
+/** `/notebooks/:notebookId/overview` — FR6's centre. */
+function OverviewRoute() {
+  const { notebookId } = useParams<{ notebookId: string }>();
+  return (
+    <Placeholder
+      title="Overview"
+      phase="FR6"
+      description="This notebook's artifacts with their provenance, readiness, topic mastery, the review heatmap and the study plan — all scoped to one notebook."
+      ids={{ notebookId }}
+      backTo={notebookId ? `/notebooks/${notebookId}` : '/'}
+      backLabel="Back to the notebook"
+    />
+  );
+}
+
+/** `/notebooks/:notebookId/quizzes/:quizId` — FR5's untimed runner. */
+function QuizRoute() {
+  const { notebookId, quizId } = useParams<{ notebookId: string; quizId: string }>();
+  return (
+    <Placeholder
+      title="Quiz"
+      phase="FR5"
+      description="One question per page, revealed when answered, no time limit, resumable."
+      ids={{ notebookId, quizId }}
+      backTo={notebookId ? `/notebooks/${notebookId}` : '/'}
+      backLabel="Back to the notebook"
+    />
+  );
+}
+
+/** `/notebooks/:notebookId/notes/:noteSetId` — FR5's reader. */
+function NotesRoute() {
+  const { notebookId, noteSetId } = useParams<{
+    notebookId: string;
+    noteSetId: string;
+  }>();
+  return (
+    <Placeholder
+      title="Notes"
+      phase="FR5"
+      description="The note set's blocks, read and marked read per block so the reader can resume. Editing comes later."
+      ids={{ notebookId, noteSetId }}
+      backTo={notebookId ? `/notebooks/${notebookId}` : '/'}
+      backLabel="Back to the notebook"
+    />
+  );
 }
 
 export function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/" element={<Navigate replace to="/home" />} />
+    <ModalProvider>
+      <Routes>
+        {/* ── Home and settings, inside the page shell ───────────────────── */}
+        <Route
+          element={
+            <ProtectedRoute>
+              <AppShell />
+            </ProtectedRoute>
+          }
+        >
+          {/*
+            Home is eager. It is what `/` resolves to, and lazily loading the
+            first screen behind the sign-in would put a spinner where the app's
+            content should already be.
+          */}
+          <Route path="/" element={<HomePage />} />
+          <Route
+            path="settings"
+            element={
+              <Lazy>
+                <SettingsPage />
+              </Lazy>
+            }
+          />
+        </Route>
 
-      {/* ── The list and settings, inside the page shell ─────────────────── */}
-      <Route
-        element={
-          <ProtectedRoute>
-            <AppShell />
-          </ProtectedRoute>
-        }
-      >
+        {/* ── The notebook: FR3's three panes, no outer chrome ───────────── */}
+        <Route
+          path="notebooks/:notebookId"
+          element={
+            <ProtectedRoute>
+              <FullScreen>
+                <NotebookRoute />
+              </FullScreen>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ── Full-screen surfaces launched from a notebook ──────────────── */}
+        <Route
+          element={
+            <ProtectedRoute>
+              <FullScreenOutlet />
+            </ProtectedRoute>
+          }
+        >
+          <Route path="notebooks/:notebookId/overview" element={<OverviewRoute />} />
+          {/*
+            Every runner names its artifact — the deck, quiz or exam it is a
+            sitting of. This is the fix for the exam that opened from nowhere,
+            and what makes many-per-notebook expressible.
+          */}
+          <Route
+            path="notebooks/:notebookId/decks/:deckId/practice"
+            element={<PracticePage />}
+          />
+          <Route path="notebooks/:notebookId/quizzes/:quizId" element={<QuizRoute />} />
+          <Route path="notebooks/:notebookId/exams/:examId" element={<ExamPage />} />
+          <Route
+            path="notebooks/:notebookId/notes/:noteSetId"
+            element={<NotesRoute />}
+          />
+        </Route>
+
+        {/* ── Public ─────────────────────────────────────────────────────── */}
+        <Route
+          path="login"
+          element={
+            <PublicOnlyRoute>
+              <LoginPage />
+            </PublicOnlyRoute>
+          }
+        />
+        <Route
+          path="signup"
+          element={
+            <PublicOnlyRoute>
+              <SignupPage />
+            </PublicOnlyRoute>
+          }
+        />
+        <Route path="auth/callback" element={<AuthCallbackPage />} />
+
         {/*
-          The dashboard is eager, like the notebook list, because it is now what
-          `/` resolves to — lazily loading the first screen behind the sign-in
-          would put a spinner where the app's content should already be.
+          `/home` and `/notebooks` redirect to `/`, and only those two.
+
+          They are kept because they were the app's two nav items until this
+          commit — every bookmark and every link in the owner's notes points at
+          one of them, and both mean exactly what `/` now means, so the
+          redirect is lossless. Recorded in FR2 §6.3.
+
+          `/dashboard`, `/account`, `/decks` and `/create/*` are **not** kept.
+          Each was already a redirect to a redirect, or a page whose flow no
+          longer exists; forwarding to `/` would tell a user their bookmarked
+          "create from document" page still works, which is worse than a 404
+          that says plainly it does not.
         */}
-        <Route path="home" element={<DashboardPage />} />
-        <Route path="notebooks" element={<NotebookListPage />} />
-        <Route
-          path="notebooks/:notebookId/blueprint"
-          element={
-            <Lazy>
-              <BlueprintPage />
-            </Lazy>
-          }
-        />
-        <Route
-          path="notebooks/:notebookId/diagnostic"
-          element={
-            <Lazy>
-              <DiagnosticPage />
-            </Lazy>
-          }
-        />
-        <Route
-          path="notebooks/:notebookId/cards"
-          element={
-            <Lazy>
-              <NotebookCardsPage />
-            </Lazy>
-          }
-        />
-        <Route
-          path="settings"
-          element={
-            <Lazy>
-              <SettingsPage />
-            </Lazy>
-          }
-        />
-        <Route path="account" element={<Navigate replace to="/settings" />} />
-      </Route>
+        <Route path="home" element={<Navigate replace to="/" />} />
+        <Route path="notebooks" element={<Navigate replace to="/" />} />
 
-      {/* ── The notebook itself: three panes, no outer chrome ────────────── */}
-      <Route
-        path="notebooks/:notebookId"
-        element={
-          <ProtectedRoute>
-            <FullScreen>
-              <NotebookPage />
-            </FullScreen>
-          </ProtectedRoute>
-        }
-      />
-
-      {/* ── Full-screen routes launched from a notebook ──────────────────── */}
-      <Route
-        element={
-          <ProtectedRoute>
-            <FullScreenOutlet />
-          </ProtectedRoute>
-        }
-      >
-        <Route path="notebooks/:notebookId/practice" element={<PracticePage />} />
-        <Route path="notebooks/:notebookId/exam" element={<ExamPage />} />
-
-        {/*
-          Generation and the review gate. The gate's path keeps `:deckId`
-          rather than `:notebookId`, because it is the one route the pipeline's
-          own code constructs and P10-SESSION-4 protects that contract. See
-          `notebookPath.gate`.
-        */}
-        <Route path="create/text" element={<CreateFromTextPage />} />
-        <Route path="create/document" element={<CreateFromDocumentPage />} />
-        <Route path="create/review/:deckId" element={<ReviewGatePage />} />
-      </Route>
-
-      {/* ── Public ───────────────────────────────────────────────────────── */}
-      <Route
-        path="login"
-        element={
-          <PublicOnlyRoute>
-            <LoginPage />
-          </PublicOnlyRoute>
-        }
-      />
-      <Route
-        path="signup"
-        element={
-          <PublicOnlyRoute>
-            <SignupPage />
-          </PublicOnlyRoute>
-        }
-      />
-      <Route path="auth/callback" element={<AuthCallbackPage />} />
-
-      {/* Old paths, kept as redirects. A bookmark or a link in the owner's
-          notes should not 404 because the nouns changed. */}
-      <Route path="dashboard" element={<Navigate replace to="/home" />} />
-      <Route path="decks" element={<Navigate replace to="/notebooks" />} />
-      <Route path="decks/:notebookId" element={<LegacyDeckRedirect />} />
-
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </ModalProvider>
   );
 }
