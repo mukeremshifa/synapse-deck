@@ -1,6 +1,6 @@
 # FR0 — The contract and the fake
 
-**Status:** 📋 Planned 2026-09-07. Not executed.
+**Status:** ✅ **Executed 2026-09-08.** Decisions in §6, the FR7 build list in §6.3.
 **Parent:** [FE-REARCHITECTURE-BRIEF.md](FE-REARCHITECTURE-BRIEF.md) — read it first; this
 plan executes its §2 and encodes its §1.
 **Then:** [CLAUDE.md](../../CLAUDE.md) and [AGENTS.md](../AGENTS.md).
@@ -370,46 +370,130 @@ the Supabase project is still live.
 
 ---
 
-## 5. Acceptance criteria
+## 5. Acceptance criteria — as met, 2026-09-08
 
-Observable, not vibes.
+Observable, not vibes. Every one checked; how, where it is not obvious.
 
-1. `src/lib/api/` contains `contract.ts`, `client.ts`, `fake.ts`, `fixtures.ts`, `index.ts`.
-2. **`fake.ts` and `client.ts` both satisfy `ApiClient` with no cast, no `any`, no
-   `@ts-expect-error`.** The compile-error guarantee is the phase's central claim; a cast
-   voids it.
-3. Every noun in brief §1.1 has a Zod schema and an inferred type in `contract.ts`.
-4. `CardPayload` is **imported** from `schemas.ts`, not redefined.
-5. Every notebook-scoped method takes `notebookId` as a required first parameter.
-6. `addSource` and `createArtifact` return `Job`.
-7. `fixtures.ts` contains ≥3 notebooks, one empty, every artifact kind, and **at least one
-   dangling `sourceId`**.
-8. The fake's latency and error injection are configurable.
-9. **`npm run dev` boots with no `.env.local` present**, in fake mode. Observed, by moving
-   the file aside — not assumed.
-10. `grep -rn "supabase" src/` returns only comments; the dependency is uninstalled.
-11. **The app still runs against the live API in `live` mode** — every existing screen
-    works as it did before FR0, except any surface knowingly given up in task 5.
-12. `npm run verify` passes.
-13. **FR1's plan reconciled** against what was built; drift log appended.
+| # | Criterion | Result |
+| --- | --- | --- |
+| 1 | `src/lib/api/` has all five files | ✅ |
+| 2 | Both implementations satisfy `ApiClient` — **no cast, no `any`, no `@ts-expect-error`** | ✅ `client.ts` parses `CardPayload` and `FsrsState` rather than asserting them, which is what the criterion is actually for |
+| 3 | Every brief §1.1 noun has a Zod schema and a type | ✅ plus `Job`, `Question`, `NoteBlock`, `Blueprint`, `Profile`, `QuotaUsage`, the four aggregates and `GlobalSummary` |
+| 4 | `CardPayload` **imported**, not redefined | ✅ with `McqPayload`, `ExamConfig`, `GradeSchema`, `GENERATION_LIMITS` |
+| 5 | Every notebook-scoped method takes `notebookId` first, required | ✅ the sole exception is `getGlobalSummary`, which is scopeless by design (§6.4) |
+| 6 | `addSource` and `createArtifact` return `Job` | ✅ |
+| 7 | ≥3 notebooks, one empty, every kind, **≥1 dangling `sourceId`** | ✅ 4 notebooks; `nb-stats` empty; `src-pharm-deleted` dangles from `art-deck-abx` **and** from a note block's citation |
+| 8 | Latency and errors configurable | ✅ `latencyMs`, `failNext`, `failAlways`, `jobDurationMs`, `failNextJob`, `truncateNextJob`; on `window.fakeApi` in dev |
+| 9 | **`npm run dev` boots with no `.env.local`** | ✅ **observed.** The file was moved aside and the module graph loaded through Vite; `listNotebooks` returned four projected notebooks. That run also found a real bug — `window` at module scope in `index.ts` threw under SSR — now guarded |
+| 10 | `grep -rn "supabase" src/` returns only comments; dependency gone | ✅ |
+| 11 | The app still runs in `live` mode | ⚠️ **typechecks and builds; not run.** No screen was opened in `live` mode. The known give-up is the dashboard's streak card (§6.1) |
+| 12 | `npm run verify` passes | ✅ |
+| 13 | FR1 reconciled; drift log appended | ✅ FR1's three §1b assumptions all held and it says so; eight drift rows |
 
----
+**On 11, be precise about what was and was not done.** `client.ts` is typed against
+`ApiClient`, not against the API, and nothing exercised it over HTTP. A wrong path compiles
+and 404s at runtime — see §7.3.
 
-## 6. Decisions to record
+## 6. Decisions recorded
 
-Write these back, so the next session inherits them rather than re-deriving:
+Written back on execution, 2026-09-08.
 
-1. **Which task-5 option was taken** for the four progress hooks, and what `/progress` does
-   now in each mode.
-2. **The secret-key refusal statement** (task 5's box) — removed with its variable, not
-   relaxed.
-3. **Any place `client.ts` throws `not_implemented`**, tabulated. This is FR7's build list.
-4. **Anything in the contract that brief §1 did not settle** and you had to decide. Name it
-   as a decision, not as an implementation detail — §1.2 is settled and yours are not, and
-   the difference matters to whoever reads this next.
-5. **Whether any brief §6 open question was forced early.** If one was, say which and why.
+### 6.1 The four progress hooks — deleted, and the option list was wrong
 
----
+**Neither of the plan's two options applied, because `/progress` does not exist.** It was
+removed before this phase. So `useDueForecast`, `useCardStates` and `useRetention` had **no
+consumer at all**, and `useReviewHistory` was read by `DashboardPage` for exactly one
+number — the streak.
+
+Option 1 (re-point at `ApiClient`) would have been four hooks with a new backend behind
+them serving zero screens. So all four were **deleted**. Nothing is lost: the aggregates
+they computed now live on `ApiClient` as `getReviewHistory`, `getDueForecast`,
+`getCardStates` and `getRetention` — **notebook-scoped**, which is what FR6's overview
+needs and what a global `/progress` could never be. FR6 builds against those.
+
+`/progress` does nothing in either mode, because it is not a route.
+
+**The dashboard's streak card was removed** rather than left rendering `value={null}`,
+which is a permanent skeleton — a card that looks forever-loading is a worse lie than one
+that is absent. It returns at FR2 from `getGlobalSummary().streakDays`.
+
+### 6.2 The secret-key refusal
+
+> **The `sb_secret_…` refusal was removed because the variable it validated no longer
+> exists. It was not relaxed.**
+
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` are gone from `env-schema.ts`,
+`env.ts` and `.env.example`, with `src/lib/supabase.ts` and the `@supabase/supabase-js`
+dependency. A `.refine` on a variable nothing reads is dead code, not a security boundary.
+
+**If any Supabase variable is ever reintroduced, its refusal is reintroduced with it,
+unchanged.** This is stated in the commit message, in `env-schema.ts`'s header, and in
+`.env.example`, because in a diff it looks identical to a weakening.
+
+### 6.3 Where `client.ts` throws `not_implemented` — **FR7's build list**
+
+Every one of these is a method the contract requires and the live backend cannot serve.
+None of them fakes a result.
+
+| Method | Why the live backend cannot serve it |
+| --- | --- |
+| `listSources`, `getSource`, `addSource`, `deleteSource` | Sources are not persisted — they are `useState([])`. There is no table and no route. |
+| `listArtifacts`, `getArtifact`, `createArtifact`, `updateArtifact`, `deleteArtifact` | No artifacts table. `decks` is one flat level; `POST /jobs` creates a *new deck* rather than an artifact within a notebook. |
+| `listQuestions`, `startAttempt`, `saveAttemptProgress`, `submitAttempt`, `getAttempt`, `listAttempts` | `0008_answers.sql:89` — there is no `exams` table. Answers are recorded loose, grouped by a client-generated uuid. |
+| `listNoteBlocks`, `markBlocksRead` | Note sets do not exist in any form. |
+| `getReviewHistory`, `getDueForecast`, `getCardStates`, `getRetention` | These were the Supabase RPCs and table reads, removed here. The AWS API has no aggregate endpoints. |
+
+Three more are implemented but **lossy**, and FR7 must fix rather than merely port them:
+
+- **`getGlobalSummary`** returns `streakDays: 0` and `timeZone: 'UTC'` — `/summary` carries
+  neither.
+- **`ask`** accepts `sourceIds` and ignores it: retrieval runs over the whole notebook's
+  chunks because sources are not entities. Its citations carry a *chunk* id where the
+  contract wants a source id.
+- **`listNotebooks` / `getNotebook`** synthesise `readiness` from card counts alone, and
+  report `counts.sources: 0` — a known-wrong zero, not a measurement.
+
+`client.ts` also carries a **synthetic artifact id**: a notebook's own id doubles as its
+implicit deck's, so `listCards(notebookId, artifactId)` works only when they are equal.
+FR7 deletes that translation.
+
+### 6.4 What the brief did not settle, and FR0 decided
+
+Named as decisions, because §1.2 is the owner's and these are not.
+
+1. **Pagination is in the contract.** `Page<T>` and `PageRequest`; `listNotebooks`,
+   `listSources`, `listArtifacts`, `listCards` and `listAttempts` return pages. FR0 §3(3)
+   implies it but the brief's noun list does not. A list that would page at FR7 must page
+   now, or every screen is designed having never seen a second page.
+2. **`getGlobalSummary` is the one cross-notebook method**, for §3.5's global strip.
+   Everything else is notebook-scoped. Its doc comment carries the rule that keeps it from
+   becoming the `focus` guess again: **nothing on it may become a CTA**, because a button
+   there would have to pick a notebook.
+3. **`Job` is one noun for both `addSource` and `createArtifact`**, tagged by `kind`, with
+   `result: { artifactId, sourceId }`. The brief implies two flows; one shape means FR4
+   designs one progress surface.
+4. **`Attempt` is one noun for quiz and exam**, tagged by `artifactKind`, with
+   `outcome: 'in-progress'` for a resumable quiz. §1.2(3) separates the *runners*, and it
+   does; what is recorded is the same thing either way.
+5. **Errors are a closed union** (`ApiErrorCode`) rejected as `ApiClientError`. The brief
+   asked only that errors be "part of the contract". Closed, so a surface can `switch` and
+   TypeScript reports an unhandled code.
+6. **`markBlocksRead` counts blocks**, which is how a note set contributes to readiness.
+   §1.3 says "a note set unread sections" without saying how one becomes read.
+
+### 6.5 Was any brief §6 open question forced early?
+
+**One: q1, "does deleting a notebook delete its artifacts?"** `deleteNotebook` had to do
+something, and doing nothing would have leaked orphans. Answered **yes**, which is the
+brief's own "almost certainly" — an artifact has no existence outside its notebook (§1).
+This does not contradict §1.2(7): surviving *a source's* deletion is a different question
+from surviving *the notebook's*, and the ADR and the method's doc comment both say so.
+
+**q2, q3 and q4 were not forced.** Regeneration is untouched (each generation is simply a
+new artifact, which is §1.2(7)'s grain). The note editor is untouched — structured blocks
+keep both options open, which is the point of §1.2(2). Chat history is not persisted and
+chat is not a noun; only save-as-note is committed, through `AskResponse.id` and
+`CreateArtifactInput`'s `fromResponseId`.
 
 ## 7. What will go unverified
 

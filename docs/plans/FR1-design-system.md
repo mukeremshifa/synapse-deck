@@ -40,6 +40,28 @@ This plan assumes:
 
 **Where any of that is now false, fix this plan and commit that before writing code.**
 
+### Reconciled against FR0 as executed — 2026-09-08
+
+**All three assumptions above were checked and hold.** `src/lib/api/` exists with
+`contract.ts`, `client.ts`, `fake.ts`, `fixtures.ts` and `index.ts`; the eleven primitives
+are exactly the eleven named; and `SessionSummary.tsx` is still the only importer of
+`grade-tokens.ts`. FR0 touched no component, no primitive and no CSS.
+
+Three things FR0 changed that this phase should know, none of which invalidate the plan:
+
+- **`npm run dev` boots with no `.env.local`, in fake mode** — the precondition above is
+  satisfied and was observed rather than assumed. `VITE_API_MODE` defaults to `fake`.
+- **`DashboardPage` lost its streak card.** That is the one component FR0 modified, and it
+  was forced: `streaks()` needed the Supabase history that this phase's predecessor
+  removed. If FR1 upgrades `DashboardPage` as its "one real screen", it is upgrading a
+  screen with three stat cards, not four. The streak returns at FR2 from
+  `getGlobalSummary().streakDays`.
+- **The fake's knobs are the way to see a state**, not to reason about one. In dev,
+  `fakeApi.configure({ latencyMs: 2000 })` from the browser console is how the **loading**
+  half of §5's four-state set gets designed against something real rather than imagined;
+  `fakeApi.configure({ failAlways: 'internal' })` does the same for **error**. Both are
+  live now. The **empty** state has `nb-stats`, a notebook with nothing in it at all.
+
 ---
 
 ## 2. Out of scope

@@ -376,6 +376,57 @@ the second duplicates the exam runner without the timing that makes it worth sit
 
 ## 5. Data model
 
+> ### ⚠️ §5.0 — The model below is v1's, and it is being replaced
+>
+> **The scope changed on 2026-09-07** ([the brief](plans/FE-REARCHITECTURE-BRIEF.md)),
+> after an audit found that **the UI is built around eight nouns and this data model has
+> four.** Only `cards`, `reviews`, `topics` and `answers` are real entities. Notebook,
+> source, exam, deck-as-a-set, quiz and note are views over decks and cards with no backing
+> identity — which is why the dashboard has to *guess* which notebook the user meant, and
+> why an exam cannot be filed under one.
+>
+> The noun list below replaces it. It is **already the frontend's contract**, encoded as
+> Zod schemas and an `ApiClient` interface in
+> [`src/lib/api/contract.ts`](../src/lib/api/contract.ts) (FR0, executed 2026-09-08), and
+> served today by a typed in-repo fake. **`services/api/` and the migrations still
+> implement §5.1–5.10 and are untouched until FR7**, which rewrites them to serve the
+> contract. Both models are live at once, on purpose and temporarily.
+>
+> ```
+> Notebook                    the only first-class citizen
+> ├── Source        n         a PDF, a paste, later a URL — persisted, not session state
+> │     └── topicNames[]       metadata from the chunking pipeline
+> ├── Artifact      n         anything generated FROM sources. ONE kind-tagged noun:
+> │   ├── kind='deck'           a set of cards            → Practice
+> │   ├── kind='quiz'           untimed, reveal-on-answer → Quiz
+> │   ├── kind='noteset'        structured blocks         → Notes
+> │   └── kind='exam'           timed, carries its own blueprint → Exam simulator
+> ├── Topic         n         notebook-scoped, reconciled from source metadata
+> ├── Attempt       n         one sitting of a quiz or an exam
+> └── Review        n         FSRS state, per card
+> ```
+>
+> Four things about this shape are load-bearing, and each has a decision behind it:
+>
+> - **`Artifact` is one table tagged by `kind`, not four tables.** That is what delivers a
+>   central list of what a notebook has produced, provenance, readiness bundling, and a new
+>   feature as a new `kind`. See [ADR 0015](adr/0015-artifact-as-one-kind-tagged-noun.md) —
+>   which also records what you would have to reproduce before splitting it up again.
+> - **`sourcesSnapshot` sits beside `sourceIds[]`.** Deleting a source does not delete
+>   artifacts made from it, so **a dangling `sourceId` is a valid state, not an error**, and
+>   every consumer must handle it. Same principle as
+>   [ADR 0013](adr/0013-answers-snapshot-the-question.md).
+> - **Everything is notebook-scoped.** Every artifact, topic, attempt and aggregate names
+>   its notebook. The single exception is the home screen's global strip, and it names no
+>   notebook *and offers no action* — a button there would have to guess one.
+> - **Readiness replaces the card count.** `{ state, detail }` per artifact, rolled up per
+>   notebook. Practice means "work this bundle", not "drill N cards".
+>
+> Why the frontend runs against a fake rather than waiting for the backend:
+> [ADR 0014](adr/0014-typed-fake-as-the-frontend-backend.md).
+
+### 5.0b The v1 model — still what the database implements
+
 Postgres on Supabase. Every table has `id uuid default gen_random_uuid()`, `created_at`,
 `updated_at`, and `user_id uuid references auth.users not null`. RLS on **every** table.
 
