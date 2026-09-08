@@ -56,11 +56,27 @@
 
      Keep this list minimal. Anything added here is a file the API bundle will
      pull in, and a module that reaches for the DOM will fail this project
-     rather than the app's. */
+     rather than the app's.
+
+     mastery.ts and fsrs.ts joined the list at FR7, for getTopicMastery. That
+     aggregate's arithmetic — the FSRS forgetting curve, the confidence
+     weighting, the divergence between what a card's schedule predicts and what
+     an exam actually measured — is genuinely subtle, and reimplementing it in
+     SQL would mean two versions of one model that would drift. So the server
+     reduces the *fetch* (five columns per card, in data/aggregates.ts) and
+     reuses the reviewed implementation.
+
+     fsrs.ts is here only because mastery.ts needs one type from it, and it
+     imports ts-fsrs. That import is `import type`, so it erases at compile time
+     and no runtime dependency reaches the bundle — services/api still ships
+     with `pg` alone. If mastery.ts ever needs a *value* from fsrs.ts, that
+     stops being true and this entry needs re-deciding rather than extending. */
   "include": [
     "src",
     "../../src/lib/schemas.ts",
     "../../src/lib/day.ts",
-    "../../src/lib/quota.ts"
+    "../../src/lib/quota.ts",
+    "../../src/lib/mastery.ts",
+    "../../src/lib/fsrs.ts"
   ]
 }

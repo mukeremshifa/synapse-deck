@@ -194,6 +194,10 @@ const handlers = {
   chat: (await import('../services/api/src/handlers/chat.ts')).handler,
   topics: (await import('../services/api/src/handlers/topics.ts')).handler,
   exams: (await import('../services/api/src/handlers/exams.ts')).handler,
+  // FR7 -- the notebook/artifact model.
+  notebooks: (await import('../services/api/src/handlers/notebooks.ts')).handler,
+  artifacts: (await import('../services/api/src/handlers/artifacts.ts')).handler,
+  generation: (await import('../services/api/src/handlers/generation.ts')).handler,
 };
 
 /**
@@ -248,6 +252,61 @@ const ROUTES = [
   { method: 'GET', pattern: /^\/summary$/, fn: 'reviews' },
   { method: 'POST', pattern: /^\/reviews$/, fn: 'reviews' },
   { method: 'POST', pattern: /^\/reviews\/undo$/, fn: 'reviews' },
+
+  /*
+   * ── FR7: notebooks, sources, artifacts, attempts, aggregates ────────────
+   *
+   * Ordered most-specific-first, exactly as API Gateway resolves them, so
+   * `/notebooks/{id}/artifacts/{aid}/questions` never falls into
+   * `/notebooks/{id}/artifacts/{aid}`.
+   */
+  { method: 'GET', pattern: /^\/notebooks$/, fn: 'notebooks' },
+  { method: 'POST', pattern: /^\/notebooks$/, fn: 'notebooks' },
+
+  // Aggregates. Five reads the overview makes, all reduced server-side.
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/stats\/history$/, fn: 'notebooks', params: ['notebookId'] },
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/stats\/retention$/, fn: 'notebooks', params: ['notebookId'] },
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/stats\/states$/, fn: 'notebooks', params: ['notebookId'] },
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/stats\/forecast$/, fn: 'notebooks', params: ['notebookId'] },
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/stats\/mastery$/, fn: 'notebooks', params: ['notebookId'] },
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/topics$/, fn: 'notebooks', params: ['notebookId'] },
+
+  // Sources.
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/sources$/, fn: 'notebooks', params: ['notebookId'] },
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/sources\/([^/]+)$/, fn: 'notebooks', params: ['notebookId', 'sourceId'] },
+  { method: 'DELETE', pattern: /^\/notebooks\/([^/]+)\/sources\/([^/]+)$/, fn: 'notebooks', params: ['notebookId', 'sourceId'] },
+
+  // Jobs: starting work, and watching it.
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/jobs$/, fn: 'generation', params: ['notebookId'] },
+  { method: 'POST', pattern: /^\/notebooks\/([^/]+)\/jobs$/, fn: 'generation', params: ['notebookId'] },
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/jobs\/([^/]+)$/, fn: 'generation', params: ['notebookId', 'jobId'] },
+
+  // Attempts addressed through the notebook, for the sittings list.
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/attempts$/, fn: 'artifacts', params: ['notebookId'] },
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/attempts\/([^/]+)$/, fn: 'artifacts', params: ['notebookId', 'attemptId'] },
+  // Saving progress, and submitting. Addressed by attempt id alone: the attempt
+  // names its own artifact, so the path does not have to.
+  { method: 'PATCH', pattern: /^\/notebooks\/([^/]+)\/attempts\/([^/]+)$/, fn: 'artifacts', params: ['notebookId', 'attemptId'] },
+  { method: 'POST', pattern: /^\/notebooks\/([^/]+)\/attempts\/([^/]+)$/, fn: 'artifacts', params: ['notebookId', 'attemptId'] },
+
+  // An artifact's contents, then the artifact itself.
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/artifacts\/([^/]+)\/questions$/, fn: 'artifacts', params: ['notebookId', 'artifactId'] },
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/artifacts\/([^/]+)\/blocks$/, fn: 'artifacts', params: ['notebookId', 'artifactId'] },
+  { method: 'POST', pattern: /^\/notebooks\/([^/]+)\/artifacts\/([^/]+)\/blocks$/, fn: 'artifacts', params: ['notebookId', 'artifactId'] },
+  { method: 'POST', pattern: /^\/notebooks\/([^/]+)\/artifacts\/([^/]+)\/attempts$/, fn: 'artifacts', params: ['notebookId', 'artifactId'] },
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/artifacts\/([^/]+)\/cards$/, fn: 'artifacts', params: ['notebookId', 'artifactId'] },
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/artifacts$/, fn: 'artifacts', params: ['notebookId'] },
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/artifacts\/([^/]+)$/, fn: 'artifacts', params: ['notebookId', 'artifactId'] },
+  { method: 'PATCH', pattern: /^\/notebooks\/([^/]+)\/artifacts\/([^/]+)$/, fn: 'artifacts', params: ['notebookId', 'artifactId'] },
+  { method: 'DELETE', pattern: /^\/notebooks\/([^/]+)\/artifacts\/([^/]+)$/, fn: 'artifacts', params: ['notebookId', 'artifactId'] },
+
+  // The practice queue, notebook-scoped. `artifactId` narrows it to one deck.
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/queue$/, fn: 'artifacts', params: ['notebookId'] },
+
+  // One notebook. Last, so every path above wins first.
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)$/, fn: 'notebooks', params: ['notebookId'] },
+  { method: 'PATCH', pattern: /^\/notebooks\/([^/]+)$/, fn: 'notebooks', params: ['notebookId'] },
+  { method: 'DELETE', pattern: /^\/notebooks\/([^/]+)$/, fn: 'notebooks', params: ['notebookId'] },
 ];
 
 /*

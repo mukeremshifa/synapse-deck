@@ -197,6 +197,21 @@ export class ApiStack extends Stack {
     const reviewsFn = makeHandler('ReviewsFn', 'reviews');
     const uploadsFn = makeHandler('UploadsFn', 'uploads');
     const jobsFn = makeHandler('JobsFn', 'jobs');
+
+    /*
+     * FR7 — the notebook/artifact model. Three functions, one per resource
+     * group, matching the grouping the rest of this table uses: a route per
+     * function would multiply cold starts across a page that fetches several
+     * things, and one monolith would make every deploy touch every path.
+     *
+     * `generationFn` is separate from `artifactsFn` because it is the only one
+     * of the three that calls a model on the request path — the same argument
+     * `chatFn` below makes for itself. A generation that takes thirty seconds
+     * should not shape the timeout of a list that takes thirty milliseconds.
+     */
+    const notebooksFn = makeHandler('NotebooksFn', 'notebooks');
+    const artifactsFn = makeHandler('ArtifactsFn', 'artifacts');
+    const generationFn = makeHandler('GenerationFn', 'generation');
     /*
      * Grounded chat (DS2). Its own function rather than a route on `decksFn`,
      * because it is the only handler that calls two model vendors on the
@@ -465,6 +480,81 @@ export class ApiStack extends Stack {
     route('/summary', [HttpMethod.GET], reviewsFn, 'SummaryInt');
     route('/reviews', [HttpMethod.POST], reviewsFn, 'ReviewsInt');
     route('/reviews/undo', [HttpMethod.POST], reviewsFn, 'UndoInt');
+
+
+    /*
+     * ── FR7: notebooks, sources, artifacts, attempts, aggregates ───────────
+     *
+     * Mirrored by `scripts/dev-api.mjs`, and `scripts/check-routes.mjs` fails
+     * the build on any difference in either direction. A route added here and
+     * forgotten there works locally and 404s in production, which is the one
+     * class of bug this development setup introduces.
+     */
+    route('/notebooks', [HttpMethod.GET, HttpMethod.POST], notebooksFn, 'NotebooksInt');
+
+    // The five aggregates the overview reads, each reduced server-side.
+    route('/notebooks/{notebookId}/stats/history', [HttpMethod.GET], notebooksFn, 'StatsHistoryInt');
+    route('/notebooks/{notebookId}/stats/retention', [HttpMethod.GET], notebooksFn, 'StatsRetentionInt');
+    route('/notebooks/{notebookId}/stats/states', [HttpMethod.GET], notebooksFn, 'StatsStatesInt');
+    route('/notebooks/{notebookId}/stats/forecast', [HttpMethod.GET], notebooksFn, 'StatsForecastInt');
+    route('/notebooks/{notebookId}/stats/mastery', [HttpMethod.GET], notebooksFn, 'StatsMasteryInt');
+    route('/notebooks/{notebookId}/topics', [HttpMethod.GET], notebooksFn, 'NotebookTopicsInt');
+
+    route('/notebooks/{notebookId}/sources', [HttpMethod.GET], notebooksFn, 'SourcesInt');
+    route(
+      '/notebooks/{notebookId}/sources/{sourceId}',
+      [HttpMethod.GET, HttpMethod.DELETE],
+      notebooksFn,
+      'SourceInt',
+    );
+
+    route(
+      '/notebooks/{notebookId}/jobs',
+      [HttpMethod.GET, HttpMethod.POST],
+      generationFn,
+      'NotebookJobsInt',
+    );
+    route('/notebooks/{notebookId}/jobs/{jobId}', [HttpMethod.GET], generationFn, 'NotebookJobInt');
+
+    route('/notebooks/{notebookId}/attempts', [HttpMethod.GET], artifactsFn, 'AttemptsInt');
+    /*
+     * One attempt: read it, save progress into it, submit it. Addressed by
+     * attempt id alone — the attempt names its own artifact, so the path does
+     * not have to, and that is what the contract's signature says.
+     */
+    route(
+      '/notebooks/{notebookId}/attempts/{attemptId}',
+      [HttpMethod.GET, HttpMethod.PATCH, HttpMethod.POST],
+      artifactsFn,
+      'AttemptInt',
+    );
+
+    route('/notebooks/{notebookId}/artifacts', [HttpMethod.GET], artifactsFn, 'ArtifactsInt');
+    route(
+      '/notebooks/{notebookId}/artifacts/{artifactId}',
+      [HttpMethod.GET, HttpMethod.PATCH, HttpMethod.DELETE],
+      artifactsFn,
+      'ArtifactInt',
+    );
+    route('/notebooks/{notebookId}/artifacts/{artifactId}/questions', [HttpMethod.GET], artifactsFn, 'ArtifactQuestionsInt');
+    route('/notebooks/{notebookId}/artifacts/{artifactId}/cards', [HttpMethod.GET], artifactsFn, 'ArtifactCardsInt');
+    route(
+      '/notebooks/{notebookId}/artifacts/{artifactId}/blocks',
+      [HttpMethod.GET, HttpMethod.POST],
+      artifactsFn,
+      'ArtifactBlocksInt',
+    );
+    route('/notebooks/{notebookId}/artifacts/{artifactId}/attempts', [HttpMethod.POST], artifactsFn, 'ArtifactAttemptsInt');
+
+    // The practice queue, notebook-scoped. `artifactId` narrows it to one deck.
+    route('/notebooks/{notebookId}/queue', [HttpMethod.GET], artifactsFn, 'NotebookQueueInt');
+
+    route(
+      '/notebooks/{notebookId}',
+      [HttpMethod.GET, HttpMethod.PATCH, HttpMethod.DELETE],
+      notebooksFn,
+      'NotebookInt',
+    );
 
     // ── Outputs ─────────────────────────────────────────────────────────────
     new CfnOutput(this, 'ApiUrl', {

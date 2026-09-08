@@ -357,3 +357,66 @@ export async function countUnfiledCards(userId: string, deckId?: string): Promis
   );
   return result.rows[0]?.n ?? 0;
 }
+
+/**
+ * Reconcile topic names **within one notebook** — FR7.
+ *
+ * ── Why this exists beside `reconcileTopics` ──────────────────────────────
+ *
+ * The function above reconciles per *user*, which was right when a user had
+ * decks and nothing above them. It is the live cross-notebook bug the brief
+ * names: two notebooks studying "Resistance mechanisms" shared one topic row,
+ * so their mastery numbers contaminated each other and a diagnostic for
+ * pharmacology counted microbiology's answers.
+ *
+ * Migration 0010 added `topics.notebook_id` and a partial unique index on
+ * `(user_id, notebook_id, slug)`. This is the writer for that index. The
+ * per-user version stays, unchanged, for the pre-FR7 deck path — the two do not
+ * collide because the new index is partial on `notebook_id is not null` and the
+ * old constraint governs the rows where it is null.
+ *
+ * Matching is still by normalised slug (ADR 0009), which is deliberately weaker
+ * than embeddings would give: "Beta-lactams" and "Beta lactams" reconcile,
+ * "Penicillins" and "Beta-lactams" do not.
+ */
+export async function reconcileNotebookTopics(
+  userId: string,
+  notebookId: string,
+  candidates: readonly TopicCandidate[],
+): Promise<ReconciledTopic[]> {
+  const bySlug = new Map<string, string>();
+  for (const candidate of candidates) {
+    const slug = normaliseSlug(candidate.name);
+    // A name that normalises to nothing is not a topic. See the sibling.
+    if (slug === '') continue;
+    if (!bySlug.has(slug)) bySlug.set(slug, candidate.name.trim());
+  }
+  if (bySlug.size === 0) return [];
+
+  return withTransaction(async (client) => {
+    const reconciled: ReconciledTopic[] = [];
+
+    for (const [slug, name] of bySlug) {
+      /*
+       * `on conflict` needs a unique index to name, and the one that governs
+       * these rows is partial — so the conflict target repeats its predicate.
+       * Without `where notebook_id is not null` Postgres cannot match the
+       * partial index and raises "no unique or exclusion constraint matching".
+       */
+      const result = await client.query<TopicRow & { inserted: boolean }>(
+        `insert into public.topics (user_id, notebook_id, name, slug)
+         values ($1, $2, $3, $4)
+         on conflict (user_id, notebook_id, slug) where notebook_id is not null
+           do update set updated_at = now()
+         returning ${COLUMNS}, (xmax = 0) as inserted`,
+        [userId, notebookId, name, slug],
+      );
+      const row = result.rows[0];
+      if (!row) throw new Error('Topic upsert returned no row.');
+      const { inserted, ...topic } = row;
+      reconciled.push({ topic, created: inserted });
+    }
+
+    return reconciled;
+  });
+}

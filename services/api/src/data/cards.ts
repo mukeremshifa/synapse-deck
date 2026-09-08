@@ -377,3 +377,188 @@ export async function readDueSummary(
     nextDueAt: upcoming.rows[0]?.due ?? null,
   };
 }
+
+// ---------------------------------------------------------------------------
+// FR7 — cards parented by an artifact rather than a deck
+// ---------------------------------------------------------------------------
+
+/**
+ * Create cards in a **deck artifact**.
+ *
+ * The sibling above writes `deck_id` and guards it with an `owned_deck` CTE.
+ * This writes `artifact_id` and guards it exactly the same way, for exactly the
+ * same reason: without the CTE a caller could insert rows carrying their own
+ * `user_id` into somebody else's artifact — every row would pass an ownership
+ * check on `cards` and the artifact would still be poisoned. `owned_artifact`
+ * makes an unowned target insert nothing at all, because the cross join
+ * produces no rows.
+ *
+ * `deck_id` is left null. Migration 0010 added `artifact_id` nullable so the
+ * pre-FR7 rows stay valid; this is the other side of that transition, and the
+ * two parentages coexist until the owner decides to drop `decks`.
+ *
+ * `scheduling` is one value for the batch, for the reason the sibling gives:
+ * every card created here has never been reviewed.
+ */
+export async function createArtifactCards(
+  userId: string,
+  artifactId: string,
+  cards: readonly CardInsert[],
+  scheduling: FreshScheduling,
+): Promise<CardRow[]> {
+  if (cards.length === 0) return [];
+
+  const result = await query<CardRow>(
+    `with owned_artifact as (
+       select id from public.artifacts
+        where id = $2 and user_id = $1 and kind = 'deck'
+     )
+     insert into public.cards (
+       user_id, artifact_id, kind, payload, status, source_excerpt, topic_id,
+       fsrs_state, due, reps, lapses, scheduled_days, elapsed_days, learning_steps
+     )
+     select $1, owned_artifact.id, k.kind::public.card_kind, k.payload, 'active',
+            k.source_excerpt,
+            -- Confirmed to be the caller's own topic in the same statement, as
+            -- the deck version does. A topic that is not theirs lands as null
+            -- rather than failing the insert: the card is still good.
+            (select t.id from public.topics t
+              where t.id = k.topic_id::uuid and t.user_id = $1),
+            $6::public.fsrs_state, $7::timestamptz, $8, $9, $10, $11, $12
+       from owned_artifact,
+            unnest($3::text[], $4::jsonb[], $5::text[], $13::text[])
+              as k(kind, payload, source_excerpt, topic_id)
+     returning ${COLUMNS}`,
+    [
+      userId,
+      artifactId,
+      cards.map((card) => card.kind),
+      cards.map((card) => JSON.stringify(card.payload)),
+      cards.map((card) => card.sourceExcerpt),
+      scheduling.fsrs_state,
+      scheduling.due,
+      scheduling.reps,
+      scheduling.lapses,
+      scheduling.scheduled_days,
+      scheduling.elapsed_days,
+      scheduling.learning_steps,
+      cards.map((card) => card.topicId ?? null),
+    ],
+  );
+  return result.rows;
+}
+
+/**
+ * One deck artifact's cards.
+ *
+ * Filtered on `user_id` as well as `artifact_id`: an artifact id arrives from
+ * the client and is not a capability (ADR 0008).
+ */
+export async function listArtifactCards(
+  userId: string,
+  artifactId: string,
+  limit: number,
+  cursor: { createdAt: string; id: string } | null,
+): Promise<(CardRow & { notebook_id: string })[]> {
+  const params: unknown[] = [userId, artifactId, limit];
+  let keyset = '';
+  if (cursor) {
+    keyset = ` and (c.created_at, c.id) < ($4::timestamptz, $5::uuid)`;
+    params.push(cursor.createdAt, cursor.id);
+  }
+
+  const result = await query<CardRow & { notebook_id: string }>(
+    `select c.*, a.notebook_id
+       from public.cards c
+       join public.artifacts a on a.id = c.artifact_id
+      where c.user_id = $1 and a.user_id = $1 and c.artifact_id = $2${keyset}
+      order by c.created_at desc, c.id desc
+      limit $3`,
+    params,
+  );
+  return result.rows;
+}
+
+/**
+ * The practice queue for a notebook, or for one deck within it.
+ *
+ * **The reads, not the policy.** The contract's `PracticeQueue` says the server
+ * fetches and the client decides: `buildQueue` and the daily new-card cap stay
+ * client-side, because the same policy drives this queue, home's "new
+ * available" figure and the forecast's day 0, and a second implementation
+ * server-side is how those three start disagreeing.
+ *
+ * So this returns the rows — due, and new — and nothing is capped here.
+ */
+export async function notebookQueue(
+  userId: string,
+  notebookId: string,
+  artifactId: string | null,
+  now: Date,
+): Promise<{
+  due: (CardRow & { notebook_id: string })[];
+  fresh: (CardRow & { notebook_id: string })[];
+  nextDueAt: string | null;
+}> {
+  const params: unknown[] = [userId, notebookId, now.toISOString()];
+  let filter = '';
+  if (artifactId) {
+    filter = ` and c.artifact_id = $4`;
+    params.push(artifactId);
+  }
+
+  const scope = `
+    from public.cards c
+    join public.artifacts a on a.id = c.artifact_id
+   where c.user_id = $1
+     and a.user_id = $1
+     and a.notebook_id = $2
+     and c.status = 'active'${filter}`;
+
+  const due = await query<CardRow & { notebook_id: string }>(
+    `select c.*, a.notebook_id ${scope} and c.fsrs_state <> 'new' and c.due <= $3
+      order by c.due asc`,
+    params,
+  );
+  const fresh = await query<CardRow & { notebook_id: string }>(
+    `select c.*, a.notebook_id ${scope} and c.fsrs_state = 'new'
+      order by c.created_at asc`,
+    params,
+  );
+  // The soonest card not yet due — the empty state's sentence, so a user who
+  // has finished everything is told when to come back rather than just "none".
+  const next = await query<{ due: string }>(
+    `select c.due ${scope} and c.fsrs_state <> 'new' and c.due > $3
+      order by c.due asc limit 1`,
+    params,
+  );
+
+  return {
+    due: due.rows,
+    fresh: fresh.rows,
+    nextDueAt: next.rows[0]?.due ?? null,
+  };
+}
+
+/** How many new cards were introduced today, for the daily cap's arithmetic. */
+export async function introducedToday(
+  userId: string,
+  notebookId: string,
+  timeZone: string,
+): Promise<number> {
+  const result = await query<{ n: string }>(
+    `select count(*) as n
+       from public.reviews r
+       join public.cards c on c.id = r.card_id
+       join public.artifacts a on a.id = c.artifact_id
+      where r.user_id = $1
+        and c.user_id = $1
+        and a.user_id = $1
+        and a.notebook_id = $2
+        and r.undone_at is null
+        and r.state_before = 'new'
+        and (r.reviewed_at at time zone $3)::date = (now() at time zone $3)::date`,
+    [userId, notebookId, timeZone],
+  );
+  return Number(result.rows[0]?.n ?? 0);
+}

@@ -73,6 +73,15 @@ export interface CardRow {
   id: string;
   user_id: string;
   deck_id: string;
+  /**
+   * The deck *artifact* this card belongs to (FR7, migration 0010).
+   *
+   * Nullable because the column is: cards created before the notebook model
+   * have a `deck_id` and no artifact, and migration 0010 deliberately added
+   * this nullable so every existing row stayed valid. A card is locked to its
+   * parent either way — no move operation exists anywhere in the contract.
+   */
+  artifact_id: string | null;
   kind: CardKind;
   payload: unknown;
   status: CardStatus;
@@ -247,4 +256,105 @@ export interface TopicRow {
   slug: string;
   created_at: string;
   updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// FR7 — the notebook/artifact model
+// ---------------------------------------------------------------------------
+// Transcribed from `services/api/migrations/0010_notebooks.sql`, by the same
+// hand-written discipline the header describes. The contract shapes these must
+// satisfy are in `src/lib/api/contract.ts`; these are the *rows*, snake_cased
+// as Postgres returns them, and the data layer maps them to the contract.
+
+export type ArtifactKind = 'deck' | 'quiz' | 'noteset' | 'exam';
+export type ArtifactStatus = 'generating' | 'ready' | 'failed';
+export type SourceKind = 'text' | 'document' | 'url';
+export type SourceStatus = 'processing' | 'ready' | 'failed';
+export type AttemptOutcome = 'in-progress' | 'submitted' | 'abandoned';
+
+export interface NotebookRow {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SourceRow {
+  id: string;
+  user_id: string;
+  notebook_id: string;
+  kind: SourceKind;
+  title: string;
+  status: SourceStatus;
+  error: string | null;
+  size_bytes: string | number | null;
+  topic_names: string[];
+  content: string | null;
+  object_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ArtifactRow {
+  id: string;
+  user_id: string;
+  notebook_id: string;
+  kind: ArtifactKind;
+  title: string;
+  status: ArtifactStatus;
+  error: string | null;
+  source_ids: string[];
+  sources_snapshot: unknown;
+  payload: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface QuestionRow {
+  id: string;
+  user_id: string;
+  artifact_id: string;
+  payload: unknown;
+  topic_id: string | null;
+  position: number;
+  created_at: string;
+}
+
+export interface NoteBlockRow {
+  id: string;
+  user_id: string;
+  artifact_id: string;
+  block: unknown;
+  position: number;
+  source_id: string | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface AttemptRow {
+  id: string;
+  user_id: string;
+  notebook_id: string;
+  artifact_id: string;
+  outcome: AttemptOutcome;
+  started_at: string;
+  submitted_at: string | null;
+  score: number | null;
+}
+
+export interface AttemptAnswerRow {
+  id: string;
+  user_id: string;
+  attempt_id: string;
+  question_id: string | null;
+  question_text: string;
+  topic_id: string | null;
+  topic_name: string | null;
+  selected_option: number | null;
+  correct: boolean;
+  flagged: boolean;
+  elapsed_ms: number | null;
+  answered_at: string;
 }
