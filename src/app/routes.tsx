@@ -1,8 +1,7 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import { Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom';
+import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { AppShell } from './AppShell';
 import { NotFoundPage } from './NotFoundPage';
-import { Placeholder } from './Placeholder';
 import { RouteErrorBoundary } from './ErrorBoundary';
 import { ModalProvider } from './modals';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -54,25 +53,22 @@ import { NotebookPage } from '@/features/notebook/NotebookPage';
  * The guard wraps each frame rather than each leaf, so a route added later
  * cannot quietly skip it — each `ProtectedRoute` below is load-bearing.
  *
- * ── Placeholders are finished work here ──────────────────────────────────
+ * ── Every route is built; the placeholders are gone ──────────────────────
  *
- * FR2 creates the routes FR3–FR6 fill. A route that renders `Placeholder` and
- * names the phase that owns it is a *complete* FR2 deliverable (plan §2); a
- * route filled in early is another phase done badly and in the wrong commit.
- * Each one below says which plan builds it.
+ * FR2 created the routes FR3–FR6 would fill, each rendering a `Placeholder`
+ * that named the phase owning it. **FR6 filled the last one** — `/overview` —
+ * so `Placeholder` has no caller and `src/app/Placeholder.tsx` is deleted with
+ * the pattern it served. FR3 filled the notebook, FR5 the four runners.
  *
- * **FR3 filled `/notebooks/:notebookId`** with the three-pane shell, and **FR5
- * has since filled all four runners** — practice, quiz, exam and the note
- * reader, each entered by the artifact id in its route. `/overview` is the last
- * placeholder, and it names FR6.
+ * ── One data stack, finally ──────────────────────────────────────────────
  *
- * ── Two data stacks, on purpose, until FR6 ───────────────────────────────
- *
- * `HomePage` was the first screen on FR0's contract (`@/lib/api`), **FR3 added
- * the notebook**, and **FR5 re-pointed the four runners** — so the seam has
- * closed to one screen. Settings alone is still on the old `src/lib/queries.ts`
- * stack, through `useProfile`, and FR6 re-points the last of it. That split is
- * recorded in FR2 §1c and the drift log.
+ * The app ran on two at once from FR2 to FR6, and the route table was the seam:
+ * `HomePage` was the first screen on FR0's contract, FR3 added the notebook,
+ * FR5 the runners, and **FR6 re-pointed the last of it** — `useProfile`, now
+ * `src/features/settings/queries.ts`. `src/lib/queries.ts` is deleted and
+ * everything below speaks to `@/lib/api`. `src/lib/api-client.ts` **survives**:
+ * FR5's handoff expected it to die here, but it is the HTTP transport
+ * `src/lib/api/client.ts` sits on, not part of the old query stack.
  */
 
 const SettingsPage = lazy(() =>
@@ -98,6 +94,11 @@ const QuizPage = lazy(() =>
 const NotesPage = lazy(() =>
   import('@/features/study/NotesPage').then(module => ({
     default: module.NotesPage,
+  })),
+);
+const OverviewPage = lazy(() =>
+  import('@/features/overview/OverviewPage').then(module => ({
+    default: module.OverviewPage,
   })),
 );
 
@@ -139,23 +140,6 @@ function FullScreenOutlet() {
         <Outlet />
       </RouteErrorBoundary>
     </FullScreen>
-  );
-}
-
-/* ── The screens FR5–FR6 replace ──────────────────────────────────────── */
-
-/** `/notebooks/:notebookId/overview` — FR6's centre. */
-function OverviewRoute() {
-  const { notebookId } = useParams<{ notebookId: string }>();
-  return (
-    <Placeholder
-      title="Overview"
-      phase="FR6"
-      description="This notebook's artifacts with their provenance, readiness, topic mastery, the review heatmap and the study plan — all scoped to one notebook."
-      ids={{ notebookId }}
-      backTo={notebookId ? `/notebooks/${notebookId}` : '/'}
-      backLabel="Back to the notebook"
-    />
   );
 }
 
@@ -207,7 +191,14 @@ export function AppRoutes() {
             </ProtectedRoute>
           }
         >
-          <Route path="notebooks/:notebookId/overview" element={<OverviewRoute />} />
+          <Route
+            path="notebooks/:notebookId/overview"
+            element={
+              <Lazy>
+                <OverviewPage />
+              </Lazy>
+            }
+          />
           {/*
             Every runner names its artifact — the deck, quiz or exam it is a
             sitting of. This is the fix for the exam that opened from nowhere,
