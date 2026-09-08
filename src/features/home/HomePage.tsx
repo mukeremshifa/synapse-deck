@@ -1,12 +1,12 @@
 import { Link } from 'react-router-dom';
 import { LibraryIcon, PlusIcon } from 'lucide-react';
 
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Page, PageHeader, Section } from '@/components/layout';
 import { EmptyState, ErrorState, LoadingCard } from '@/components/states';
-import type { Notebook, Readiness } from '@/lib/api';
+import { ReadinessBadge } from '@/components/artifact-bits';
+import type { Notebook } from '@/lib/api';
 import { plural } from '@/lib/format';
 import { useModal } from '@/app/modals';
 import { NewNotebookModal } from './NewNotebookModal';
@@ -242,20 +242,6 @@ function NotebookCard({ notebook }: { notebook: Notebook }) {
   );
 }
 
-/**
- * `ready` / `partial` / `none`, as a badge.
- *
- * `none` deliberately draws nothing: an empty notebook is a normal state, not a
- * warning, and a grid of four grey "none" chips reads as four problems.
- */
-function ReadinessBadge({ readiness }: { readiness: Readiness }) {
-  if (readiness.state === 'none') return null;
-  return (
-    <Badge variant={readiness.state === 'ready' ? 'default' : 'secondary'}>
-      {readiness.state === 'ready' ? 'Ready' : 'In progress'}
-    </Badge>
-  );
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error';

@@ -8,15 +8,14 @@ import {
   LayersIcon,
   SparklesIcon,
   StethoscopeIcon,
-  TriangleAlertIcon,
   type LucideIcon,
 } from 'lucide-react';
 
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Toolbar, ToolbarSpacer } from '@/components/layout';
 import { ErrorState, LoadingState } from '@/components/states';
-import type { Artifact, ArtifactKind, Readiness, Source } from '@/lib/api';
+import { Provenance, ReadinessBadge } from '@/components/artifact-bits';
+import type { Artifact, ArtifactKind, Source } from '@/lib/api';
 import { notebookPath } from '@/lib/notebooks';
 import { useModal } from '@/app/modals';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -395,90 +394,3 @@ function runnerPath(notebookId: string, artifact: Artifact): string {
   }
 }
 
-/**
- * What an artifact was built from — **and the dangling case, which is the point.**
- *
- * > A dangling `sourceId` is a valid state, not an error. (Brief §1.2(7).)
- *
- * Deleting a source does not delete the artifacts made from it, so an id in
- * `sourceIds` may name a source `listSources` no longer returns. The contract's
- * rule, and the one this function implements:
- *
- * > **Use `sourceIds` to *link* to a source; use `sourcesSnapshot` to *name*
- * > one.**
- *
- * So the names come from the snapshot, which is frozen at generation and never
- * dangles — every source is named whether or not it still exists. `sourceIds`
- * only decides whether a name is *live*, and a deleted one is rendered struck
- * through with a title attribute saying what happened. It is not omitted: an
- * artifact that silently drops a source from its provenance is lying about what
- * it was built from, which is exactly what the snapshot exists to prevent.
- *
- * `fixtures.ts` ships `art-deck-abx` naming `src-pharm-deleted`, which
- * `listSources` does not return, so this path renders on the very first screen
- * of the pharmacology notebook.
- */
-function Provenance({
-  artifact,
-  liveSourceIds,
-}: {
-  artifact: Artifact;
-  liveSourceIds: ReadonlySet<string>;
-}) {
-  if (artifact.sourcesSnapshot.length === 0) return null;
-
-  const gone = artifact.sourcesSnapshot.filter(
-    snapshot => !liveSourceIds.has(snapshot.sourceId),
-  ).length;
-
-  return (
-    <p className="text-muted-foreground mt-hairline flex flex-wrap items-center gap-x-1 text-xs">
-      {gone > 0 && (
-        <TriangleAlertIcon
-          className="size-3 shrink-0 text-(--color-grade-hard-mark)"
-          aria-label={`${String(gone)} source${gone === 1 ? '' : 's'} deleted`}
-        />
-      )}
-      <span className="sr-only">Built from </span>
-      {artifact.sourcesSnapshot.map((snapshot, index) => {
-        const live = liveSourceIds.has(snapshot.sourceId);
-        return (
-          <span key={snapshot.sourceId} className="min-w-0">
-            <span
-              className={live ? undefined : 'line-through'}
-              title={live ? snapshot.title : `${snapshot.title} — deleted`}
-            >
-              {snapshot.title}
-            </span>
-            {/* Trailing, so a wrap never begins with a stray separator. */}
-            {index < artifact.sourcesSnapshot.length - 1 && (
-              <span aria-hidden> · </span>
-            )}
-          </span>
-        );
-      })}
-    </p>
-  );
-}
-
-/**
- * Readiness as a badge. `status` overrides it: an artifact still generating or
- * failed has a readiness of `none` with a detail that says which, and the badge
- * should say which too rather than showing nothing.
- */
-function ReadinessBadge({
-  readiness,
-  status,
-}: {
-  readiness: Readiness;
-  status: Artifact['status'];
-}) {
-  if (status === 'generating') return <Badge variant="secondary">Generating</Badge>;
-  if (status === 'failed') return <Badge variant="destructive">Failed</Badge>;
-  if (readiness.state === 'none') return null;
-  return (
-    <Badge variant={readiness.state === 'ready' ? 'default' : 'secondary'}>
-      {readiness.state === 'ready' ? 'Ready' : 'In progress'}
-    </Badge>
-  );
-}

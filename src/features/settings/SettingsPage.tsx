@@ -22,7 +22,7 @@ import { LoadingState, ErrorState } from '@/components/states';
 import { detectTimeZone, DAY_BOUNDARY_HOUR, isValidTimeZone } from '@/lib/day';
 import { formatDate } from '@/lib/format';
 import { ProfileSettings, type ProfileSettingsInput } from '@/lib/schemas';
-import { useProfile, useQuotaUsage, useUpdateProfile } from '@/lib/queries';
+import { useProfile, useQuotaUsage, useUpdateProfile } from './queries';
 import { useAuth } from '@/features/auth/AuthProvider';
 
 /**
@@ -74,18 +74,31 @@ export function SettingsPage() {
   const { reset } = form;
   useEffect(() => {
     if (!profile.data) return;
+    /*
+     * The form's own shape is snake_case (`ProfileSettings` in `schemas.ts`)
+     * and the contract's `Profile` is camelCase, so the two are mapped here and
+     * at submit rather than one being renamed to match the other. The form
+     * schema is shared with nothing else and could be renamed; the contract is
+     * FR7's specification and must not be bent to suit one form.
+     */
     reset({
-      display_name: profile.data.display_name ?? '',
+      display_name: profile.data.displayName ?? '',
       timezone: isValidTimeZone(profile.data.timezone)
         ? profile.data.timezone
         : detectTimeZone(),
-      daily_new_limit: profile.data.daily_new_limit,
+      daily_new_limit: profile.data.dailyNewLimit,
     });
   }, [profile.data, reset]);
 
   const onSubmit = form.handleSubmit(async values => {
     try {
-      await updateProfile.mutateAsync(values);
+      await updateProfile.mutateAsync({
+        // `displayName` is nullable on the contract and the form yields '' for
+        // "cleared". Sending the empty string would store it as a name.
+        displayName: values.display_name?.trim() ? values.display_name.trim() : null,
+        timezone: values.timezone,
+        dailyNewLimit: values.daily_new_limit,
+      });
       toast.success('Settings saved');
     } catch (error) {
       toast.error('Could not save settings', {

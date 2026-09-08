@@ -51,6 +51,18 @@ export const notebookKeys = {
     ['api', 'notebook', notebookId, 'artifacts'] as const,
   /** In-flight and recently finished generation. FR4's `jobs.ts` owns it. */
   jobs: (notebookId: string) => ['api', 'notebook', notebookId, 'jobs'] as const,
+  /**
+   * FR6's aggregates — the heatmap, forecast, card states, retention, mastery.
+   *
+   * **Under the same notebook prefix on purpose.** They are answers about this
+   * notebook, and a generation that adds a deck changes every one of them; the
+   * job watcher already invalidates by these keys, so the overview refreshes
+   * itself without a second poll (FR4's drift row).
+   */
+  aggregates: (notebookId: string) =>
+    ['api', 'notebook', notebookId, 'aggregates'] as const,
+  aggregate: (notebookId: string, name: string) =>
+    ['api', 'notebook', notebookId, 'aggregates', name] as const,
 };
 
 /* ── Reads ────────────────────────────────────────────────────────────── */

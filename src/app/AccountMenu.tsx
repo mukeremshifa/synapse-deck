@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { LogOutIcon, SettingsIcon } from 'lucide-react';
 
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useProfile } from '@/lib/queries';
+import { useProfile } from '@/features/settings/queries';
 import { cn } from '@/lib/utils';
 import { ThemeChoice } from './ThemeChoice';
 
@@ -34,7 +34,7 @@ export function AccountMenu() {
   const panelId = useId();
 
   const email = user?.email ?? '';
-  const name = profile?.display_name?.trim() || email.split('@')[0] || 'Account';
+  const name = profile?.displayName?.trim() || email.split('@')[0] || 'Account';
 
   // A menu left open across a navigation hangs over the page the user asked for.
   useEffect(() => setOpen(false), [pathname]);

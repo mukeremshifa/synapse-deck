@@ -9,7 +9,7 @@ import { formatDurationWords } from '@/lib/format';
 import { notebookPath } from '@/lib/notebooks';
 import { resolveTimeZone, startOfNextStudyDay } from '@/lib/day';
 import { remainingNewAllowance } from '@/lib/queue';
-import { useProfile } from '@/lib/queries';
+import { useProfile } from '@/features/settings/queries';
 import { PracticeSession } from './PracticeSession';
 import { useArtifact, usePracticeQueue } from './queries';
 import { WrongKind } from './WrongKind';
@@ -101,7 +101,7 @@ function Practice({ notebookId, deckId }: { notebookId: string; deckId: string }
     );
   }
 
-  const dailyNewLimit = profile?.daily_new_limit ?? queue.data.dailyNewLimit;
+  const dailyNewLimit = profile?.dailyNewLimit ?? queue.data.dailyNewLimit;
   const allowance = remainingNewAllowance(dailyNewLimit, queue.data.introducedToday);
   const sessionSize = queue.data.due.length + Math.min(queue.data.fresh.length, allowance);
 

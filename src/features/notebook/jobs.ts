@@ -134,6 +134,13 @@ export async function invalidateForFinishedJob(
     queryClient.invalidateQueries({ queryKey: notebookKeys.detail(notebookId) }),
     queryClient.invalidateQueries({ queryKey: notebookKeys.sources(notebookId) }),
     queryClient.invalidateQueries({ queryKey: notebookKeys.artifacts(notebookId) }),
+    /*
+     * FR6's overview reads five aggregates over this notebook's cards and
+     * attempts, and a finished generation changes all of them — a new deck
+     * moves the forecast, the card-state mix and every topic's mastery. One
+     * prefix invalidation covers them; the overview does not poll.
+     */
+    queryClient.invalidateQueries({ queryKey: notebookKeys.aggregates(notebookId) }),
     // Home shows the same roll-up. A notebook card still claiming the old
     // count after a deck lands is the drift computed readiness exists to stop.
     queryClient.invalidateQueries({ queryKey: homeKeys.notebooks }),
