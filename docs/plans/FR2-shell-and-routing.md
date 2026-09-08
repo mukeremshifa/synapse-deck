@@ -208,3 +208,55 @@ No tests. Report **"typechecks and builds"**, plus what you actually opened in a
 - **the notebook route's shape** — what `/notebooks/:id` renders and what FR3 replaces;
 - **the readiness roll-up call** home uses, so FR3's Studio agrees with it;
 - anything in FR3's assumptions you invalidated.
+
+---
+
+## 1c. Reconciled against the code — 2026-09-08, by FR2
+
+**Read [FR1 §8](FR1-design-system.md) and the five drift rows above first — all five hold.**
+Three further things were true of the code and not of this plan. None changes the phase's
+scope; all three change how a task is carried out.
+
+### The route table is as §1b describes, with one addition
+
+`src/app/routes.tsx` has everything §1b lists. It also has **`/account` → `/settings`** and
+**`/decks` → `/notebooks`**, two redirects §1b did not name. They go with the rest (§6.3).
+
+### `AppShell` exists — but it is not the shell FR1 meant
+
+FR1 §8 says "no `AppShell` component exists". `src/app/AppShell.tsx` **does** exist: it is
+P11's *page* frame — a sticky header, a two-item nav (`/home`, `/notebooks`), a
+`max-w-6xl` main. FR1's statement is about the **pane** shell (`PaneGroup`/`Rail`), which
+genuinely does not exist and is FR3's notebook, not FR2's.
+
+So task 1 is not "assemble a three-pane shell". It is: **rewrite `AppShell`'s nav for a
+route table with one home**, and leave the pane shell to FR3. A two-item nav whose two
+items collapse into one is the change.
+
+### The one that matters: **nothing consumes the FR0 contract yet**
+
+`grep -rln "from '@/lib/api'" src` returns **nothing**. Every screen — including
+`DashboardPage` and `NotebookListPage` — still reads `src/lib/queries.ts`, the old
+deck-shaped stack over `api-client.ts`. FR0 built the contract and the fake beside the app
+without re-pointing a single consumer, which was correct for FR0 and is the fact FR2 runs
+into first.
+
+**Consequence, and it is the phase's main decision:** Home is built on
+`api.listNotebooks()` + `api.getGlobalSummary()` — the contract, per criteria 4 and 5 — and
+becomes the **first** consumer of it. Every other route keeps `queries.ts` until the phase
+that owns it replaces it (FR3 the notebook, FR5 the runners, FR6 the overview).
+
+That means the app runs on **two data stacks at once** through FR2–FR6, and this is
+deliberate rather than drift:
+
+- Re-pointing `NotebookPage`, the runners and the overview at the contract *is* FR3, FR5
+  and FR6. Doing it here would be those phases, done worse and in one commit.
+- The alternative — building Home on `queries.ts` — fails criterion 4 outright: the old
+  stack has no readiness roll-up, and inventing one client-side is the card count the brief
+  deletes.
+
+**The seam is the route table.** A route either renders a contract-backed screen (`/`) or
+an old-stack screen (everything FR3–FR6 will replace). Nothing renders both.
+
+**For FR3/FR5/FR6:** your phase's first task is re-pointing your screens at `@/lib/api`.
+`queries.ts` dies with the last of them, not before, and `api-client.ts` with it.
