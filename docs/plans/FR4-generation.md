@@ -49,6 +49,30 @@ over wall-clock time; the fake's error injection covers at least `quota_exceeded
 - **One modal at a time.** `openModal` replaces rather than stacks; a sub-decision uses
   `ConfirmDialog`, which stays local state on purpose.
 
+### What FR3 delivered — appended 2026-09-08 by FR3
+
+Every assumption in §1b above holds. Four things are now concrete rather than planned.
+
+- **Your entry point exists and is wired.** Studio opens `?modal=generate&kind=<kind>` —
+  from the single button on an empty entry, and from "+ New …" under a non-empty one.
+  `src/features/notebook/GenerateModalPlaceholder.tsx` is the seam: **delete that file and
+  put the real modal on the same param contract.** It already validates `kind` with
+  `ArtifactKind.safeParse` rather than trusting it (a modal's params are user-editable
+  text) and falls back rather than throwing on a hand-typed `?kind=nonsense`. Keep both.
+- **The pending state you replace is a poll, not a surface.** `useSources` and
+  `useArtifacts` in `src/features/notebook/queries.ts` set `refetchInterval: 1500` while
+  any row is `processing` / `generating`, and a source row shows the word "Processing…".
+  That is the honest minimum FR3 was allowed, not a design. **Remove both polls when the
+  job surface lands** — two mechanisms watching the same thing is worse than either.
+- **Save-as-note landed in FR3, so you have two callers, not one.**
+  `useSaveResponseAsNote` calls `createArtifact({ kind: 'noteset', fromResponseId })`, so a
+  chat answer becomes a real note-set artifact and **returns a `Job` like any generation**.
+  Whatever progress surface you build is reached from the Studio *and* from the chat pane.
+- **A `generating` artifact already renders.** `ArtifactRow` in `StudioPane.tsx` draws it
+  greyed and **not a link** (the contract calls it "greyed, unopenable"), and a `failed`
+  one keeps its row with a `Failed` badge so it can be seen and retried. You are adding
+  progress *to* an existing row, not inventing the row.
+
 
 ---
 

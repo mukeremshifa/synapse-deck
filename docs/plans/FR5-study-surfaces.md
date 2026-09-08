@@ -45,6 +45,33 @@ Assumes: four runner routes exist from FR2, each naming its artifact id; the con
 - `ExamRunner`, `useExamTimer`, `useFocusMode`, `PracticeSession`, `RatingButtons`,
   `SessionSummary` and `FocusFrame` are untouched and still routed.
 
+### What FR3 delivered — appended 2026-09-08 by FR3
+
+- **Studio is how a runner is launched, and it always names its artifact.**
+  `runnerPath` in `src/features/notebook/StudioPane.tsx` maps an artifact to its route via
+  `notebookPath.practice/quiz/exam/notes`. So `PracticePage`, `QuizRoute`, `ExamPage` and
+  `NotesRoute` are now reachable with a **real fake-fixture artifact id** in the URL, which
+  is what FR2's "the route is honest; the page is not yet" row was waiting for.
+- **Only `status: 'ready'` artifacts are links.** `generating` and `failed` rows render as
+  non-links, so your runners are not entered with an artifact that has no contents. Do not
+  rely on that alone — a pasted URL still reaches you — but the ordinary path is guarded.
+- **`src/lib/notebooks.ts` lost `toNotebook` and `isResumable`**, and with them its local
+  `Notebook` type. FR3's shell was the last consumer. The file is now `notebookPath` only,
+  so it **outlives `queries.ts`** rather than dying with it. Import `Notebook` from
+  `@/lib/api`.
+- **`useProfile` is the hook that will outlast your phase.** After FR3, `queries.ts` serves
+  settings, the two runners, `BlueprintPage`, `DiagnosticPage` and `ReviewGatePage`. When
+  FR5 and FR6 have re-pointed theirs, `useProfile` still has `AccountMenu` and
+  `SettingsPage` behind it — plan to re-point it rather than assuming the file evaporates.
+- **Untrusted text has a renderer**: `src/features/notebook/AnswerText.tsx` produces
+  elements and cannot produce HTML. The note reader should render `NoteBlock`s directly
+  (the contract's discriminated union is there for exactly this) rather than reusing it —
+  it handles inline forms, not structure. See the drift row.
+- **`useMediaQuery` / `MEDIA_WIDE` are in `src/components/layout.tsx`** if a runner needs
+  to branch layouts by width. Read the drift row first: `hidden md:flex` on a `PaneGroup`
+  is silently dropped, and CSS hiding mounts both branches.
+
+
 
 ---
 

@@ -1,6 +1,6 @@
 # FR3 — The notebook
 
-**Status:** 📋 Planned 2026-09-07, before FR0 executed. Not started.
+**Status:** ✅ Done 2026-09-08.
 **Parent:** [FE-REARCHITECTURE-BRIEF.md](FE-REARCHITECTURE-BRIEF.md) §3.3.
 **Depends on:** [FR2](FR2-shell-and-routing.md) complete.
 **Hands off to:** [FR4](FR4-generation.md).
@@ -163,29 +163,115 @@ FR2 left as placeholder. Check imports before deleting.
 
 ---
 
-## 6. Decisions to record
+## 6. Decisions recorded
 
-1. **Sub-tablet layout.**
-2. **Save-response-as-note** — built here or deferred to FR4.
-3. **What deleting a source does to the UI** of artifacts built from it.
-4. **Whether Studio's five entries are fixed or data-driven.** Brief §1.1 says a new
-   feature is a new `kind`; if the rail is hardcoded, say so — that is a real constraint on
-   "more coming features".
+### 6.1 Sub-tablet layout — **tabs below `md`**
 
-## 7. What will go unverified
+Three resizable panes do not fit at 375px; the sources rail alone wants ~240px. The three
+options were a drawer, tabs, or a documented desktop-only stance.
 
-No tests. Report **"typechecks and builds"** plus what you opened.
+**Tabs**, because a drawer hides two of the three surfaces behind a control the user has to
+discover, and this screen's whole argument is that the three belong together. A drawer would
+make the Studio — the answer to "where did this exam come from?" — the thing you go looking
+for. Desktop-only is the honest stance for a *timed exam*, which is why the runners take the
+viewport, but adding a source and reading a note are exactly what a student does on a phone
+between lectures.
 
-1. **Chat has never answered a real question** (DS2 §7). The fake proves the surface, not
-   retrieval.
-2. **Persistence is the fake's.** Sources survive a refresh in memory; nothing proves the
-   real API will store them — that is FR7.
-3. **Resize behaviour** across window sizes; only what you drag is checked.
-4. **The dangling-source path** in every consumer. You will check the ones you look at.
+**The implementation is a JS branch, not a responsive class**, and that was not the first
+attempt. Two traps, both found in a browser:
+
+1. `PaneGroup` **ignores a `hidden` passed to it** — `ResizablePanelGroup` hardcodes `flex`
+   in its own `cn(...)` and tailwind-merge drops the caller's conflicting class, so
+   `hidden md:flex` rendered **both layouts at once**: tabs above a three-pane shell
+   crushed into a phone.
+2. Even with a wrapper div fixing that, CSS hiding still **mounts** both branches — every
+   pane existed twice, every query had two subscribers, and the accessibility tree listed
+   everything twice.
+
+So `useMediaQuery` + `MEDIA_WIDE` were added to `src/components/layout.tsx`, built on
+`useSyncExternalStore` so the first paint is already correct rather than flashing the mobile
+layout on a desktop.
+
+### 6.2 Save-response-as-note — **built here, not deferred**
+
+`createArtifact({ kind: 'noteset', fromResponseId })` already exists in the contract and the
+fixtures already ship a note set with `origin: 'chat'`, so the shape was designed for this
+and deferring it would have left that fixture unexercised. It is also what makes an unsaved
+chat transcript acceptable: anything worth keeping becomes a real artifact.
+
+It returns a `Job` like any generation, which means **FR4 has two callers of its progress
+surface**, not one. Recorded in the drift log and in FR4's plan.
+
+### 6.3 Deleting a source — **artifacts stay, provenance is struck through**
+
+Brief §1.2(7), and the pane says so before it happens: the confirmation states that anything
+already generated is kept. Afterwards the artifact keeps its `sourcesSnapshot` and renders
+the deleted source **struck through with a warning icon — never omitted**, because an
+artifact that silently drops a source is lying about what it was built from.
+
+Verified in a browser: deleting `Beta-lactams — lecture handout.pdf` left all eight
+artifacts standing, each showing it struck through, alongside the fixture's pre-existing
+`Cephalosporin generations (deleted)`.
+
+### 6.4 Studio's entries — **four data-driven, one hardcoded, and the split is the point**
+
+The four artifact kinds come from the contract's `ArtifactKind`, so brief §1.1's promise
+holds for them: a new feature is a new kind, and a new kind is a new Studio entry.
+
+**Diagnostics is the fifth and it is not a kind.** It is a *view* over attempts and card
+states, so it is a hardcoded entry with `kind: null` that links to FR6's overview rather
+than offering to generate anything. The `null` is load-bearing: it is what stops a later
+session wiring a "generate a diagnostic" modal to a kind the contract does not have.
+
+The real constraint, stated plainly: **a fifth artifact kind is one line here; a fifth
+non-artifact *view* is a code change.** That is the right way round, but it is a constraint.
+
+## 7. What went unverified
+
+**There are no tests.** This phase **typechecks, lints and builds** (`npm run verify`
+passes). It was also **opened in a browser** — Chrome over CDP, signed in with the demo
+account against the fake — at 1280px and 375px, on the pharmacology notebook and the empty
+one. What that exercised: the three panes and the tabs, add-source (text) end to end, the
+processing state and its poll, source deletion with artifacts surviving, chat with citations,
+save-as-note, modal restore from a pasted URL, and an invalid `?kind=`. **No console errors,
+no horizontal scroll at either width.** Four defects were found this way and fixed — both
+layouts rendering at once, the doubled mount, a Studio overflow, and inert citation markers.
+
+What that still does not prove:
+
+1. **Chat has never answered a real question.** DS2 built retrieval and citations; no
+   embedding key was ever supplied. The fake answers, so the *surface* is exercised — the
+   retrieval is not, and this is not reported as working end to end.
+2. **Persistence is the fake's, and the fake is in memory.** Sources survive a client-side
+   navigation away and back, which is what was observed. They do **not** survive a hard
+   reload, because `fake.ts` holds `let store = seed()` in a module and a page load re-seeds
+   it. That is the fake's lifetime, not a defect in this phase — but criterion 2 as written
+   ("survive a page refresh") is only met in the sense the fake can meet it. **Nothing here
+   proves the real API will store a source; that is FR7.**
+3. **Resize behaviour** was checked at two widths and by dragging; the persisted layout was
+   not checked across a browser restart.
+4. **The dangling-source path** was verified in the Studio, which is where it renders. Other
+   consumers (FR5's note reader cites a source id too) are unchecked.
+5. **The document tab's upload leg has never moved a file.** `requestUpload` → PUT →
+   `addSource` is written against the contract, and the fake returns a `fake.invalid` URL
+   that the PUT fails against. The failure is caught and reported rather than left to hang,
+   but only the text and link tabs were exercised end to end.
 
 ## 8. Handoff to FR4
 
-- **the generate modal's entry points** — how Studio opens one, what it passes;
-- **the pending state** `addSource` currently shows, which FR4 replaces;
-- **whether save-as-note landed here**;
-- anything in FR4's assumptions you invalidated.
+- **The generate modal's entry point is `?modal=generate&kind=<ArtifactKind>`.** Studio
+  opens it from an empty entry's single button and from "+ New …" under a non-empty list.
+  `src/features/notebook/GenerateModalPlaceholder.tsx` is the seam — **delete that file and
+  put the real modal on the same param contract.** It validates `kind` with
+  `ArtifactKind.safeParse` and falls back rather than throwing; keep that, because modal
+  params are user-editable text.
+- **The pending state to replace is a poll.** `useSources` and `useArtifacts` set
+  `refetchInterval: 1500` while a row is `processing` / `generating`, and a source row shows
+  "Processing…". **Remove both polls when the job surface lands.**
+- **Save-as-note landed here** (§6.2), so FR4's progress surface has two callers: the
+  generate modal and the chat pane.
+- **A `generating` artifact already renders** — greyed and not a link, per the contract;
+  a `failed` one keeps its row with a badge. FR4 adds progress *to* an existing row.
+- **Nothing in FR4's §1b assumptions was invalidated.** `Checkbox` is new
+  (`src/components/ui/checkbox.tsx`, from `radix-ui`, no new dependency) if the modal's
+  source picker wants one.

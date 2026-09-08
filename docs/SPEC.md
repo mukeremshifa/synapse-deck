@@ -61,7 +61,12 @@ into retention. Everything in v1 serves those two things.
 - Note generation, summaries, or open-ended tutoring ("study buddy" is post-v1). **P11
   built the surface for this and deliberately left it unbuilt** — the notebook's workspace
   pane says grounded chat has no retrieval layer behind it yet, rather than shipping a box
-  that answers from nothing.
+  that answers from nothing. DS2 built the retrieval and citation path; **it has still never
+  answered a real question**, because no embedding key was ever supplied. FR3 rebuilt the
+  pane against the contract and can save one answer as a note set (§1.2(4)), which is the
+  only chat requirement the re-architecture brief makes — **chat history, persistence and
+  threading remain deliberately undecided**, because nothing yet says what storing a
+  transcript would mean.
 - Collaborative editing.
 
 ---
@@ -162,9 +167,30 @@ stores state _before_ as well as after.
 - `/` — **home** (FR2): a grid of notebook cards carrying per-notebook readiness, plus a
   global strip of facts (due now, new today, reviewed today, streak). Nothing on the strip
   is a call to action, because a global button would have to pick a notebook.
-- `/notebooks/:id` — the notebook itself: sources on the left, workspace in the middle,
-  studio on the right. The studio **launches** the runners rather than rendering them,
-  because those outlive the panel (P11 §2). FR3 builds it.
+- `/notebooks/:id` — the notebook itself: sources on the left, grounded chat in the middle,
+  the Studio on the right. The Studio **launches** the runners rather than rendering them,
+  because those outlive the panel (P11 §2). **Built at FR3**, with four decisions worth
+  recording here because they are product shape rather than implementation:
+
+  1. **"+ Add source" is the notebook's primary CTA**, and adding a source adds it to *this*
+     notebook. Before FR3 the only enabled action on a notebook navigated away and created a
+     *new* notebook, which is the worst behaviour the re-architecture audit found.
+  2. **Sources are persisted entities.** P11's rail held them in component state and lost
+     them on refresh; they are now `listSources` / `addSource` / `deleteSource` on the
+     contract, and `addSource` returns a **job** because extraction takes time.
+  3. **Deleting a source does not delete what was generated from it** (§1.2(7)). The
+     artifact keeps its `sourcesSnapshot` and renders the deleted source struck through, so
+     provenance survives the pointer. Verified in a browser.
+  4. **Below `md` the three panes become three tabs**, not a drawer: the screen's argument is
+     that the three surfaces belong together, and a drawer would hide the Studio — the answer
+     to "where did this exam come from?" — behind a control the user must discover.
+
+  Studio's five entries are **Quiz · Cards · Notes · Exam simulator · Diagnostics**. Each of
+  the first four lists that notebook's artifacts *of that kind*, so many decks show as many
+  decks and many exams as many exams, each with its readiness and its provenance. That is
+  the fix for "the exam button opens an exam and nobody knows where it came from".
+  Diagnostics is not an artifact kind — it is a view over attempts and card states, and it
+  links to the overview FR6 builds.
 - The card table moves inside the notebook at FR3; `/notebooks/:id/cards` is gone.
 - Manual card creation must exist for every card type. The LLM is an accelerator, not the
   only input path.

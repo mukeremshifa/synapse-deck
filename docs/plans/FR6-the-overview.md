@@ -44,6 +44,28 @@ and still model-independent.
 - **Home already renders a readiness roll-up** from `notebook.readiness.detail`. The
   overview's per-artifact readiness must agree with it — same source, `Artifact.readiness`.
 
+### What FR3 delivered — appended 2026-09-08 by FR3
+
+- **The provenance pattern is built and verified — reuse it.** `Provenance` in
+  `src/features/notebook/StudioPane.tsx` renders names from `sourcesSnapshot` (complete,
+  never dangles) and uses `sourceIds` only to decide whether a name is still *live*. A
+  deleted source renders **struck through with a warning icon, never omitted**. Verified in
+  a browser by deleting a real source: eight artifacts survived with provenance intact.
+  Your artifact list has the same job and should look the same doing it.
+- **The Studio already answers "which deck drills this topic?" by kind.** What it cannot do
+  is rank or explain, which is the overview's half. Diagnostics is deliberately **not** an
+  artifact kind — it is the fifth Studio entry and it **links to
+  `notebookPath.overview(notebookId)`**, so your page is already the destination of a
+  control that exists. The notebook header carries an "Overview" link for the same reason.
+- **`src/lib/notebooks.ts` lost `toNotebook` and `isResumable`** and is now route
+  construction only. Import `Notebook` from `@/lib/api`.
+- **`useProfile` will outlast FR5 and FR6.** `AccountMenu` and `SettingsPage` hold it, so
+  `queries.ts` does not disappear when the overview is re-pointed — plan the last step.
+- **`useMediaQuery` / `MEDIA_WIDE` are in `src/components/layout.tsx`**, and `PaneGroup`'s
+  `autoSaveId` now actually persists (it was a no-op v2 prop before FR3). Both drift rows
+  matter if the overview uses panes.
+
+
 
 ---
 
