@@ -9,7 +9,8 @@ import { cn } from '@/lib/utils';
  * Native scrollbars differ per OS and, on Windows, are a wide grey slab that
  * makes a three-pane shell look unfinished. This replaces them — but note what
  * it does *not* do: it is a styled scrollbar, not virtualisation. FR3 and FR5
- * have lists long enough to need `@tanstack/react-virtual`, and wrapping ten
+ * have lists long enough to need virtualisation (the dependency FR1 added for
+ * it was dropped at FR6, unused), and wrapping ten
  * thousand rows in a ScrollArea renders ten thousand rows.
  *
  * **Do not put this around the page.** The document's own scrollbar is the one

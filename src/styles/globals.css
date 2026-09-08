@@ -397,7 +397,8 @@
    repeated across six primitives.
 
    **This is deliberately not `tailwindcss-animate`.** The brief named exactly
-   two new dependencies (`react-resizable-panels`, `@tanstack/react-virtual`),
+   two new dependencies (`react-resizable-panels`, `@tanstack/react-virtual` —
+   the latter dropped again at FR6, having never been used),
    and a third for something eight keyframes can do would be scope the phase was
    not given. Doing it here also means the durations and easings are the tokens
    above rather than a plugin's own scale, which is the point of task 2.
