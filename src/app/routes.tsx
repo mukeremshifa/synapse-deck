@@ -10,6 +10,7 @@ import { AuthCallbackPage } from '@/features/auth/AuthCallbackPage';
 import { LoginPage, SignupPage } from '@/features/auth/AuthPages';
 import { ProtectedRoute, PublicOnlyRoute } from '@/features/auth/ProtectedRoute';
 import { HomePage } from '@/features/home/HomePage';
+import { NotebookPage } from '@/features/notebook/NotebookPage';
 
 /**
  * The route table, rewritten for the notebook model (FR2 task 1, brief §3.1).
@@ -60,12 +61,17 @@ import { HomePage } from '@/features/home/HomePage';
  * route filled in early is another phase done badly and in the wrong commit.
  * Each one below says which plan builds it.
  *
+ * **FR3 has since filled `/notebooks/:notebookId`** with the three-pane shell.
+ * The overview, the quiz runner and the note reader are still placeholders and
+ * still name their phase.
+ *
  * ── Two data stacks, on purpose, until FR6 ───────────────────────────────
  *
- * `HomePage` is the first screen on FR0's contract (`@/lib/api`). Every screen
- * still routed to below — settings, the runners — remains on the old
- * `src/lib/queries.ts` stack until the phase that owns it re-points it. That
- * split is recorded in FR2 §1c and the drift log; the route table is the seam.
+ * `HomePage` was the first screen on FR0's contract (`@/lib/api`), and **FR3
+ * added the notebook**. Every screen still routed to below — settings, the
+ * runners — remains on the old `src/lib/queries.ts` stack until the phase that
+ * owns it re-points it. That split is recorded in FR2 §1c and the drift log;
+ * the route table is the seam.
  */
 
 const SettingsPage = lazy(() =>
@@ -125,27 +131,7 @@ function FullScreenOutlet() {
   );
 }
 
-/* ── The screens FR3–FR6 replace ──────────────────────────────────────── */
-
-/**
- * `/notebooks/:notebookId` — FR3's three-pane shell.
- *
- * The old `NotebookPage` is deliberately **not** routed here. It is built on
- * `queries.ts`'s deck shape and on `SourcesRail`'s `useState([])`, both of
- * which brief §1.4 lists as not surviving; routing to it would make FR3's first
- * job "unpick FR2's wiring" rather than "build the notebook".
- */
-function NotebookRoute() {
-  const { notebookId } = useParams<{ notebookId: string }>();
-  return (
-    <Placeholder
-      title="The notebook"
-      phase="FR3"
-      description="Sources on the left, grounded chat in the centre, the Studio on the right — the three-pane shell, with add-source as its primary action."
-      ids={{ notebookId }}
-    />
-  );
-}
+/* ── The screens FR5–FR6 replace ──────────────────────────────────────── */
 
 /** `/notebooks/:notebookId/overview` — FR6's centre. */
 function OverviewRoute() {
@@ -229,7 +215,7 @@ export function AppRoutes() {
           element={
             <ProtectedRoute>
               <FullScreen>
-                <NotebookRoute />
+                <NotebookPage />
               </FullScreen>
             </ProtectedRoute>
           }

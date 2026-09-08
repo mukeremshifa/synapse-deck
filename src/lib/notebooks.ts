@@ -1,5 +1,5 @@
 /**
- * Where a notebook's surfaces live, and the last of the deck→notebook adapter.
+ * Where a notebook's surfaces live. **Route construction, and nothing else.**
  *
  * ── What this file was, and what FR2 left of it ───────────────────────────
  *
@@ -30,71 +30,20 @@
  *   exams per notebook" expressible, and callers that had no artifact id to
  *   give are exactly the surfaces that were guessing.
  *
- * ── For FR3, FR5 and FR6 ─────────────────────────────────────────────────
+ * ── What FR3 removed ─────────────────────────────────────────────────────
  *
- * `toNotebook` and `isResumable` are **deprecated on arrival**: they map a
- * `DeckWithCounts` that only the old stack produces. When your phase re-points
- * its screens at `@/lib/api`, delete the one you stop using. When the last goes,
- * `queries.ts`, `api-client.ts` and the bottom half of this file go together.
- */
-
-import type { DeckRow, DeckWithCounts } from './queries';
-
-/**
- * A notebook, as the UI thinks of one.
+ * **`toNotebook`, `isResumable` and the local `Notebook` type are gone.** They
+ * mapped a `DeckWithCounts` that only the old stack produces, and FR2 called
+ * them deprecated on arrival with instructions to delete each one as its last
+ * caller went. FR3 was that moment: the notebook shell was their only consumer,
+ * and it now reads `Notebook` from the contract (`@/lib/api`), where the wire
+ * says notebook too and no translation is needed.
  *
- * `sourceCount` is **not** on `DeckWithCounts` and is not faked here. The job
- * pipeline takes one document per job (P11 §3) and the API exposes no count of
- * a deck's sources, so this is `null` until an endpoint provides it. A zero
- * would be a lie that renders identically to the truth.
+ * So this file is **route construction and nothing else**. It is no longer a
+ * deck→notebook adapter, which is why it now outlives `queries.ts` rather than
+ * dying with it: `notebookPath` is where every surface's URL is built, and FR5
+ * and FR6 still need it.
  */
-export type Notebook = {
-  id: string;
-  title: string;
-  /** ISO 8601, straight from the row. Formatting belongs to the component. */
-  updatedAt: string;
-  cardCount: number;
-  dueCount: number;
-  newCount: number;
-  sourceCount: number | null;
-  /**
-   * Generation finished but the review gate was never passed, so there are
-   * drafts waiting and the way back in is the gate.
-   *
-   * This reads `deck_status`, which kept its `'draft'` member. It is **not** the
-   * `card_status` `'draft'` that migration 0003 removed — those meant different
-   * things and only one of them still exists (P10-SESSION-4, P11 §5.3). A
-   * rewrite-wide grep for the string `draft` that treats both the same is the
-   * documented way this breaks, and it breaks silently: the notebook stops
-   * offering the only route back to its own unaccepted cards.
-   */
-  resumable: boolean;
-};
-
-/** The wire's shape → the UI's. The only direction that needs a function. */
-export function toNotebook(deck: DeckWithCounts): Notebook {
-  return {
-    id: deck.id,
-    title: deck.title,
-    updatedAt: deck.updated_at,
-    cardCount: deck.cardCount,
-    dueCount: deck.dueCount,
-    newCount: deck.newCount,
-    sourceCount: null,
-    resumable: isResumable(deck),
-  };
-}
-
-/**
- * Whether a deck row is a notebook the user can resume at the review gate.
- *
- * Kept as its own exported predicate rather than inlined, so the `deck_status`
- * comparison exists once in the frontend and the comment above `resumable` has
- * a single thing to guard.
- */
-export function isResumable(deck: Pick<DeckRow, 'status'>): boolean {
-  return deck.status === 'draft';
-}
 
 /**
  * Where a notebook's surfaces live. Route construction in one place, so the
