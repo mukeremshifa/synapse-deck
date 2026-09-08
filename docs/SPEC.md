@@ -104,8 +104,10 @@ Not designed for: teachers assigning decks to classes; teams sharing decks.
 
 ### 4.1 Generate (the flagship flow)
 
-1. User pastes text (100 – 20,000 chars) into `/create/text`, reached from a notebook's
-   sources rail or its studio.
+1. User pastes text (100 – 20,000 chars). **FR2 deleted `/create/text` as a page**: this is
+   a *modal* over the notebook you are already in (brief §3.2), which is what stops the flow
+   from creating a new notebook when the user meant to add to one. FR4 builds it; the modal
+   system it opens through is `src/app/modals.tsx`.
 2. Chooses: number of cards (3–50), allowed card types, difficulty/depth, deck title
    (auto-suggested from the text).
 3. Client shows an estimated size (characters, plus an approximate token figure) and
@@ -138,10 +140,11 @@ above, and it is what the deck list now reads to mark a deck resumable.
 
 ### 4.2 Practice
 
-1. `/notebooks/:id/practice`. **There is no all-notebooks queue from P11** — practice is
-   launched from a notebook's studio rail, because the reason to practise is that you want
-   to work on *that material*. The hook still supports an unscoped queue; no route reaches
-   it.
+1. `/notebooks/:id/decks/:deckId/practice` (**FR2**: the route now names the deck, because a
+   notebook may hold many). **There is no all-notebooks queue** — practice is launched from
+   a notebook, because the reason to practise is that you want to work on *that material*.
+   The contract's `getPracticeQueue` still takes an optional `artifactId` to queue every deck
+   in one notebook, which is a scope *within* a notebook rather than a missing one.
 2. Queue = cards where `due <= now()`, ordered by due, with new cards interleaved subject to
    a per-day new-card cap (default 20).
 3. Show front → user self-reveals → rates **Again / Hard / Good / Easy** (FSRS's 4 grades).
@@ -156,11 +159,13 @@ stores state _before_ as well as after.
 
 ### 4.3 Manage
 
-- `/notebooks` — the list: search, card counts, due counts, a resumable badge.
+- `/` — **home** (FR2): a grid of notebook cards carrying per-notebook readiness, plus a
+  global strip of facts (due now, new today, reviewed today, streak). Nothing on the strip
+  is a call to action, because a global button would have to pick a notebook.
 - `/notebooks/:id` — the notebook itself: sources on the left, workspace in the middle,
-  studio on the right. The studio **launches** practice, exams and the card table rather
-  than rendering them, because those outlive the panel (P11 §2).
-- `/notebooks/:id/cards` — card table with inline edit, type filter, bulk delete, manual add.
+  studio on the right. The studio **launches** the runners rather than rendering them,
+  because those outlive the panel (P11 §2). FR3 builds it.
+- The card table moves inside the notebook at FR3; `/notebooks/:id/cards` is gone.
 - Manual card creation must exist for every card type. The LLM is an accelerator, not the
   only input path.
 
@@ -173,9 +178,16 @@ aggregation that computes all of it (`src/lib/progress.ts`) was **kept deliberat
 is pure, it is what the post-exam diagnostic needs, and re-deriving it later is exactly the
 drift this document exists to prevent.
 
-**Partly settled, 2026-09-06.** A **dashboard** at `/home` now renders the streak and the
-due counts (`useDueSummary`, `useReviewHistory` → `streaks`), so those two are no longer
-homeless. It is deliberately not the old progress page returning: it answers "what should I
+**Superseded at FR2.** The dashboard at `/home` was deleted with the `focus` guess it was
+built on. The streak and the due counts now live on home's global strip, from
+`getGlobalSummary()` — a single contract method that is deliberately the only cross-notebook
+aggregate, and deliberately actionless. Everything else the progress pages showed becomes
+the **notebook overview** at `/notebooks/:id/overview` (FR6), scoped to one notebook, which
+is what makes it honest where a global dashboard was not.
+
+**The original P11/2026-09-06 note follows, for the reasoning it records.** A dashboard at
+`/home` rendered the streak and the due counts (`useDueSummary`, `useReviewHistory` →
+`streaks`), so those two were no longer homeless. It is deliberately not the old progress page returning: it answers "what should I
 do now?" across notebooks, and an index of every metric is a different screen with a
 different job. See §4.5.
 
@@ -199,11 +211,15 @@ Until then this section describes something real that only partly renders:
 **Built as frontend on 2026-09-06, ahead of the backend that feeds it** — the same way P11
 built the notebook shell and the exam runner was built on fixtures. Four surfaces:
 
-1. **Dashboard** (`/home`). What to do now, across notebooks. Real data: due counts,
-   reviewed-today, streak, notebooks. It carries **no "exam readiness" figure**, though the
-   reference design puts one there — readiness needs attempts stored against topics, and a
-   confident number derived from nothing is precisely what a student would plan around.
-2. **Blueprint** (`/notebooks/:id/blueprint`). What an exam over this material should
+1. **Dashboard** (`/home`) — **deleted at FR2**, replaced by home at `/`. It answered "what
+   to do now, across notebooks", which required picking a notebook it could not name. Its
+   honest half survives: home still carries due counts, reviewed-today and streak, and still
+   carries **no "exam readiness" figure**, because readiness needs attempts stored against
+   topics and a confident number derived from nothing is precisely what a student would plan
+   around.
+2. **Blueprint** (`/notebooks/:id/blueprint` — **route removed at FR2**; it returns inside
+   the notebook and its overview at FR3/FR6, and §1.2(9) makes a blueprint belong to an
+   *exam* rather than to the notebook). What an exam over this material should
    weigh, as an editable table with an evidence drawer per topic. `src/lib/blueprint.ts`
    holds the arithmetic: largest-remainder normalisation to 100%, and a question allocation
    that refuses to round a weighted topic down to zero questions.
@@ -221,7 +237,8 @@ built the notebook shell and the exam runner was built on fixtures. Four surface
    all: a `page: number` field would be a schema inviting the generator to invent one.
    `chunkIndex` is carried and not displayed — it is the join back into the source text,
    and becomes a link the day a source viewer exists to receive one.
-3. **Diagnostic** (`/notebooks/:id/diagnostic`). Renders `src/lib/mastery.ts`, which had
+3. **Diagnostic** (`/notebooks/:id/diagnostic` — **route removed at FR2**; topic mastery
+   becomes part of the notebook overview at FR6). Renders `src/lib/mastery.ts`, which had
    been computing a two-signal topic model that nothing displayed. Retention and exam
    accuracy stay separate, `unmeasured` renders as absence rather than as zero, and a
    `fragile` topic is called out because its remedy is specific.
@@ -247,7 +264,7 @@ parsed through their schema at load, with a deletion date. Both screens say so i
 not only in a comment, because these are the most convincing screens in the app and a demo
 that does not disclose its sample data misleads whoever is watching.
 
-5. **Exam results** (`/notebooks/:id/exam`). Explanations render under every question, not
+5. **Exam results** (`/notebooks/:id/exams/:examId` from FR2 — the runner names its exam). Explanations render under every question, not
    only missed ones — `McqPayload.explanation` was in the schema from v1 and displayed
    nowhere. Showing it only on failures would be wrong twice: a correct guess looks
    identical to knowledge from outside, and an expanding block that appears only under
@@ -1110,43 +1127,66 @@ Controls, all enforced in the Edge Function, never client-side:
 
 ### 8.2 Routes
 
-**Rewritten at P11** ([plans/P11-notebook-shell.md](plans/P11-notebook-shell.md)). The
-frontend moved from six peer activities to a **notebook** shell, and the route table moved
-with it.
+**Rewritten at FR2** ([plans/FR2-shell-and-routing.md](plans/FR2-shell-and-routing.md)),
+against [the re-architecture brief](plans/FE-REARCHITECTURE-BRIEF.md) §3.1. P11 had moved
+from six peer activities to a notebook shell; FR2 removed the last places where a screen
+had to *guess* which notebook it was about.
 
 ```
 /login  /signup  /auth/callback
 
-/                                 → /notebooks
-/notebooks                        the notebook list — the front door
-/notebooks/:id                    the notebook: sources · workspace · studio
-/notebooks/:id/cards              card table, inline edit, manual add
-/notebooks/:id/practice           this notebook's due queue
-/notebooks/:id/exam               setup → sit → results
-/create/text                      paste → generate (job pipeline)
-/create/document                  upload a PDF → generate
-/create/review/:deckId            the review gate
-/settings                         daily limits, timezone, quota usage
-/account                          → /settings
-/dashboard  /decks  /decks/:id    → the /notebooks equivalents (kept as redirects)
-*                                 404
+/                                          home — the notebook grid + a global strip
+/notebooks/:id                             the notebook: sources · workspace · studio
+/notebooks/:id/overview                    the notebook's centre — artifacts, readiness,
+                                           diagnostics, heatmap, plan
+/notebooks/:id/decks/:deckId/practice      full-screen runner
+/notebooks/:id/quizzes/:quizId             full-screen runner — untimed, reveal-on-answer
+/notebooks/:id/exams/:examId               full-screen runner — timed
+/notebooks/:id/notes/:noteSetId            reader (editor later)
+/settings                                  daily limits, timezone, quota usage
+/home  /notebooks                          → / (kept as redirects)
+*                                          404
 ```
 
-**Three frames, not one layout.** `AppShell` wraps the list and settings; the notebook is a
-bare three-pane viewport with its own header; practice, the exam and the gate render inside
-`FocusFrame`, which gives them a title, padding and a single way out. Each group is wrapped
-by its own `ProtectedRoute`, so a route added later still cannot skip the guard.
+**Every runner route names its artifact**, and that is the point of the table rather than a
+detail of it. `/notebooks/:id/exam` could only ever mean "the exam", which is what made an
+exam open from nowhere; a notebook may hold many decks, quizzes and exams, and the URL now
+says which one is being sat.
 
-**`/` is no longer public, and this reverses P7.** The landing page and the marketing
-showcase were deleted at P11: `/` redirects to `/notebooks`, which is guarded, so a
-signed-out visitor lands on `/login`. P7 called making `/` public "the one thing in P7 that
-altered what an anonymous request can reach"; P11 puts that back. No anonymous request now
-reaches anything but the auth pages.
+**Gone at FR2, and not as redirects:** `/dashboard`, `/account`, `/decks`, `/decks/:id`,
+`/create/text`, `/create/document`, `/create/review/:deckId`, `/notebooks/:id/cards`,
+`/notebooks/:id/blueprint`, `/notebooks/:id/diagnostic`. Creating is now a modal over the
+place you already are (§3.2 of the brief), so the `/create/*` flow that made a *new*
+notebook when the user meant to add to one no longer exists to be walked into. The card
+table, blueprint and diagnostic return inside the notebook and its overview, at FR3 and FR6.
 
-**`:id` is a deck id.** The rename to *notebook* is a UI-only change and stops at
-`src/lib/notebooks.ts` — Postgres still has `decks`, and the API still serves
-`/decks/{deckId}`. The review gate keeps `:deckId` in its path because the generation
-pipeline constructs that route itself, and P10-SESSION-4 protects that contract.
+**One home.** `/home` and `/notebooks` were two views of one list behind two nav items, and
+the dashboard at `/home` had to pick a notebook to prompt about — it chose the one with the
+most cards due, never named it, and let it change as counts shifted. Both paths now redirect
+to `/`; `AppShell`'s nav is gone with them, because a nav with one item is not a choice.
+
+**Modals are in the URL.** `?modal=<name>` carries which modal is open, so a generate modal
+survives a reload and the back gesture closes it. A modal that *configures or creates* is
+addressable; a **confirmation** is not, and `ConfirmDialog` stays local state — you can be in
+"generating a quiz", but not in "about to confirm a delete". See `src/app/modals.tsx`.
+
+**Three frames, not one layout.** `AppShell` wraps home and settings; the notebook is a bare
+three-pane viewport with its own header; the runners render inside `FocusFrame`, which gives
+them a title, padding and a single way out. Each group is wrapped by its own
+`ProtectedRoute`, so a route added later still cannot skip the guard.
+
+**`/` is not public, and this reverses P7.** The landing page was deleted at P11. `/` is now
+home itself and guarded, so a signed-out visitor lands on `/login`. No anonymous request
+reaches anything but the auth pages and the 404.
+
+**Placeholders are current, deliberate state.** `/notebooks/:id` (FR3), `.../overview`
+(FR6), `.../quizzes/:quizId` and `.../notes/:noteSetId` (FR5) resolve and render a screen
+naming the phase that builds them. FR2 creates the routes FR3–FR6 fill.
+
+**`:id` is a notebook id on the wire from FR0 onward.** The contract in
+`src/lib/api/contract.ts` says notebook throughout. `src/lib/notebooks.ts` survives only as
+route construction plus a deck→notebook adapter for the screens still on the old
+`src/lib/queries.ts` stack; both halves die when FR3, FR5 and FR6 re-point their screens.
 
 ### 8.3 State ownership
 

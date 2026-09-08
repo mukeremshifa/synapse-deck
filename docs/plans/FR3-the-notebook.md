@@ -27,6 +27,29 @@ system exists; `react-resizable-panels` is installed (FR1); the contract exposes
 
 **Where that is false, fix this plan first.**
 
+### What FR2 delivered — appended 2026-09-08 by FR2
+
+All four assumptions above hold, with one correction and one addition.
+
+- **`/notebooks/:id` renders a placeholder naming FR3**, in `src/app/routes.tsx`. Replace
+  `NotebookRoute` there with your shell.
+- **P11's notebook shell is deleted, not left for you to unpick.** `NotebookPage`,
+  `NotebookHeader`, `SourcesRail`, `StudioRail`, `WorkspacePane`, `useAsk`,
+  `NotebookCardsPage`, `NotebookLayout` and `use-rails` are all gone — brief §1.4 lists
+  them as not surviving, and leaving them routed would have made your first task unpicking
+  FR2's wiring. Build the panes on FR1's `PaneGroup`/`Pane`/`Rail`. `useAsk` and
+  `WorkspacePane` are in git history if the chat pane wants them.
+- **The modal system is `src/app/modals.tsx`** — `?modal=<name>`, `ModalProvider` (already
+  mounted in `AppRoutes`) and `useModal()`. Add `add-source`, `edit-card` and
+  `notebook-settings` bodies; the names are already in the `ModalName` union.
+  `NewNotebookModal` is a worked example of the whole pattern.
+- **Your first task is re-pointing at the contract.** `src/lib/queries.ts` is the *old*
+  deck-shaped stack and only home is on `@/lib/api` today. Follow
+  `src/features/home/queries.ts`; do not extend `queries.ts`.
+- **The card table has no route.** `/notebooks/:id/cards` is gone; it belongs inside your
+  shell now. `CardEditor`, `CardFace`, `ClozeText` and `McqOptions` survive.
+
+
 ---
 
 ## 2. Out of scope

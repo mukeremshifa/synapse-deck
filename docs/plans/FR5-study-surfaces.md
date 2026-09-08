@@ -26,6 +26,26 @@ stable mid-session.
 Assumes: four runner routes exist from FR2, each naming its artifact id; the contract has
 `Attempt`; `fixtures.ts` has artifacts of every kind with enough content to run.
 
+### What FR2 delivered — appended 2026-09-08 by FR2
+
+- **All four runner routes exist and name their artifact**:
+  `/notebooks/:id/decks/:deckId/practice`, `/notebooks/:id/quizzes/:quizId`,
+  `/notebooks/:id/exams/:examId`, `/notebooks/:id/notes/:noteSetId`. Quiz and notes render
+  placeholders naming FR5; practice and exam render the **old** pages.
+- **`ExamPage` ignores its `:examId`.** It still renders the hardcoded `SAMPLE_EXAM` from
+  `src/features/exam/fixtures.ts` over `queries.ts`. The route is honest; the page is not
+  yet, and making it honour the id is yours. `PracticePage` likewise reads `:notebookId`
+  and hands it to the old stack as a deck id.
+- **Both 500 against fake-fixture ids**, because they call the old backend while home
+  calls the fake. That is the two-stack seam, not a bug in either — **re-pointing them at
+  `@/lib/api` is your first task.**
+- **`notebookPath` requires an artifact id** for every runner:
+  `practice(notebookId, deckId)`, `quiz(id, quizId)`, `exam(id, examId)`,
+  `notes(id, noteSetId)`.
+- `ExamRunner`, `useExamTimer`, `useFocusMode`, `PracticeSession`, `RatingButtons`,
+  `SessionSummary` and `FocusFrame` are untouched and still routed.
+
+
 ---
 
 ## 2. Out of scope

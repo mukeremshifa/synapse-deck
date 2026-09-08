@@ -1,6 +1,8 @@
 # FR2 — The shell and routing
 
-**Status:** 📋 Planned 2026-09-07, before FR0 executed. Not started.
+**Status:** ✅ **Complete 2026-09-08.** `npm run verify` passes (37.2s). See §6 for what
+was decided, §8 for the handoff, §7 for what went unverified — and note that this phase
+was **opened in a real browser** at both widths and both themes, which FR1 could not do.
 **Parent:** [FE-REARCHITECTURE-BRIEF.md](FE-REARCHITECTURE-BRIEF.md) §3.1, §3.2, §3.5.
 **Depends on:** [FR1](FR1-design-system.md) complete.
 **Hands off to:** [FR3](FR3-the-notebook.md).
@@ -166,97 +168,217 @@ where you invalidated them.
 
 ---
 
-## 5. Acceptance criteria
+## 5. Acceptance criteria — met
 
-1. The route table matches brief §3.1 exactly. No `/home`, no `/dashboard`, no `/create/*`.
-2. **`grep -rn "focus" src/features/` finds no notebook-guessing heuristic.** The
-   `DashboardPage` selection logic is gone, not relocated.
-3. Every runner route carries an artifact id in its path.
-4. Home renders notebook cards with readiness from the contract roll-up.
-5. **No global action navigates to a notebook the user did not name.**
-6. The modal system exists and is documented; the URL question is decided and recorded.
-7. `ReviewGatePage`'s dead `/practice/:deckId` navigation is gone.
-8. Every route renders in fake mode without crashing, signed in and out.
-9. **Opened in a browser at 1280px and 375px.** DS4b found five defects nothing else could
-   see; the same applies here.
-10. `npm run verify` passes.
-11. §6 recorded; drift log appended.
+| # | Criterion | Status |
+| --- | --- | --- |
+| 1 | Route table matches brief §3.1; no `/home`, `/dashboard`, `/create/*` | ✅ `/home` and `/notebooks` survive **only as redirects to `/`** — §6.3 says why those two and nothing else |
+| 2 | `grep -rn "focus" src/features/` finds no guessing heuristic | ✅ `DashboardPage` deleted, not relocated. Every remaining hit is browser focus, exam focus-mode, or a comment explaining the deletion |
+| 3 | Every runner route carries an artifact id | ✅ decks, quizzes, exams, notes — and `notebookPath` now *requires* one, which is what found the surviving guesses |
+| 4 | Home renders notebook cards with readiness from the contract roll-up | ✅ `readiness.detail` rendered as received; verified in a browser against all four fixtures, including the empty and half-built ones |
+| 5 | No global action navigates to a notebook the user did not name | ✅ no "Continue studying"; the global strip is four facts and no buttons; Settings lost its "Generate cards" link for the same reason |
+| 6 | Modal system exists and is documented; URL question decided and recorded | ✅ `src/app/modals.tsx`, §6.1. Verified in a browser: open, reload, Escape, back, bogus param |
+| 7 | `ReviewGatePage`'s dead `/practice/:deckId` navigation gone | ✅ now a real notebook-scoped runner path |
+| 8 | Every route renders without crashing, signed in and out | ✅ all walked in a browser both ways. **Caveat:** the two real runners 500 against fixture ids — §7(1) |
+| 9 | Opened in a browser at 1280px and 375px | ✅ both, **and both themes**. Zero horizontal overflow; four defects found and fixed |
+| 10 | `npm run verify` passes | ✅ 37.2s |
+| 11 | §6 recorded; drift log appended | ✅ §6.1–6.5; 9 drift rows; FR3–FR6 updated directly; `SPEC.md` §8.2 rewritten |
 
 ---
 
-## 6. Decisions to record
+## 6. Decisions recorded — 2026-09-08
 
-1. **Do modals reflect in the URL?** Affects FR3/FR4 linkability.
-2. **What happened to `src/lib/notebooks.ts`.**
-3. **What the old routes do now** — 404, or redirect? Brief §3.1 says the legacy `/decks/*`
-   redirects go. Whether `/home` gets a redirect is yours; say which and why.
-4. Which routes ship as placeholders, and who fills each.
+### 6.1 Do modals reflect in the URL? **Yes — with one exception.**
 
-## 7. What will go unverified
+`?modal=<name>`, read and written by `src/app/modals.tsx`. Three reasons, in the order they
+mattered:
 
-No tests. Report **"typechecks and builds"**, plus what you actually opened in a browser.
+1. **Brief §3.2 makes modals the primary verb.** Adding a source and generating an artifact
+   are what this product is *for*. With local state, the two main actions in the app would
+   be the only things in it that cannot be linked to.
+2. **Reload is not data loss.** A generate modal with sources chosen and a count set,
+   dismissed by a refresh, teaches users not to trust the form.
+3. **Back closes it, for free** — on Android that is *the* dismiss gesture. Local state
+   makes back leave the page instead, which is worse and harder to retrofit.
 
-1. **That no guess survives.** Grep finds the one you know about.
-2. **Deep-linking.** Nothing checks that a pasted runner URL resolves — try a few by hand.
-3. **Auth interaction.** Route changes touch `ProtectedRoute`; only signing in and out
-   proves it. Do that, both ways.
-4. **Placeholder routes.** They render; they do nothing.
+Opening pushes a history entry, closing replaces it — so back closes the modal but does not
+reopen it. **One modal at a time**; `openModal` replaces rather than stacks, because two
+overlays make focus containment ambiguous for no product gain here.
+
+**The exception: a confirmation does not go in the URL.** `ConfirmDialog` stays local state.
+The test is brief §3.2's own — a route is a place you can *be*. You can be in "generating a
+quiz"; you cannot be in "about to confirm a delete", and a confirmation restored from a
+pasted link prompts a user to destroy something they never asked about. That maps cleanly
+onto FR1's rule: a dialog that interrupts is transient, a surface you work in is a place.
+
+The cost, stated: modal params are user-editable text. `useModal` never trusts them — an
+unknown `modal` value reads as **closed** rather than throwing. Verified in a browser.
+
+### 6.2 What happened to `src/lib/notebooks.ts` — **kept, narrowed, re-pointed.**
+
+Not deleted, and the reason is scope rather than affection. Thirteen files imported
+`notebookPath`, most in screens FR3, FR5 and FR6 own; deleting it would have meant rewriting
+all of them here, which is three phases done badly in one commit.
+
+What changed instead:
+
+- **`notebookPath` re-pointed at the new table.** Every path in it named a route this phase
+  deleted or renamed, so leaving it alone would have left a dozen callers navigating to
+  404s. Route construction living in one place is what made that a one-file fix, and is why
+  the file earns its survival.
+- **Every runner helper now requires an artifact id** — `practice(notebookId, deckId)`,
+  `quiz`, `exam`, `notes`. **This is how the phase found the remaining guesses:** a caller
+  with no id to pass stopped compiling. `StudioRail`, `DiagnosticPage` and `BlueprintPage`
+  all failed exactly that way, and all three were navigating to "the" deck or "the" exam of
+  a notebook.
+- **`list()`, `gate()`, `cards()`, `blueprint()`, `diagnostic()` are gone**; `home()` and
+  `overview()` are new.
+- **`toNotebook` / `isResumable` are deprecated on arrival** — they map a `DeckWithCounts`
+  that only the old stack produces, and they die with it.
+
+### 6.3 What the old routes do now
+
+**Two redirects, both to `/`: `/home` and `/notebooks`.** They were the app's two nav items
+until this commit, so every bookmark points at one of them, and both mean exactly what `/`
+now means — the redirect is lossless.
+
+**Everything else 404s: `/dashboard`, `/account`, `/decks`, `/decks/:id`, `/create/text`,
+`/create/document`, `/create/review/:deckId`, `/notebooks/:id/cards`, `.../blueprint`,
+`.../diagnostic`.** The brief already said the `/decks/*` redirects go; the rest follow the
+same rule. A redirect is honest only when the destination means what the old path meant.
+`/create/document` has no equivalent — the flow is a modal inside a notebook now — so
+forwarding it to `/` would tell a user their bookmarked page still works. `/dashboard` and
+`/account` were already redirects to redirects.
+
+`NotFoundPage` was re-pointed at `/` in the same pass; it had been offering "Go to
+notebooks", which would itself have redirected.
+
+### 6.4 Which routes ship as placeholders, and who fills each
+
+| Route | Renders | Filled by |
+| --- | --- | --- |
+| `/notebooks/:id` | `Placeholder` naming FR3 | **FR3** |
+| `/notebooks/:id/overview` | `Placeholder` naming FR6 | **FR6** |
+| `/notebooks/:id/quizzes/:quizId` | `Placeholder` naming FR5 | **FR5** |
+| `/notebooks/:id/notes/:noteSetId` | `Placeholder` naming FR5 | **FR5** |
+| `/notebooks/:id/decks/:deckId/practice` | the **old** `PracticePage` | FR5 re-points it |
+| `/notebooks/:id/exams/:examId` | the **old** `ExamPage`, which ignores `:examId` | FR5 |
+| `/`, `/settings`, the auth pages | real screens | — |
+
+`src/app/Placeholder.tsx` names its phase on screen and prints the route params it was
+addressed with, so a pasted deep link can be checked by eye.
+
+### 6.5 The decision the plan did not ask for: two data stacks, and one modal built
+
+**Home is the first screen in the app on FR0's contract.** Nothing consumed `@/lib/api`
+before this phase. Home had to, because criterion 4 wants readiness from the contract's
+roll-up and the old stack has only card counts — the signal the brief exists to delete.
+Every other screen stays on `queries.ts` until its phase re-points it. Recorded in §1c; the
+route table is the seam.
+
+**And one modal was built** — `NewNotebookModal` — against §2's "FR2 builds the modal
+system, not any particular modal". Two reasons that do not generalise to FR3's and FR4's
+modals: task 5 requires the app to work, and home's primary action is "new notebook" whose
+old flow (`/create/text`) this phase deletes; and a modal *system* with no consumer is
+doubly unverified, since nothing else can check its claims about escape, focus, back and
+reload. FR3 should not be the phase that discovers the system does not work.
+
+---
+
+## 7. What went unverified
+
+No tests ([ADR 0005](../adr/0005-no-test-suite.md)). This **typechecks and builds** —
+`verify` passed in 37.2s. That is not a claim that anything works.
+
+**What was actually opened in a browser**, which is more than FR1 managed: headless Chrome
+driven over the DevTools Protocol from this session — no new dependency, because Node 24 has
+a built-in `WebSocket`. Signed in with the demo account against the real Cognito pool.
+
+- **Every route in the table, signed in and signed out.** All resolve; none crashes. Signed
+  out, every protected route lands on `/login`; `/signup` and the 404 stay public.
+- **Home at 1280px and 375px, light and dark.** `scrollWidth - clientWidth === 0` at both
+  widths in both themes — the DS4b overflow defect class is clear.
+- **The modal system, in full**: opening writes `?modal=new-notebook`; a pasted URL restores
+  the dialog; Escape closes it *and* cleans the URL; the back gesture closes it without
+  leaving the page; `?modal=nonsense` renders the page with no dialog. This was also the
+  first time `dialog.tsx` had ever rendered — FR1 shipped it among twelve unused primitives.
+- **Four defects found this way and fixed**: `NotFoundPage` offering "Go to notebooks";
+  `ProtectedRoute` sending signed-in users to `/notebooks`; three more `to="/notebooks"`
+  links in the runners; and ragged notebook-card heights at 1280px.
+
+Still unverified, and these are the honest gaps:
+
+1. **The two real runners.** `PracticePage` and `ExamPage` render, but both 500 against
+   fake-fixture ids because they call the old backend while home calls the fake. Expected
+   (§1c) — but it means **neither runner was seen working in this phase**, and `ExamPage`
+   demonstrably ignores its `:examId`.
+2. **Creating a notebook end to end.** The modal opens, validates and closes correctly; the
+   `createNotebook` mutation itself was **not** driven to completion in the browser.
+3. **Deep-linking beyond the routes listed.** A dozen were pasted by hand; nothing checks
+   that every id shape resolves.
+4. **The placeholders and the four state components at 1280px.** Home was checked at both
+   widths; only one placeholder was, and only at 375px.
+5. **The dialog overlay in dark mode** looked lighter than expected in the screenshot.
+   FR1's token rather than this phase's, and not investigated.
+
+---
 
 ## 8. Handoff to FR3
 
-- **the modal system's API**, and whether modals are URL-reflected;
-- **the notebook route's shape** — what `/notebooks/:id` renders and what FR3 replaces;
-- **the readiness roll-up call** home uses, so FR3's Studio agrees with it;
-- anything in FR3's assumptions you invalidated.
+### The modal system — `src/app/modals.tsx`
 
----
+`ModalProvider` is already mounted, inside `AppRoutes` and above every route.
 
-## 1c. Reconciled against the code — 2026-09-08, by FR2
+| Export | What it gives you |
+| --- | --- |
+| `useModal()` | `{ open, openModal, closeModal, modalProps, modalParam }` |
+| `openModal(name, params?)` | `?modal=name&…`; pushes history so back closes it |
+| `closeModal()` | drops the param; replaces, so back does not reopen it |
+| `modalProps(name)` | `{ open, onOpenChange }` — spread onto a Radix `Dialog`/`Sheet` |
+| `modalParam(key)` | one of the modal's own params. **Untrusted — validate it.** |
+| `ModalName` | the closed union. **Add your modal's name here.** |
 
-**Read [FR1 §8](FR1-design-system.md) and the five drift rows above first — all five hold.**
-Three further things were true of the code and not of this plan. None changes the phase's
-scope; all three change how a task is carried out.
+`add-source`, `edit-card` and `notebook-settings` are already in the union, unimplemented.
+**`src/features/home/NewNotebookModal.tsx` is the worked example**: form → mutation →
+invalidate → close → navigate.
 
-### The route table is as §1b describes, with one addition
+Escape, focus trapping, focus restore and scroll lock are Radix's and were not
+reimplemented. Overlay motion is FR1's `ui-*` classes; there is no `tailwindcss-animate`.
 
-`src/app/routes.tsx` has everything §1b lists. It also has **`/account` → `/settings`** and
-**`/decks` → `/notebooks`**, two redirects §1b did not name. They go with the rest (§6.3).
+### The notebook route's shape — what FR3 replaces
 
-### `AppShell` exists — but it is not the shell FR1 meant
+`/notebooks/:notebookId` renders `NotebookRoute` in `src/app/routes.tsx`, a `Placeholder`.
+Replace that component. It sits **outside `AppShell`**, full-viewport with no outer chrome,
+because the three panes need the vertical space a second header would cost.
 
-FR1 §8 says "no `AppShell` component exists". `src/app/AppShell.tsx` **does** exist: it is
-P11's *page* frame — a sticky header, a two-item nav (`/home`, `/notebooks`), a
-`max-w-6xl` main. FR1's statement is about the **pane** shell (`PaneGroup`/`Rail`), which
-genuinely does not exist and is FR3's notebook, not FR2's.
+**P11's shell is gone** — `NotebookPage`, `NotebookHeader`, `SourcesRail`, `StudioRail`,
+`WorkspacePane`, `useAsk`, `NotebookCardsPage`, `NotebookLayout`, `use-rails`. Build on
+FR1's `PaneGroup`/`Pane`/`PaneHandle` and `Rail`; a nav column is a `Rail`, because a rail
+is fixed and a pane resizes. `useAsk` and `WorkspacePane` are recoverable from git history
+if the chat pane wants them.
 
-So task 1 is not "assemble a three-pane shell". It is: **rewrite `AppShell`'s nav for a
-route table with one home**, and leave the pane shell to FR3. A two-item nav whose two
-items collapse into one is the change.
+**The card table has no route any more.** It belongs inside your shell.
 
-### The one that matters: **nothing consumes the FR0 contract yet**
+### The readiness roll-up home uses
 
-`grep -rln "from '@/lib/api'" src` returns **nothing**. Every screen — including
-`DashboardPage` and `NotebookListPage` — still reads `src/lib/queries.ts`, the old
-deck-shaped stack over `api-client.ts`. FR0 built the contract and the fake beside the app
-without re-pointing a single consumer, which was correct for FR0 and is the fact FR2 runs
-into first.
+`api.listNotebooks()` → `Page<Notebook>`; each `Notebook` carries
+`readiness: { state: 'ready' | 'partial' | 'none', detail: string }` and
+`counts: { sources, artifacts, dueCards }`. Home renders `readiness.detail` **as received**
+— "2 decks · 1 quiz ready" — and never recomputes it from `counts`, which would be the card
+count the brief deletes. `state === 'none'` deliberately draws no badge, because an empty
+notebook is a normal state and a grid of grey "none" chips reads as a grid of problems.
 
-**Consequence, and it is the phase's main decision:** Home is built on
-`api.listNotebooks()` + `api.getGlobalSummary()` — the contract, per criteria 4 and 5 — and
-becomes the **first** consumer of it. Every other route keeps `queries.ts` until the phase
-that owns it replaces it (FR3 the notebook, FR5 the runners, FR6 the overview).
+**Your Studio must agree with that sentence.** Same source: per-artifact
+`Artifact.readiness`, rolled up server-side. If Studio derives readiness differently, one of
+the two screens is lying to the user.
 
-That means the app runs on **two data stacks at once** through FR2–FR6, and this is
-deliberate rather than drift:
+### What FR2 invalidated in FR3's assumptions
 
-- Re-pointing `NotebookPage`, the runners and the overview at the contract *is* FR3, FR5
-  and FR6. Doing it here would be those phases, done worse and in one commit.
-- The alternative — building Home on `queries.ts` — fails criterion 4 outright: the old
-  stack has no readiness roll-up, and inventing one client-side is the card count the brief
-  deletes.
-
-**The seam is the route table.** A route either renders a contract-backed screen (`/`) or
-an old-stack screen (everything FR3–FR6 will replace). Nothing renders both.
-
-**For FR3/FR5/FR6:** your phase's first task is re-pointing your screens at `@/lib/api`.
-`queries.ts` dies with the last of them, not before, and `api-client.ts` with it.
+- "`/notebooks/:id` exists and renders something FR3 replaces" — **true**, but that
+  something is a placeholder, not the old shell, which is deleted.
+- **Re-pointing at `@/lib/api` is FR3 task 0.** The plan assumed the contract was in use. It
+  was not, anywhere, until this phase put home on it.
+- **Auth is real in fake mode.** FR0's drift row said nothing in FR1–FR6 should need to sign
+  in; in practice every route but the auth pages and the 404 is behind `ProtectedRoute`. Use
+  `DEMO_EMAIL`/`DEMO_PASSWORD` from `.env.local`, and run Vite on **port 5173** or the
+  dev-API's CORS allowlist rejects every old-stack call.

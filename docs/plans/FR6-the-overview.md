@@ -26,6 +26,25 @@ Assumes: `/notebooks/:id/overview` exists from FR2; every artifact kind is gener
 (FR4) and runnable (FR5); `progress.ts`, `mastery.ts`, `study-plan.ts` are still in place
 and still model-independent.
 
+### What FR2 delivered — appended 2026-09-08 by FR2
+
+- **`/notebooks/:id/overview` exists** and renders a placeholder naming FR6. Replace
+  `OverviewRoute` in `src/app/routes.tsx`.
+- **`BlueprintPage` and `DiagnosticPage` are unrouted but intact**, and FR2 removed their
+  artifact-less navigation: the diagnostic's "drill" and "mini-exam" plan actions used to
+  navigate to *the* practice and *the* exam with nothing named, and the blueprint's "Sit
+  the sample exam" button did the same. Both now say what they need. **What they need is
+  the artifact list**, which is exactly what your phase has — restoring those actions with
+  a real deck or exam id is FR6 work, and §1.2(9) makes a blueprint belong to an *exam*.
+- **`TopicMasteryList` and `StudyPlanView` survive**, as do `progress.ts`, `mastery.ts` and
+  `study-plan.ts`.
+- **Re-point at the contract first.** The four aggregates are on `@/lib/api`
+  (`getReviewHistory`, `getDueForecast`, `getCardStates`, `getRetention`), all
+  notebook-scoped. Follow `src/features/home/queries.ts`.
+- **Home already renders a readiness roll-up** from `notebook.readiness.detail`. The
+  overview's per-artifact readiness must agree with it — same source, `Artifact.readiness`.
+
+
 ---
 
 ## 2. Out of scope

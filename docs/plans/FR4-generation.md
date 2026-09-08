@@ -30,6 +30,26 @@ Assumes: `createArtifact` and `addSource` return a `Job`; `getJob` advances thro
 over wall-clock time; the fake's error injection covers at least `quota_exceeded` and
 `rate_limited`; FR1's `generating` state component exists.
 
+### What FR2 delivered — appended 2026-09-08 by FR2
+
+- **The modal system is `src/app/modals.tsx`**, and modals are **URL-reflected**:
+  `?modal=generate&kind=quiz`. `generate` is already in the `ModalName` union;
+  `ModalProvider` is mounted in `AppRoutes`. `useModal()` gives `openModal`, `closeModal`,
+  `modalProps(name)` (spread onto a Radix `Dialog`/`Sheet`) and `modalParam(key)`.
+  **`src/features/home/NewNotebookModal.tsx` is a worked example** — form, mutation,
+  invalidate, close, navigate.
+- **A generate modal is therefore linkable and survives a reload**, which is the property
+  the decision was made for. Read your params through `modalParam` and validate them: they
+  are user-editable text.
+- **The `/create/*` page family is deleted.** `CreateFromTextPage` and
+  `CreateFromDocumentPage` are gone. `ReviewGatePage`, `JobProgressPanel`,
+  `PipelineStages`, `StagingList`, `useJobProgress` and `useUploadDocument` **survive on
+  disk, unrouted** — yours to mine or replace. The review gate becomes a modal over the
+  notebook (brief §3.2).
+- **One modal at a time.** `openModal` replaces rather than stacks; a sub-decision uses
+  `ConfirmDialog`, which stays local state on purpose.
+
+
 ---
 
 ## 2. Out of scope
