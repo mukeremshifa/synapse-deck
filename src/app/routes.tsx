@@ -61,17 +61,18 @@ import { NotebookPage } from '@/features/notebook/NotebookPage';
  * route filled in early is another phase done badly and in the wrong commit.
  * Each one below says which plan builds it.
  *
- * **FR3 has since filled `/notebooks/:notebookId`** with the three-pane shell.
- * The overview, the quiz runner and the note reader are still placeholders and
- * still name their phase.
+ * **FR3 filled `/notebooks/:notebookId`** with the three-pane shell, and **FR5
+ * has since filled all four runners** — practice, quiz, exam and the note
+ * reader, each entered by the artifact id in its route. `/overview` is the last
+ * placeholder, and it names FR6.
  *
  * ── Two data stacks, on purpose, until FR6 ───────────────────────────────
  *
- * `HomePage` was the first screen on FR0's contract (`@/lib/api`), and **FR3
- * added the notebook**. Every screen still routed to below — settings, the
- * runners — remains on the old `src/lib/queries.ts` stack until the phase that
- * owns it re-points it. That split is recorded in FR2 §1c and the drift log;
- * the route table is the seam.
+ * `HomePage` was the first screen on FR0's contract (`@/lib/api`), **FR3 added
+ * the notebook**, and **FR5 re-pointed the four runners** — so the seam has
+ * closed to one screen. Settings alone is still on the old `src/lib/queries.ts`
+ * stack, through `useProfile`, and FR6 re-points the last of it. That split is
+ * recorded in FR2 §1c and the drift log.
  */
 
 const SettingsPage = lazy(() =>
@@ -92,6 +93,11 @@ const ExamPage = lazy(() =>
 const QuizPage = lazy(() =>
   import('@/features/study/QuizPage').then(module => ({
     default: module.QuizPage,
+  })),
+);
+const NotesPage = lazy(() =>
+  import('@/features/study/NotesPage').then(module => ({
+    default: module.NotesPage,
   })),
 );
 
@@ -147,24 +153,6 @@ function OverviewRoute() {
       phase="FR6"
       description="This notebook's artifacts with their provenance, readiness, topic mastery, the review heatmap and the study plan — all scoped to one notebook."
       ids={{ notebookId }}
-      backTo={notebookId ? `/notebooks/${notebookId}` : '/'}
-      backLabel="Back to the notebook"
-    />
-  );
-}
-
-/** `/notebooks/:notebookId/notes/:noteSetId` — FR5's reader. */
-function NotesRoute() {
-  const { notebookId, noteSetId } = useParams<{
-    notebookId: string;
-    noteSetId: string;
-  }>();
-  return (
-    <Placeholder
-      title="Notes"
-      phase="FR5"
-      description="The note set's blocks, read and marked read per block so the reader can resume. Editing comes later."
-      ids={{ notebookId, noteSetId }}
       backTo={notebookId ? `/notebooks/${notebookId}` : '/'}
       backLabel="Back to the notebook"
     />
@@ -233,7 +221,7 @@ export function AppRoutes() {
           <Route path="notebooks/:notebookId/exams/:examId" element={<ExamPage />} />
           <Route
             path="notebooks/:notebookId/notes/:noteSetId"
-            element={<NotesRoute />}
+            element={<NotesPage />}
           />
         </Route>
 
