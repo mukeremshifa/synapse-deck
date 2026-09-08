@@ -30,6 +30,7 @@ import type {
   ReviewHistory,
   Source,
   SubmitAttemptInput,
+  TopicMasteryReport,
   TopicSummary,
   UpdateCardInput,
   UpdateNotebookInput,
@@ -40,6 +41,7 @@ import type {
 import { ApiClientError } from './contract';
 import * as fixtures from './fixtures';
 import { addStudyDays, resolveTimeZone, startOfStudyDay, studyDayKey } from '../day';
+import { topicMastery, type MasteryAnswer, type MasteryCard } from '../mastery';
 import { GENERATION_QUOTA } from '../quota';
 
 /**
@@ -734,6 +736,29 @@ function snapshotOf(notebookId: string, sourceIds: string[]): Artifact['sourcesS
 // Aggregate helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Topic names, by id.
+ *
+ * Names come from the source metadata, reconciled by name and scoped to one
+ * notebook (ADR 0009, brief §1.2(5)). The fake keeps a small lookup rather than
+ * deriving one, because the fixtures' topic ids are readable.
+ *
+ * **Module scope rather than local to `listTopics`**, because `getTopicMastery`
+ * labels the same ids and two copies of this map is how one screen ends up
+ * calling a topic by its id while another calls it by its name.
+ */
+const TOPIC_NAMES: Record<string, string> = {
+  'top-pharm-beta': 'Beta-lactams',
+  'top-pharm-resist': 'Resistance mechanisms',
+  'top-pharm-pk': 'Pharmacokinetics',
+  'top-pharm-antifungal': 'Antifungals',
+  'top-neuro-brainstem': 'Brainstem',
+};
+
+function topicNameFor(topicId: string): string {
+  return TOPIC_NAMES[topicId] ?? topicId;
+}
+
 function countableReviews(notebookId?: string): Review[] {
   return store.reviews.filter(
     review =>
@@ -1004,22 +1029,11 @@ export const fakeClient: ApiClient = {
         byTopic.set(card.topicId, bucket);
       }
 
-      // Names come from the source metadata, reconciled by name and scoped to
-      // this notebook (ADR 0009, brief §1.2(5)). The fake keeps a small lookup
-      // rather than deriving one, because the fixtures' topic ids are readable.
-      const NAMES: Record<string, string> = {
-        'top-pharm-beta': 'Beta-lactams',
-        'top-pharm-resist': 'Resistance mechanisms',
-        'top-pharm-pk': 'Pharmacokinetics',
-        'top-pharm-antifungal': 'Antifungals',
-        'top-neuro-brainstem': 'Brainstem',
-      };
-
       return {
         topics: [...byTopic.entries()].map(([topicId, bucket]) => ({
           id: topicId,
           notebookId,
-          name: NAMES[topicId] ?? topicId,
+          name: topicNameFor(topicId),
           slug: topicId,
           cardCount: bucket.cards.length,
           reviewedCount: bucket.cards.filter(card => card.reps > 0).length,
@@ -1668,5 +1682,88 @@ export const fakeClient: ApiClient = {
         reviewed: window.length,
         recalled: window.filter(review => review.rating >= 2).length,
       } satisfies RetentionSummary;
+    }),
+
+  /**
+   * Topic mastery, aggregated over this notebook — FR6's one new method.
+   *
+   * **This is the reduction the client cannot do**, and the reason the method
+   * exists: it reads every active card in the notebook to compute the retention
+   * half, and the client can only list cards one deck at a time. Here that is a
+   * filter over an in-memory array; at FR7 it is one SQL query grouped by topic.
+   * Either way what crosses the wire is a row per topic, not a row per card.
+   *
+   * `topicMastery` from `mastery.ts` does the arithmetic — deliberately, so the
+   * model has one implementation. The fake is doing what the server will do,
+   * not a second version of it.
+   */
+  getTopicMastery: notebookId =>
+    gate(() => {
+      notebookOr404(notebookId);
+
+      /*
+       * Suspended cards are excluded. They are not part of what the user is
+       * studying, so their decayed retention must not drag a topic down —
+       * `listTopics` scopes to active for the same reason and the two would
+       * otherwise disagree about the same notebook's topics.
+       */
+      const cards = store.cards.filter(
+        card => card.notebookId === notebookId && card.status === 'active',
+      );
+
+      const masteryCards: MasteryCard[] = cards.map(card => ({
+        topicId: card.topicId,
+        topicName: card.topicId === null ? null : topicNameFor(card.topicId),
+        fsrs_state: card.fsrsState,
+        stability: card.stability,
+        difficulty: card.difficulty,
+        last_reviewed_at: card.lastReviewedAt,
+      }));
+
+      /*
+       * Every answer of every completed sitting in this notebook.
+       *
+       * **`in-progress` attempts are excluded** (FR5's drift row): `abandoned`
+       * is written by nothing, so a quiz someone opened and walked away from
+       * stays `in-progress` for ever. Counting a half-finished sitting's
+       * answers as exam evidence would let an abandoned quiz permanently
+       * depress a topic — and the answers of one that is still being taken
+       * would change the diagnostic underneath the person taking it.
+       */
+      const answers = store.attempts
+        .filter(
+          attempt =>
+            attempt.notebookId === notebookId && attempt.outcome !== 'in-progress',
+        )
+        .flatMap(attempt => attempt.answers)
+        // A question the candidate skipped is not evidence either way. Scoring
+        // it as incorrect would make "ran out of time" indistinguishable from
+        // "got it wrong", which is the distinction a diagnostic exists to draw.
+        .filter(answer => answer.selectedOption !== null);
+
+      /*
+       * An answer with no topic cannot name a weakness, so it is filtered out
+       * rather than bucketed — `topicMastery` keys an id-less answer under its
+       * *name*, and a name-less one under "Unclassified", so an answer carrying
+       * neither would invent a row. The count still travels (below) so the UI
+       * can tell "sat nothing" from "sat something unattributable".
+       */
+      const attributed = answers.filter(answer => answer.topicId !== null);
+
+      const masteryAnswers: MasteryAnswer[] = attributed.map(answer => ({
+        topicId: answer.topicId,
+        topicName:
+          answer.topicName ??
+          (answer.topicId === null ? null : topicNameFor(answer.topicId)),
+        correct: answer.correct,
+        answered_at: nowIso(),
+      }));
+
+      return {
+        topics: topicMastery(masteryCards, masteryAnswers),
+        cardsConsidered: masteryCards.length,
+        answersConsidered: attributed.length,
+        unattributedAnswers: answers.length - attributed.length,
+      } satisfies TopicMasteryReport;
     }),
 };

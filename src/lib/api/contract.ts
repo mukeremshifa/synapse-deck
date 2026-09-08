@@ -1037,6 +1037,101 @@ export const RetentionSummary = z.object({
 export type RetentionSummary = z.infer<typeof RetentionSummary>;
 
 /**
+ * Topic mastery across one notebook — **added by FR6, and the phase's one
+ * contract change.**
+ *
+ * ── Why this had to become a method ───────────────────────────────────────
+ *
+ * `mastery.ts` combines two signals per topic: FSRS retention over the topic's
+ * cards, and accuracy over the topic's exam answers. The second half is
+ * already servable — `AttemptAnswer` carries `topicId`, `topicName` and
+ * `correct`, and `listAttempts` is notebook-scoped. **The first half was not.**
+ *
+ * Retention needs every active card's `stability`, `difficulty` and
+ * `lastReviewedAt`, grouped by `topicId`. Cards are listable only as
+ * `listCards(notebookId, artifactId)` — per *deck* — because a deck's cards are
+ * its contents and a notebook's cards are not a list any screen should page
+ * through. So computing this on the client means one paginated call per deck
+ * artifact, growing with the notebook: an N+1 assembled in the browser, which
+ * is exactly the pre-joined graph FR0 §3(1) forbids, and what its rule about
+ * `fake.ts` not having capabilities a real API could not have is protecting.
+ *
+ * It is the same argument `ReviewHistory` and `RetentionSummary` already won.
+ * A real API computes this in SQL over `cards` joined to `topics`, filtered by
+ * `notebook_id` — one query, at most a few dozen rows out — where the client
+ * would need thousands of card rows to reach the same answer.
+ *
+ * **`mastery.ts` stays the model and does not move.** Brief §1.4 said the pure
+ * modules keep their place, and they do: the fake calls `topicMastery` to
+ * produce this, so the arithmetic has exactly one implementation. What changed
+ * is *where it runs* — FR7 reimplements it in SQL, and the shape below is the
+ * spec for that. The thresholds and bands (`masteryBand`, `divergenceKind`)
+ * stay client-side, because they are presentation over this data, and a server
+ * that baked them in would make a product decision unchangeable without a
+ * deploy.
+ *
+ * The fields mirror `TopicMastery` in `src/lib/mastery.ts` exactly. That
+ * mirroring is deliberate, and is the same relationship `Card` has with
+ * `CardPayload`: the module is the pure model, this is the wire shape, and a
+ * Zod schema is what makes the wire shape checkable.
+ */
+export const TopicMasteryEntry = z.object({
+  /** Null for the "Unclassified" bucket — real material carrying no topic. */
+  topicId: z.string().min(1).nullable(),
+  topicName: z.string().min(1),
+  /**
+   * Mean predicted recall over the topic's *seen* cards, with the denominator
+   * beside it. Null when no card in the topic has ever been reviewed — which is
+   * not zero, and a UI rendering it as zero calls a new deck a catastrophe.
+   */
+  retention: z
+    .object({
+      recall: z.number().min(0).max(1),
+      cards: z.number().int().nonnegative(),
+      /** Cards in the topic never reviewed. Not evidence of anything yet. */
+      newCards: z.number().int().nonnegative(),
+    })
+    .nullable(),
+  /** Exam accuracy, or null when no attempt answer covered this topic. */
+  exam: z
+    .object({
+      accuracy: z.number().min(0).max(1),
+      correct: z.number().int().nonnegative(),
+      answered: z.number().int().nonnegative(),
+    })
+    .nullable(),
+  /** The headline, confidence-weighted across whichever signals exist. */
+  score: z.number().min(0).max(1).nullable(),
+  confidence: z.number().min(0).max(1),
+  /** `retention.recall - exam.accuracy`, or null when either signal is absent. */
+  divergence: z.number().nullable(),
+});
+export type TopicMasteryEntry = z.infer<typeof TopicMasteryEntry>;
+
+export const TopicMasteryReport = z.object({
+  /** Weakest first; unmeasured topics last. The order a diagnostic reads in. */
+  topics: z.array(TopicMasteryEntry),
+  /**
+   * Active cards the retention half was computed over, and attempt answers the
+   * exam half was. **Shown, not implied** — the diagnostic's honesty banner
+   * says what its numbers are made of, and it cannot count rows it never
+   * fetched now that the aggregation happens server-side.
+   */
+  cardsConsidered: z.number().int().nonnegative(),
+  answersConsidered: z.number().int().nonnegative(),
+  /**
+   * Attempt answers that could name no topic, and so contributed to no row.
+   *
+   * Not the same as having sat nothing: a user who has just finished an exam
+   * whose questions carry no topic must not be told they have never sat one.
+   * `DiagnosticPage` drew that distinction with a client-side filter; with the
+   * filtering server-side, the count has to travel or the distinction is lost.
+   */
+  unattributedAnswers: z.number().int().nonnegative(),
+});
+export type TopicMasteryReport = z.infer<typeof TopicMasteryReport>;
+
+/**
  * The home screen's global strip (brief §3.5) — **the one deliberately
  * cross-notebook aggregate in this contract.**
  *
@@ -1261,4 +1356,10 @@ export interface ApiClient {
   getDueForecast(notebookId: string, days: number): Promise<DueForecast>;
   getCardStates(notebookId: string): Promise<CardStates>;
   getRetention(notebookId: string, days: number): Promise<RetentionSummary>;
+  /**
+   * Topic mastery for the diagnostic (FR6). **Aggregated server-side, and it
+   * has to be** — see `TopicMasteryReport`. The alternative is one `listCards`
+   * call per deck artifact, assembled in the browser.
+   */
+  getTopicMastery(notebookId: string): Promise<TopicMasteryReport>;
 }

@@ -621,6 +621,7 @@ export const liveClient: ApiClient = {
   getDueForecast: () => notImplemented('There is no forecast aggregate'),
   getCardStates: () => notImplemented('There is no card-state aggregate'),
   getRetention: () => notImplemented('There is no retention aggregate'),
+  getTopicMastery: () => notImplemented('There is no topic-mastery aggregate'),
 };
 
 // ---------------------------------------------------------------------------
