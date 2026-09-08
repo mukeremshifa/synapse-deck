@@ -92,6 +92,11 @@ a usable app at the end of Phase 1 rather than eight half-built layers. If sched
 appears, cut in this order: MCQ type → streaming (fall back to batch + skeletons) → progress
 dashboard depth. Do **not** cut the review gate or the review log.
 
+> **Superseded in part, 2026-09-08.** The review gate *was* cut — not to schedule pressure
+> but by the FR0 contract, which has no draft card and no accept step. What replaced it is
+> a partial-success surface (§4.1). The instruction above stands as the reason to want it
+> back, and restoring it means changing the contract deliberately.
+
 ---
 
 ## 3. Users
@@ -109,10 +114,73 @@ Not designed for: teachers assigning decks to classes; teams sharing decks.
 
 ### 4.1 Generate (the flagship flow)
 
-1. User pastes text (100 – 20,000 chars). **FR2 deleted `/create/text` as a page**: this is
-   a *modal* over the notebook you are already in (brief §3.2), which is what stops the flow
-   from creating a new notebook when the user meant to add to one. FR4 builds it; the modal
-   system it opens through is `src/app/modals.tsx`.
+**Rewritten 2026-09-08 by FR4**, which built this flow on the FR0 contract. What is
+described below is what the frontend does today in fake mode; the AWS pipeline behind it is
+FR7's, and the old streaming/staging description it replaced is kept in §4.1a because the
+backend still works that way until then.
+
+1. **Sources come first, and they persist.** A notebook's sources are added through
+   `?modal=add-source` (FR3) and live as entities — a paste, a document or a URL. Nothing
+   is generated from text typed at generation time any more, which is what stops a
+   generation from creating a notebook.
+2. **Generation is a modal over the notebook you are in**: `?modal=generate&kind=<kind>`,
+   opened from the Studio rail, never a page navigation. It collects a title, **which of
+   this notebook's sources to use**, and the kind's own options — cards (count, card types,
+   depth), quiz (question count, depth), note set (depth), exam (question count, time
+   limit, shuffling, focus mode).
+3. **Source selection is scoped to the notebook** (brief §1.2(6)). Sources still
+   `processing` or `failed` are shown disabled with the reason rather than hidden, because
+   a user who just added a document must not think it vanished. The chosen ids become the
+   artifact's `sourceIds` and are snapshotted into `sourcesSnapshot`.
+4. **`createArtifact` returns a `Job`, never the finished artifact.** The artifact appears
+   in the Studio immediately at `status: 'generating'` — a real, listable, greyed,
+   unopenable row — and the job that fills it is polled through `listJobs`.
+5. **Progress is stages, not a percentage**, and every stage maps onto a field the job
+   reports (`queued`, `extracting`, `splitting`, `generating`, `saving`). The bar is drawn
+   only once `unitsTotal > 0`; before that it is indeterminate, because the size of the
+   work is genuinely unknown and an empty determinate bar would claim otherwise.
+   **Progress survives navigating away and back**, because it is read from the server's
+   answer to "what is running?" rather than from anything the modal held.
+6. **A failed job leaves no half-artifact.** The artifact flips to `failed` with no
+   contents written, keeps its row so the user can see and retry it, and is removed only
+   when the user explicitly clears it. Quota refusals happen at submission, before any
+   stage reports — that case renders as a failure pinned to "Queued", not as "still
+   starting".
+7. **Ready artifacts open their runner**, and every runner names its artifact.
+
+**Regeneration produces a new artifact and never replaces one** (FR4 §6.3, brief §6.2).
+That is what lets a runner treat an artifact's contents as stable for its lifetime.
+
+#### The review gate, and what became of it
+
+**There is no card-by-card review gate in the current frontend, and this is a deliberate
+loss worth understanding.**
+
+The argument for one has not changed and is still the best argument in this document:
+LLM-generated cards are ~80% good, reviewing a bad card for months is worse than not having
+it, and triage is cheap to build. It was the single highest-leverage quality feature in v1.
+
+What removed it was the FR0 contract, not FR4: `Card.status` is `active | suspended`, there
+is no `deck_status`, and no method accepts or rejects a generated card. FR0 dropped the
+concept when it rewrote the nouns. FR4 declined to reintroduce it unilaterally, because
+adding a draft lifecycle to the contract is a decision five later phases are written
+against.
+
+What FR4 built instead is the part the contract *can* express, and it is the part
+`Job.truncated` exists for: **a completion surface that reports partial success** — "8 of 9
+sections produced content; 1 could not be used" — so a deck that quietly contains three
+quarters of a document cannot pass as complete. Its only exit is "Open it", which removes
+the bug the old gate had of navigating to a route that did not exist.
+
+**Restoring card-by-card triage requires a contract change.** It is recorded in the drift
+log so that whoever wants it decides it deliberately.
+
+### 4.1a The v1 generation pipeline (still what the backend does, until FR7)
+
+Retained because `services/api/` and the Edge Function still work this way; the frontend
+above no longer talks to it.
+
+1. User pastes text (100 – 20,000 chars) on `/create/text`, now deleted as a page.
 2. Chooses: number of cards (3–50), allowed card types, difficulty/depth, deck title
    (auto-suggested from the text).
 3. Client shows an estimated size (characters, plus an approximate token figure) and
@@ -123,10 +191,6 @@ Not designed for: teachers assigning decks to classes; teams sharing decks.
    arrives, with skeleton rows for the ones still coming.
 5. **Review gate:** user edits, rejects, or accepts individual cards. Bulk accept-all.
 6. Accept → cards are written as `active` and enter the FSRS `new` queue.
-
-**Why a review gate:** LLM-generated cards are ~80% good. Reviewing a bad card for months is
-worse than not having it. The gate is the single highest-leverage quality feature in the
-product, and it is cheap to build.
 
 **Draft persistence:** drafts are persisted server-side as they stream, not held only in
 React state. A refresh mid-generation must not burn a paid generation. Rejecting discards

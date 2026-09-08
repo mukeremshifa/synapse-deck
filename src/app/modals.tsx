@@ -74,6 +74,28 @@ import { useSearchParams } from 'react-router-dom';
 const MODAL_PARAM = 'modal';
 
 /**
+ * The params the open modal brought with it, so `closeModal` can remove them.
+ *
+ * **Added by FR4, which is where the leak became visible.** `openModal` has
+ * always accepted extra params — `?modal=generate&kind=quiz` — and `closeModal`
+ * only ever deleted `modal`, so closing a modal left its parameters behind on
+ * a URL that no longer means anything by them. FR3's placeholder never exposed
+ * it because nothing closed a modal that had been opened with params.
+ *
+ * Deliberately a param rather than a `useRef`: the modal system's whole premise
+ * is that the URL is the state. A ref would be empty after a reload, so a modal
+ * restored from a pasted link would still leak its params on close — which is
+ * precisely the case the URL approach exists to serve. Being in the URL means
+ * the cleanup survives exactly as the modal does.
+ *
+ * A pasted link that omits it (a hand-typed `?modal=generate&kind=quiz`) simply
+ * leaves `kind` behind on close. That is the honest limit of not being able to
+ * know what a param was for, and it is a stale query string rather than a
+ * broken screen — `kind` is read only while `modal=generate` is set.
+ */
+const OWNED_PARAM = 'modalParams';
+
+/**
  * Every modal in the app, by name.
  *
  * A closed union rather than a free string, so a typo in `openModal('genrate')`
@@ -154,7 +176,17 @@ export function ModalProvider({ children }: { children: ReactNode }) {
     (name: ModalName, extra?: Record<string, string>) => {
       const next = new URLSearchParams(params);
       next.set(MODAL_PARAM, name);
+      const keys = Object.keys(extra ?? {});
       for (const [key, value] of Object.entries(extra ?? {})) next.set(key, value);
+      /*
+       * Record which params belong to this modal, so closing can take them away
+       * again. Without it they outlive the modal: FR4's generate modal opens
+       * with `?modal=generate&kind=quiz`, and closing left `?kind=quiz` on the
+       * notebook for ever — a URL the user would then share, or reload into,
+       * carrying a parameter that means nothing to the page. Found in a browser.
+       */
+      if (keys.length > 0) next.set(OWNED_PARAM, keys.join(','));
+      else next.delete(OWNED_PARAM);
       // A push, so back closes the modal rather than leaving the page.
       setParams(next);
     },
@@ -163,6 +195,11 @@ export function ModalProvider({ children }: { children: ReactNode }) {
 
   const closeModal = useCallback(() => {
     const next = new URLSearchParams(params);
+    // Everything the modal brought with it goes when the modal does.
+    for (const key of (params.get(OWNED_PARAM) ?? '').split(',')) {
+      if (key !== '') next.delete(key);
+    }
+    next.delete(OWNED_PARAM);
     next.delete(MODAL_PARAM);
     /*
      * `replace`, and the asymmetry with `openModal` is the point: opening

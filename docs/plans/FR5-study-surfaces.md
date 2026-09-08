@@ -71,6 +71,41 @@ Assumes: four runner routes exist from FR2, each naming its artifact id; the con
   to branch layouts by width. Read the drift row first: `hidden md:flex` on a `PaneGroup`
   is silently dropped, and CSS hiding mounts both branches.
 
+### What FR4 delivered — appended 2026-09-08 by FR4
+
+**The regeneration question §1b tells you to check is decided: each generation is a NEW
+artifact, never a replacement** (FR4 §6.3, and now brief §6.2). So **a runner may treat its
+artifact's id, contents and `sourcesSnapshot` as stable for its whole life** — an attempt
+you record can never be invalidated by a regeneration, because a regeneration produces a
+different artifact. This is the strongest assumption FR4 hands you; build on it.
+
+Four more things changed under you:
+
+- **There is no review gate, and there are no draft cards.** The contract has none —
+  `Card.status` is `active | suspended` — and FR4 did not add one. Nothing hands a runner a
+  queue of cards to accept before first use: a `ready` deck's cards are `active` and
+  `listCards` returns them. `useDraftCards`, `useAcceptDrafts` and `useFinishReviewGate`
+  are deleted from `queries.ts`.
+- **`src/features/generate/` is deleted in full** — `JobProgressPanel`, `PipelineStages`,
+  `StagingList`, `useJobProgress`, `useUploadDocument`, `ReviewGatePage`. Recoverable from
+  git history at `9c9280b` if you want to mine any of it. `useDeleteCards` survives in
+  `queries.ts`, unused, for a card editor.
+- **`useNotebookJobs(notebookId)` in `src/features/notebook/jobs.ts` is the only thing that
+  watches generation**, and it already invalidates `artifacts` / `sources` / `detail` and
+  home's grid when a job finishes. FR3's two `refetchInterval` polls are gone. **Do not add
+  a third mechanism** — if a runner must react to a generation landing, subscribe to this.
+- **Error copy is `failureFor(code)`** in `src/features/notebook/generation-errors.ts`, a
+  closed `Record<ApiErrorCode, { title, detail, retry }>` — a new code in the contract
+  fails to compile until someone writes its copy. Its `retry` field is what decides whether
+  a "Try again" button appears at all; offering a retry that cannot work (`quota_exceeded`,
+  `refused`) is worse than offering none. Reuse it rather than rendering `error.message`.
+
+**An exam arrives with its blueprint already on it** (`basis: 'card-counts'`, server
+derived). FR4 deliberately does not let the user author one at creation — blueprinting an
+exam that does not exist yet is the problem per-exam blueprints were introduced to fix —
+and the generate modal tells the user they can adjust it once the exam exists. **That
+promise is unbuilt.** Whoever builds the editor, FR5 or FR6, is honouring it.
+
 
 
 ---

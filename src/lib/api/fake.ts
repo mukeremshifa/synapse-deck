@@ -489,9 +489,25 @@ interface PendingJob {
   unitsTotal: number;
   /** Applied to the store the first time the job is observed as finished. */
   commit: (truncated: boolean) => { artifactId: string | null; sourceId: string | null };
+  /**
+   * Applied the first time the job is observed as **failed** — the mirror of
+   * `commit`, and the reason a failed generation cannot leave a half-artifact.
+   *
+   * `createArtifact` pushes the artifact row *before* the job runs, because the
+   * contract says `generating` is a real, listable state. Without this hook a
+   * failed job would leave that row at `generating` for ever: a spinner that
+   * never resolves, which is the one outcome worse than a visible failure. So
+   * the row flips to `failed` — kept, not deleted, because the contract is
+   * explicit that a failed artifact "keeps its row so the user can see what did
+   * not work, and retry" — and **no contents are ever written**, since `commit`
+   * is the only thing that writes cards, questions or blocks and it never runs.
+   */
+  abandon: (code: ApiErrorCode) => void;
   failure: { at: JobStage | 'immediately'; code: ApiErrorCode } | null;
   truncate: boolean;
   committed: boolean;
+  /** Whether `abandon` has run. Failure is observed on every poll; it applies once. */
+  abandoned: boolean;
 }
 
 const pending = new Map<string, PendingJob>();
@@ -501,6 +517,7 @@ function startJob(
   kind: Job['kind'],
   unitsTotal: number,
   commit: PendingJob['commit'],
+  abandon: PendingJob['abandon'] = () => undefined,
 ): Job {
   const job: Job = {
     id: id('job'),
@@ -528,9 +545,11 @@ function startJob(
     startedAtMs: Date.now(),
     unitsTotal,
     commit,
+    abandon,
     failure,
     truncate,
     committed: false,
+    abandoned: false,
   });
   store.jobs.push(job);
 
@@ -539,6 +558,20 @@ function startJob(
   if (failure?.at !== 'immediately') store.unitsUsed += unitsTotal;
 
   return advanceJob(job.id);
+}
+
+/**
+ * Apply a job's failure to whatever it was building — once, however often it is
+ * polled.
+ *
+ * A failed job is not an event the fake fires; it is a state every `getJob`
+ * recomputes. So the flip to `failed` has to be idempotent, exactly as `commit`
+ * is: a surface polling every second must not re-apply it every second.
+ */
+function abandonOnce(entry: PendingJob, code: ApiErrorCode): void {
+  if (entry.abandoned) return;
+  entry.abandoned = true;
+  entry.abandon(code);
 }
 
 /** Where the job has got to, computed now. Mutates the stored row and returns it. */
@@ -556,6 +589,7 @@ function advanceJob(jobId: string): Job {
   // Failing immediately: no stage ever reports, `unitsTotal` stays 0. The case
   // a progress surface is most likely to render as "still starting".
   if (entry.failure?.at === 'immediately') {
+    abandonOnce(entry, entry.failure.code);
     Object.assign(stored, {
       status: 'failed',
       stage: 'queued',
@@ -573,6 +607,7 @@ function advanceJob(jobId: string): Job {
   const unitsCompleted = Math.floor(generating * entry.unitsTotal);
 
   if (entry.failure && stage === entry.failure.at) {
+    abandonOnce(entry, entry.failure.code);
     Object.assign(stored, {
       status: 'failed',
       stage,
@@ -905,14 +940,25 @@ export const fakeClient: ApiClient = {
       // Chunk count scales with the input, the way the real splitter's does.
       const units = parsed.kind === 'text' ? Math.max(1, Math.ceil(parsed.text.length / 4000)) : 6;
 
-      return startJob(notebookId, 'add-source', units, truncated => {
-        source.status = 'ready';
-        source.topicNames = ['[fake] Extracted topic'];
-        if (truncated) {
-          source.error = 'Some sections could not be read.';
-        }
-        return { artifactId: null, sourceId: source.id };
-      });
+      return startJob(
+        notebookId,
+        'add-source',
+        units,
+        truncated => {
+          source.status = 'ready';
+          source.topicNames = ['[fake] Extracted topic'];
+          if (truncated) {
+            source.error = 'Some sections could not be read.';
+          }
+          return { artifactId: null, sourceId: source.id };
+        },
+        // The source was pushed at `processing` before the job ran. If the job
+        // fails it has to say so, or the rail spins for ever.
+        code => {
+          source.status = 'failed';
+          source.error = ERROR_MESSAGES[code];
+        },
+      );
     }),
 
   deleteSource: (notebookId, sourceId) =>
@@ -1071,30 +1117,49 @@ export const fakeClient: ApiClient = {
 
       store.artifacts.push(artifact);
 
-      return startJob(notebookId, 'create-artifact', units, () => {
-        artifact.status = 'ready';
-        switch (parsed.kind) {
-          case 'deck':
-            store.cards.push(...generatedCards(artifact, parsed.cardCount));
-            break;
-          case 'quiz':
-            store.questions[artifact.id] = generatedQuestions(
-              artifact,
-              parsed.questionCount,
-            );
-            break;
-          case 'exam':
-            store.questions[artifact.id] = generatedQuestions(
-              artifact,
-              parsed.config.questionCount,
-            );
-            break;
-          case 'noteset':
-            store.noteBlocks[artifact.id] = generatedBlocks(artifact);
-            break;
-        }
-        return { artifactId: artifact.id, sourceId: null };
-      });
+      return startJob(
+        notebookId,
+        'create-artifact',
+        units,
+        () => {
+          artifact.status = 'ready';
+          switch (parsed.kind) {
+            case 'deck':
+              store.cards.push(...generatedCards(artifact, parsed.cardCount));
+              break;
+            case 'quiz':
+              store.questions[artifact.id] = generatedQuestions(
+                artifact,
+                parsed.questionCount,
+              );
+              break;
+            case 'exam':
+              store.questions[artifact.id] = generatedQuestions(
+                artifact,
+                parsed.config.questionCount,
+              );
+              break;
+            case 'noteset':
+              store.noteBlocks[artifact.id] = generatedBlocks(artifact);
+              break;
+          }
+          return { artifactId: artifact.id, sourceId: null };
+        },
+        /*
+         * **A failed job leaves no half-artifact** (FR4 criterion 6).
+         *
+         * The row was pushed at `generating` before the job ran, so it must be
+         * resolved either way. It flips to `failed` and keeps its place — the
+         * contract is explicit that a failed artifact keeps its row "so the
+         * user can see what did not work, and retry" — and no contents are
+         * written, because `commit` above is the only thing that writes cards,
+         * questions or blocks, and a failed job never reaches it.
+         */
+        () => {
+          artifact.status = 'failed';
+          artifact.readiness = { state: 'none', detail: 'Generation failed' };
+        },
+      );
     }),
 
   updateArtifact: (notebookId, artifactId, input) =>

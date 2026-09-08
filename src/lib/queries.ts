@@ -709,80 +709,21 @@ export function useDueSummary() {
 // or rejecting them, and showing how much of the monthly allowance is left.
 // ---------------------------------------------------------------------------
 
-/**
- * The drafts a generation left behind, oldest first — the review gate's queue.
+/*
+ * ── The review gate's hooks are gone (FR4) ───────────────────────────────
  *
- * ── Disabled at P10, deliberately and visibly ─────────────────────────────
+ * `useDraftCards`, `useAcceptDrafts` and `useFinishReviewGate` were deleted
+ * with `/create/*` and `ReviewGatePage`. They had no callers left, and they
+ * could not gain one: **the FR0 contract has no draft concept.** `Card.status`
+ * is `active | suspended`, there is no `deck_status`, and nothing in
+ * `ApiClient` accepts or rejects a generated card.
  *
- * Migration 0003 removed `'draft'` from `card_status`: drafts now live in
- * DynamoDB until they are accepted, so `/decks/{id}/cards?status=draft` has
- * nothing to return and the API now rejects that parameter outright rather than
- * pretending to honour it.
- *
- * The replacement is the job's own drafts, and that endpoint arrives with the
- * pipeline in **P10 task 5**. Until then this returns an empty list rather than
- * calling an endpoint that would 400 — the review gate renders its empty state
- * instead of an error, which is the truthful thing for a gate that has no
- * drafts to show.
- *
- * This is a seam left open on purpose, not an oversight: task 5 repoints the
- * `queryFn` at the job and everything above it keeps working unchanged.
+ * That was a deliberate simplification at FR0, not an omission, and FR4
+ * recorded it rather than quietly restoring the old shape: what survives is the
+ * part the contract *can* express — a completion surface that reports partial
+ * failure from `Job.truncated` and `unitsFailed`. Card-by-card triage needs a
+ * contract change and belongs to whichever phase decides to make it.
  */
-export function useDraftCards(deckId: string | undefined) {
-  return useQuery({
-    queryKey: queryKeys.deckDrafts(deckId ?? ''),
-    enabled: Boolean(deckId),
-    queryFn: (): Promise<CardRow[]> => Promise.resolve([]),
-    // A generation may still be streaming into this deck; a stale list here is
-    // the difference between "resume where you left off" and "half your cards
-    // are missing".
-    staleTime: 0,
-  });
-}
-
-/**
- * Accept drafts: `draft` → `active`, and nothing else.
- *
- * An update, not an insert — the rows already exist, written as they streamed
- * in — and it deliberately leaves the scheduling columns alone. The card was
- * created with fresh-card state, so accepting it drops it straight into the
- * `new` queue where P1's practice loop finds it, with no change to fsrs.ts or
- * `review_card` (SPEC §4.1 step 6).
- */
-export function useAcceptDrafts() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ cardIds, deckId: _deckId }: { cardIds: string[]; deckId: string }) =>
-      api.post<{ ids: string[] }>('/cards/accept', { cardIds }),
-    onSuccess: (_rows, variables) => invalidateCardCaches(queryClient, variables.deckId),
-  });
-}
-
-/**
- * Close the gate: the deck becomes an ordinary deck, and the audit row learns
- * how many of its cards survived.
- *
- * `cards_accepted` is counted from the cards rather than tallied in the UI, so
- * resuming an abandoned gate later corrects the number instead of double
- * counting it. SPEC §13 (2) measures the product on this figure — "fewer than
- * 20% rejected" — which is only worth measuring if it reflects the deck.
- */
-export function useFinishReviewGate() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    // Three statements became one call. They now run in a single transaction
-    // server-side (`finishReviewGate` in services/api/src/data/decks.ts), which
-    // the client could not do: a deck that flipped to `active` while its
-    // generation row went unstamped was a real, if harmless, way for the two to
-    // disagree.
-    mutationFn: ({ deckId }: { deckId: string }) =>
-      api.post<DeckRow>(`/decks/${deckId}/finish-gate`),
-    onSuccess: deck => {
-      queryClient.setQueryData(queryKeys.deck(deck.id), deck);
-      invalidateCardCaches(queryClient, deck.id);
-    },
-  });
-}
 
 export type QuotaUsage = {
   used: number;

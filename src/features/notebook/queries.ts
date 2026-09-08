@@ -13,6 +13,7 @@ import {
   type ArtifactKind,
   type AskInput,
   type AskResponse,
+  type CreateArtifactInput,
   type Job,
 } from '@/lib/api';
 import { homeKeys } from '@/features/home/queries';
@@ -48,6 +49,8 @@ export const notebookKeys = {
   sources: (notebookId: string) => ['api', 'notebook', notebookId, 'sources'] as const,
   artifacts: (notebookId: string) =>
     ['api', 'notebook', notebookId, 'artifacts'] as const,
+  /** In-flight and recently finished generation. FR4's `jobs.ts` owns it. */
+  jobs: (notebookId: string) => ['api', 'notebook', notebookId, 'jobs'] as const,
 };
 
 /* ── Reads ────────────────────────────────────────────────────────────── */
@@ -67,21 +70,18 @@ export function useNotebook(notebookId: string) {
  * page is the rail; a notebook with more sources than one page is a real
  * scrolling decision, and FR3 does not invent a "Load more" nobody has seen.
  *
- * `refetchInterval` while any source is `processing`: `addSource` returns a
- * job, and the source it created sits at `processing` until that job commits.
- * Without a poll the rail shows a pending row that never resolves without a
- * manual refresh — the honest minimum until FR4 builds the real progress
- * surface over `getJob`.
+ * **FR3's poll is gone, and its removal is the point.** This used to
+ * `refetchInterval` while any source was `processing` — the honest minimum
+ * before a job surface existed. FR4 built that surface (`jobs.ts` polls
+ * `listJobs`), and its drift row is explicit that leaving this in would mean
+ * two mechanisms watching the same thing: the job query already invalidates
+ * this one when a job finishes, so a second poll would only ever race it.
  */
 export function useSources(notebookId: string) {
   return useQuery({
     queryKey: notebookKeys.sources(notebookId),
     queryFn: () => api.listSources(notebookId),
     select: page => page.items,
-    refetchInterval: query =>
-      query.state.data?.items.some(source => source.status === 'processing')
-        ? 1500
-        : false,
   });
 }
 
@@ -95,18 +95,16 @@ export function useSources(notebookId: string) {
  * `kind` filter stays available for a surface that genuinely wants one kind —
  * FR5's runners, FR6's overview.
  *
- * A `generating` artifact is a real, listable row (the contract says so), so
- * this polls while one is in flight for the same reason `useSources` does.
+ * A `generating` artifact is a real, listable row (the contract says so). FR3
+ * polled here while one was in flight; **FR4 removed that poll** for the reason
+ * given on `useSources` — `jobs.ts` watches the jobs and invalidates this query
+ * when one finishes, so the row updates from the mechanism that actually knows.
  */
 export function useArtifacts(notebookId: string) {
   return useQuery({
     queryKey: notebookKeys.artifacts(notebookId),
     queryFn: () => api.listArtifacts(notebookId),
     select: page => page.items,
-    refetchInterval: query =>
-      query.state.data?.items.some(artifact => artifact.status === 'generating')
-        ? 1500
-        : false,
   });
 }
 
@@ -157,6 +155,45 @@ export function useDeleteSource(notebookId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (sourceId: string) => api.deleteSource(notebookId, sourceId),
+    onSuccess: () => invalidateNotebook(queryClient, notebookId),
+  });
+}
+
+/**
+ * Generate an artifact. **Returns a `Job`**, never the finished artifact —
+ * FR4's governing rule, and the contract's.
+ *
+ * The artifact appears immediately in `listArtifacts` at `status: 'generating'`
+ * — a real, listable, unopenable row — and the job filling it is polled by
+ * `useJobs` in `jobs.ts`. So this invalidates the notebook on success not
+ * because anything is finished, but because the *row* now exists.
+ *
+ * An error here is a failure to **start** a job — a quota refusal is refused at
+ * submission — which is a different surface from a job that fails while
+ * running. `generation-errors.ts` handles both and says which is which.
+ */
+export function useCreateArtifact(
+  notebookId: string,
+): UseMutationResult<Job, Error, CreateArtifactInput> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateArtifactInput) => api.createArtifact(notebookId, input),
+    onSuccess: () => invalidateNotebook(queryClient, notebookId),
+  });
+}
+
+/**
+ * Delete an artifact — **and this is how a failed generation is cleared.**
+ *
+ * A failed artifact keeps its row so the user can see what did not work (the
+ * contract is explicit), which means something has to remove it once they have.
+ * It is the same call a user deleting a finished artifact makes; nothing about
+ * failure is special except that there is no content to lose.
+ */
+export function useDeleteArtifact(notebookId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (artifactId: string) => api.deleteArtifact(notebookId, artifactId),
     onSuccess: () => invalidateNotebook(queryClient, notebookId),
   });
 }

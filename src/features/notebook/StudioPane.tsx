@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { toast } from 'sonner';
 import {
   BookOpenIcon,
   ClipboardListIcon,
@@ -17,7 +19,10 @@ import { ErrorState, LoadingState } from '@/components/states';
 import type { Artifact, ArtifactKind, Readiness, Source } from '@/lib/api';
 import { notebookPath } from '@/lib/notebooks';
 import { useModal } from '@/app/modals';
-import { groupByKind, useArtifacts } from './queries';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { GenerationPanel } from './GenerationPanel';
+import { useNotebookJobs } from './jobs';
+import { groupByKind, useArtifacts, useDeleteArtifact } from './queries';
 
 /**
  * The right pane: everything this notebook has generated, by kind.
@@ -62,6 +67,17 @@ export function StudioPane({
 }) {
   const artifacts = useArtifacts(notebookId);
   const grouped = groupByKind(artifacts.data);
+  const { openModal } = useModal();
+
+  /*
+   * FR4. The jobs query is what animates every `generating` row below and what
+   * refetches this list when one lands — which is why FR3's `refetchInterval`
+   * on `useArtifacts` is gone. Two mechanisms watching the same thing is worse
+   * than either.
+   */
+  const jobs = useNotebookJobs(notebookId);
+  const deleteArtifact = useDeleteArtifact(notebookId);
+  const [pendingDelete, setPendingDelete] = useState<Artifact | null>(null);
 
   /*
    * Which source ids still resolve. Passed down so every row can answer "is
@@ -91,6 +107,32 @@ export function StudioPane({
 
         {artifacts.data && (
           <div className="flex flex-col gap-gutter">
+            {/*
+              What is running, what failed, and what finished with gaps — above
+              the entries, because it is the thing that changed since the user
+              last looked. FR4 task 2.
+            */}
+            <GenerationPanel
+              notebookId={notebookId}
+              jobs={jobs.data}
+              artifacts={artifacts.data}
+              onRetry={artifact => {
+                /*
+                 * Retry reopens the modal for that kind rather than resubmitting
+                 * silently. The original request's options are not recoverable —
+                 * the contract stores what was *produced*, not what was asked
+                 * for — and re-running a guess at them is how a user ends up
+                 * with a deck they did not order. The modal is prefilled to the
+                 * defaults and the user confirms, which is one click more and no
+                 * invented state.
+                 */
+                openModal('generate', { kind: artifact.kind });
+              }}
+              onDismissFailed={artifact => {
+                setPendingDelete(artifact);
+              }}
+            />
+
             {STUDIO_ENTRIES.map(entry => (
               <StudioSection
                 key={entry.id}
@@ -103,6 +145,41 @@ export function StudioPane({
           </div>
         )}
       </div>
+
+      {/*
+        Clearing a failed generation destroys a row, so it confirms — and by
+        `modals.tsx`'s rule a confirmation stays local state rather than going
+        in the URL: you can be "generating a quiz", you cannot be "about to
+        confirm a delete".
+      */}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={open => {
+          if (!open) setPendingDelete(null);
+        }}
+        title="Clear this failed generation?"
+        description={
+          pendingDelete
+            ? `“${pendingDelete.title}” never produced anything, so nothing is lost. It disappears from the Studio.`
+            : ''
+        }
+        confirmLabel="Clear it"
+        confirming={deleteArtifact.isPending}
+        onConfirm={() => {
+          if (!pendingDelete) return;
+          deleteArtifact.mutate(pendingDelete.id, {
+            onSuccess: () => {
+              setPendingDelete(null);
+            },
+            onError: (error: unknown) => {
+              setPendingDelete(null);
+              toast.error('Could not clear it', {
+                description: error instanceof Error ? error.message : 'Unknown error',
+              });
+            },
+          });
+        }}
+      />
     </div>
   );
 }

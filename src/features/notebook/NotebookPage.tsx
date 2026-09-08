@@ -18,7 +18,7 @@ import { useModal } from '@/app/modals';
 import { notebookPath } from '@/lib/notebooks';
 import { AddSourceModal } from './AddSourceModal';
 import { ChatPane } from './ChatPane';
-import { GenerateModalPlaceholder } from './GenerateModalPlaceholder';
+import { GenerateModal } from './GenerateModal';
 import { NotebookSettingsModal } from './NotebookSettingsModal';
 import { SourcesPane } from './SourcesPane';
 import { StudioPane } from './StudioPane';
@@ -233,7 +233,7 @@ function NotebookShell({ notebookId }: { notebookId: string }) {
       */}
       <AddSourceModal notebookId={notebookId} />
       <NotebookSettingsModal notebookId={notebookId} />
-      <GenerateModalPlaceholder />
+      <GenerateModal notebookId={notebookId} />
     </div>
   );
 }

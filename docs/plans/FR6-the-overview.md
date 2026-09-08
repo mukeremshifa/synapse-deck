@@ -65,6 +65,27 @@ and still model-independent.
   `autoSaveId` now actually persists (it was a no-op v2 prop before FR3). Both drift rows
   matter if the overview uses panes.
 
+### What FR4 delivered — appended 2026-09-08 by FR4
+
+- **Each generation is a NEW artifact** (FR4 §6.3, brief §6.2), so the artifact list the
+  overview renders only ever grows. A notebook can hold several decks built from the same
+  sources at different times, and **nothing dedupes them** — if the artifact list needs to
+  group or collapse regenerations, that is your design decision, and `createdAt` plus
+  `sourcesSnapshot` are what you have to do it with.
+- **`failed` artifacts are listable rows the user has not cleared yet.** A failed
+  generation keeps its row (the contract requires it) with no contents at all — 0 cards, 0
+  questions, 0 blocks. **The overview's counts and diagnostics must skip
+  `status !== 'ready'`**, or a notebook with two failed decks reports decks that cannot be
+  opened. FR4 clears them only when the user explicitly dismisses one.
+- **`useNotebookJobs(notebookId)` already invalidates the notebook's queries when a job
+  finishes**, including home's grid. If the overview shows anything a generation changes,
+  it will refresh itself — do not add another poll.
+- **The exam blueprint editor is promised and unbuilt.** Every exam carries a server-derived
+  blueprint (`basis: 'card-counts'`), and FR4's generate modal tells the user they can
+  adjust it "once it exists". Brief §3.4 says per-exam blueprints live with their exam
+  rather than on the overview, so this may be FR5's — but the promise is made, and one of
+  you owns it.
+
 
 
 ---

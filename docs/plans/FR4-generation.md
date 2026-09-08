@@ -1,6 +1,6 @@
 # FR4 — Generation
 
-**Status:** 📋 Planned 2026-09-07, before FR0 executed. Not started.
+**Status:** ✅ Complete 2026-09-08. Typechecks and builds; driven by hand in a browser.
 **Parent:** [FE-REARCHITECTURE-BRIEF.md](FE-REARCHITECTURE-BRIEF.md) §3.2, §1.1.
 **Depends on:** [FR3](FR3-the-notebook.md) complete.
 **Hands off to:** [FR5](FR5-study-surfaces.md).
@@ -185,18 +185,120 @@ one. Check imports first.
 
 ---
 
-## 6. Decisions to record
+## 6. Decisions recorded
 
-1. **How in-flight jobs survive navigation** — query cache, a provider, or polling on return.
-2. **What a failed job leaves behind**, and how the user retries.
-3. **Whether a regeneration is a new artifact or replaces one** — brief §6.2 leaves this
-   open and says new-artifact is simpler and matches §1.2(7). **This phase forces it.**
-   Record it as a decision, and note it in the brief's §6.
-4. Whether save-response-as-note landed here (if FR3 deferred it).
+### 1. In-flight jobs survive navigation via the query cache, not a provider
 
-## 7. What will go unverified
+**`useNotebookJobs(notebookId)` in `src/features/notebook/jobs.ts`** polls `listJobs` at
+1.5s while anything is running and stops when nothing is. React Query's cache is the only
+client-side state; there is no provider and no job-id bookkeeping.
 
-No tests. Report **"typechecks and builds"** plus what you drove by hand.
+The argument against the alternatives is one argument: **a provider holding in-flight ids
+is a second source of truth, and it is the one that is wrong after a reload.** A user who
+starts a two-minute generation and closes the tab has a job running on a server; a
+provider that lost its `useState` says nothing is running. The contract anticipated this —
+`listJobs` is documented as "in-flight and recently finished jobs, **so a reload can
+rejoin one**". "Polling on return" is what this is, done where the cache keeps the last
+answer so returning renders immediately and corrects a moment later.
+
+**The limit, stated:** progress is visible on the notebook the job belongs to, not
+globally. Jobs are notebook-scoped in the contract, and a cross-notebook feed would
+violate FR0's rule that `getGlobalSummary` is the one cross-notebook method.
+
+Verified in a browser: a deck generation left at `Queued`, navigated to home and back, was
+rejoined at `Splitting into sections`.
+
+### 2. A failed job leaves a `failed` artifact with no contents, and the user clears it
+
+The fake pushed the artifact row at `generating` *before* running the job, and nothing
+flipped it back — a failed generation left a row spinning for ever. `startJob` gained an
+**`abandon` hook, the mirror of `commit`**: on failure the artifact becomes
+`status: 'failed'` and **no cards, questions or blocks are ever written**, because `commit`
+is the only thing that writes them and a failed job never reaches it. A failed `add-source`
+marks its source `failed` with the reason, for the same reason.
+
+The row is **kept, not deleted** — the contract is explicit that a failed artifact keeps
+its row "so the user can see what did not work, and retry". Clearing it is
+`deleteArtifact`, behind a confirmation.
+
+**Retry reopens the generate modal rather than resubmitting.** The original request's
+options are not recoverable — the contract stores what was *produced*, not what was asked
+for — so re-running a guess at them is how a user gets a deck they did not order.
+
+Verified in a browser: a failed deck generation left an artifact with **0 cards**.
+
+### 3. A regeneration is a NEW artifact. It never replaces one.
+
+Brief §6.2 left this open and said new-artifact is simpler and matches §1.2(7). **This
+phase forces it, and chooses that.** Nothing in FR4 mutates or reuses an existing
+artifact's id.
+
+What it buys, and why it matters most to FR5: **a runner may treat an artifact's id,
+contents and `sourcesSnapshot` as stable for its lifetime.** An attempt recorded against
+an artifact id can never be invalidated by a regeneration, because a regeneration produces
+a different id. Replacement-in-place would mean an attempt could outlive the questions it
+answered.
+
+The cost, recorded: regenerating leaves the old artifact in the list, and deleting it is
+the user's explicit act. **Noted in the brief's §6.**
+
+### 4. Save-response-as-note landed in FR3, not here
+
+FR3 built `useSaveResponseAsNote`. FR4's only obligation was to make sure it reaches the
+same progress surface, and it does: `GenerationPanel` renders whatever `listJobs` reports,
+so a note saved from chat gets the same stages and the same failure handling with no
+special case.
+
+### 5. The review gate is a completion surface, because the contract has no drafts
+
+**Not in the original plan, and it is the biggest deviation from it.** Task 4 asked for the
+review gate as a modal. The FR0 contract has **no draft concept at all**: `Card.status` is
+`active | suspended`, there is no `deck_status`, and nothing in `ApiClient` accepts or
+rejects a generated card. FR0 dropped it deliberately when it rewrote the nouns, so there
+was nothing to build a card-by-card gate against.
+
+What shipped is the part the contract *can* express, and it is the part `Job.truncated`
+was put there for — its own doc comment says "the review gate's whole reason for existing:
+the user should see what did *not* make it in". A **partial** success gets a panel naming
+exactly what did not land; a clean success gets nothing, because the artifact simply
+appearing ready is the whole outcome.
+
+**Its exit is "Open it" and nothing else**, which is what removes the bug class task 4
+named: the old page navigated to a route that did not exist.
+
+**Card-by-card triage needs a contract change and is not in this phase.** Recorded in the
+drift log so a later phase decides it deliberately rather than discovering it.
+
+### 6. Two contract limits found, both recorded rather than worked around
+
+- **A running or failed job cannot name its artifact.** `Job.result` is populated only on
+  success, so a progress bar *inside* an artifact row is not expressible — hence a panel
+  above the list. A failure is rendered **from the job** (it carries `error.code`) and the
+  leftover row from the artifact; doing it the other way round loses the reason, which is
+  a real defect this phase shipped and then found in a browser.
+- **`closeModal` leaked its params.** `openModal('generate', { kind })` set `kind` and
+  closing removed only `modal`, leaving `?kind=quiz` on the notebook for ever. Fixed in
+  `modals.tsx` by recording the owned keys in the URL. A bug in FR2's system that FR4 was
+  simply the first to expose.
+
+## 7. What went unverified
+
+No tests. **Typechecks and builds**, plus what was driven by hand in a browser over CDP
+(Chrome, 1280px and 375px, signed in as the demo account, fake mode):
+
+- the generate modal for all four kinds, opened from the Studio and from a pasted URL;
+- a full quiz generation: stages advancing `Queued → … → Saving`, the unit counter
+  climbing `0 of 9 → 6 of 9`, the panel clearing and the row appearing ready;
+- **all four error cases** — `quota_exceeded` failing before any stage reported (pinned to
+  `Queued`, no retry offered), `rate_limited` and `provider_error` mid-job (both with a
+  working retry), and a truncated success reporting `8 of 9 sections`;
+- a failed generation leaving an artifact with **0 cards** (`listCards` read directly);
+- a note set generating `heading` / `paragraph` / `list` blocks, not a blob;
+- an exam carrying its own `blueprint` (`basis: 'card-counts'`) alongside its config;
+- progress rejoined after navigating to home and back;
+- 375px: no horizontal overflow, dialog fits with even margins.
+
+What that still does not prove:
 
 1. **No real generation has run.** Every stage, timing and error is the fake's. The real
    pipeline's timings will differ and its failure modes may not match.
@@ -204,10 +306,71 @@ No tests. Report **"typechecks and builds"** plus what you drove by hand.
    fields; the discipline is a reading, not a check.
 3. **Quota and rate-limit handling** is designed against injected errors, never a real 429.
 4. **Structured note blocks** are proven only as far as the fake's shape.
+5. **A full page reload mid-job was not verifiable in fake mode** — reloading resets the
+   in-memory fake, so the job genuinely ceases to exist. The rejoin path was verified
+   across client-side navigation only; `listJobs` is what would serve a reload against a
+   real backend, and that is untested until FR7.
+6. **The failed-job-to-artifact pairing is heuristic**, because `Job.result` is null on
+   failure. With several failures in flight at once, a failure could be labelled with the
+   wrong artifact's title. The failure text itself always comes from the right job.
+
+---
 
 ## 8. Handoff to FR5
 
-- **what a completed artifact looks like** per kind, and how a runner is entered;
-- **where attempts are created** — FR5's quiz/exam runners record them;
-- **the regeneration decision** (§6.3), which changes what a runner may assume is stable;
-- anything in FR5's assumptions you invalidated.
+**Read the FR4 rows in [FR-DRIFT-LOG.md](FR-DRIFT-LOG.md) first.** The four that change
+what you may assume:
+
+- **A regeneration is a new artifact** (§6.3). So **an artifact's id, contents and
+  `sourcesSnapshot` are stable for its lifetime** — an attempt you record against an
+  artifact id can never be invalidated by a regeneration. This is the decision your
+  runners most depend on.
+- **There is no review gate and no draft card.** Nothing hands you a queue of cards to
+  accept. A deck that is `ready` is ready; `listCards` returns its cards and they are
+  `active`. Do not build a runner expecting a triage step before first use.
+- **`useNotebookJobs` is the only thing that watches jobs**, and it already invalidates
+  `artifacts` / `sources` / `detail` / home on completion. If a runner needs to react to a
+  generation finishing, subscribe to that rather than adding a poll.
+- **Generation failure copy is `failureFor(code)`** in `generation-errors.ts`, a closed
+  `Record<ApiErrorCode, …>`. Reuse it for any error a runner surfaces rather than rendering
+  `error.message`.
+
+### What a completed artifact looks like, per kind, and how a runner is entered
+
+Every runner is entered from `ArtifactRow` in `StudioPane.tsx`, which links via
+`notebookPath.practice/quiz/exam/notes(notebookId, artifactId)` — **and only when
+`status === 'ready'`**. A `generating` or `failed` artifact is a real, listable row that is
+deliberately not a link.
+
+| Kind | Ready payload | Contents fetched by | Entered at |
+| --- | --- | --- | --- |
+| `deck` | `cardCount`, `dueCount`, `newCount` | `listCards(nb, artifactId)` — paginated | `notebookPath.practice` |
+| `quiz` | `questionCount`, `answeredCount` | `listQuestions(nb, artifactId)` | `notebookPath.quiz` |
+| `noteset` | `origin: 'generated' \| 'chat'`, `blockCount`, `readBlockCount` | `listNoteBlocks(nb, artifactId)` — a `NoteBlock[]` discriminated union, **not** a blob | `notebookPath.notes` |
+| `exam` | `config: ExamConfig`, `blueprint: Blueprint`, `questionCount`, `attemptCount` | `listQuestions(nb, artifactId)` | `notebookPath.exam` |
+
+**The exam's blueprint is on the artifact when the runner opens it.** FR4 does not let the
+user author one at creation — the contract's `blueprint` is optional on create and omitting
+it means "weight it for me" — so every exam arrives with a server-derived blueprint
+(`basis: 'card-counts'`). **Editing a blueprint is unbuilt and belongs to you or FR6**;
+the generate modal says so in as many words, so the promise is already made to the user.
+
+### Where attempts are created
+
+Nowhere yet — **FR4 creates none.** `startAttempt` / `submitAttempt` are untouched by this
+phase, and `listAttempts` is what FR6's diagnostics read. The quiz and exam runners are the
+first and only writers.
+
+Note the contract's separation, which FR4 did not disturb: **a question is not a card**. An
+exam's questions carry no FSRS state, and an attempt is the record — do not route exam
+answers through `reviewCard`.
+
+### Anything in FR5's assumptions invalidated
+
+- `ExamPage` and `PracticePage` are still on the **old stack** and still ignore their
+  `:artifactId` — FR2's drift row stands, and re-pointing them is your first task.
+- `src/features/generate/` is **deleted** (`JobProgressPanel`, `PipelineStages`,
+  `StagingList`, `useJobProgress`, `useUploadDocument`, `ReviewGatePage`). If you wanted to
+  mine any of it, it is in git history at `9c9280b`.
+- `useDraftCards`, `useAcceptDrafts` and `useFinishReviewGate` are **gone** from
+  `queries.ts`. `useDeleteCards` survives, unused, for a card editor.

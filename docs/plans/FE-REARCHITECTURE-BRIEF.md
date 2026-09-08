@@ -399,7 +399,16 @@ re-read it.
    existence outside it, §1) — but confirm against §1.2(7)'s standalone principle, which
    deliberately does *not* extend to the notebook itself.
 2. **Can a quiz or exam be regenerated in place, or is each generation a new artifact?**
-   New-artifact is simpler and matches §1.2(7). Surfaces in FR4.
+   ~~New-artifact is simpler and matches §1.2(7). Surfaces in FR4.~~
+   **Decided 2026-09-08 by FR4 (§6.3): each generation is a NEW artifact. Nothing is
+   replaced in place.** Nothing in the generation path mutates or reuses an existing
+   artifact's id, and "Try again" on a failure reopens the generate modal rather than
+   resubmitting. The reason it matters beyond simplicity: **a runner may treat an
+   artifact's id, contents and `sourcesSnapshot` as stable for its lifetime**, so an
+   attempt recorded against an artifact id can never be invalidated by a regeneration.
+   Replacement-in-place would let an attempt outlive the questions it answered. The cost,
+   recorded: regenerating leaves the old artifact in the list, and deleting it is the
+   user's explicit act.
 3. **Does a note set's later editor fork the artifact or edit in place?** Surfaces when the
    editor is built; §1.2(2)'s structured-blocks requirement is what keeps both open.
 4. **Is chat history persisted per notebook?** Deliberately undecided (§1.2(4)). Only
