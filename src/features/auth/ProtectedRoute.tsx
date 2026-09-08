@@ -26,15 +26,17 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
 }
 
 /**
- * The mirror image: keep a signed-in user off /login, /signup — and, from P7,
- * off the landing page. Somebody with a session who opens `/` typed the bare
- * domain out of habit and wants the app, not a pitch for a product they already
- * use, so /dashboard is where all three send them.
+ * The mirror image: keep a signed-in user off /login and /signup. Somebody with
+ * a session who opens one of them typed it out of habit and wants the app.
+ *
+ * FR2: they go to `/`, the one home. It used to be `/notebooks`, which is now
+ * itself only a redirect to `/` — sending a signed-in user through two
+ * navigations to reach the screen they wanted.
  */
 export function PublicOnlyRoute({ children }: { children: ReactNode }) {
   const { session, loading } = useAuth();
 
   if (loading) return null;
-  if (session) return <Navigate to="/notebooks" replace />;
+  if (session) return <Navigate to="/" replace />;
   return <>{children}</>;
 }

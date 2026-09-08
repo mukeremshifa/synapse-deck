@@ -102,9 +102,13 @@ export function HomePage() {
             }
           />
         ) : (
-          <ul className="grid list-none gap-gutter p-0 sm:grid-cols-2 lg:grid-cols-3">
+          // `items-stretch` + `h-full` on the `li`: without both, a row's cards
+          // take their own content height and the grid looks ragged. Observed
+          // at 1280px — "Statistics" (no description) sat two-thirds the height
+          // of "Pharmacology" beside it.
+          <ul className="grid list-none items-stretch gap-gutter p-0 sm:grid-cols-2 lg:grid-cols-3">
             {(notebooks.data ?? []).map(notebook => (
-              <li key={notebook.id}>
+              <li key={notebook.id} className="h-full">
                 <NotebookCard notebook={notebook} />
               </li>
             ))}

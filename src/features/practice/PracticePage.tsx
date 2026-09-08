@@ -155,7 +155,7 @@ function NothingDue({
         }
         action={
           <Button asChild variant="outline">
-            <Link to="/notebooks">Back to notebooks</Link>
+            <Link to="/">Back to your notebooks</Link>
           </Button>
         }
       />

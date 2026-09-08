@@ -10,14 +10,18 @@ import { Button } from '@/components/ui/button';
  *
  * Deliberately outside the protected layout: a stranger who mistypes a URL gets
  * an answer, not a redirect to a login form they did not ask for. The way out
- * is /dashboard, which sends a signed-out visitor to /login on its own.
+ * is `/`, which sends a signed-out visitor to /login on its own.
+ *
+ * FR2 re-pointed both links here from `/notebooks`, which is no longer a
+ * destination — there is one home (brief §3.1). A not-found page whose own way
+ * out redirects is a small thing that reads as a broken app.
  */
 export function NotFoundPage() {
   const { pathname } = useLocation();
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-4 py-12">
-      <Link to="/notebooks" className="mb-8 self-center">
+      <Link to="/" className="mb-8 self-center">
         <LogoLockup />
       </Link>
       <EmptyState
@@ -36,7 +40,7 @@ export function NotFoundPage() {
         }
         action={
           <Button asChild>
-            <Link to="/notebooks">Go to notebooks</Link>
+            <Link to="/">Go home</Link>
           </Button>
         }
       />

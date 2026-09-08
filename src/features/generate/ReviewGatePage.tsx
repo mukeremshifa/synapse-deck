@@ -341,7 +341,7 @@ function ReviewGate({
             <CheckCheckIcon /> Accept all
           </Button>
           <Button variant="ghost" asChild>
-            <Link to="/notebooks">Finish later</Link>
+            <Link to="/">Finish later</Link>
           </Button>
         </div>
       </header>
