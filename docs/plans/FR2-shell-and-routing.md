@@ -31,6 +31,35 @@ This plan assumes the current route table at `src/app/routes.tsx` still has: `/h
 
 **Where it differs, fix this plan first.**
 
+### What FR1 delivered — appended 2026-09-08 by FR1
+
+FR1 is complete and its §8 handoff is written, so §1's fallback ("read the code and write
+that handoff yourself") is **not** needed. Start from [FR1 §8](FR1-design-system.md) and
+[docs/DESIGN-SYSTEM.md](../DESIGN-SYSTEM.md). The five things most likely to trip this
+phase up, all also in the drift log:
+
+- **The shell's parts exist.** `PaneGroup` / `Pane` / `PaneHandle` for the resizable panes,
+  `Rail` for the fixed-width column, `Toolbar` for a pane's top strip, `Page width="full"`
+  for the frame. **`Rail` does not resize and `Pane` does** — that is the entire
+  distinction, so a nav column is a `Rail`.
+- **`resizable.tsx` targets `react-resizable-panels` v4**, whose API is `Group` / `Panel` /
+  `Separator` with `orientation`. Published shadcn source uses the v2 names and will not
+  compile. Do not paste it in.
+- **The modal system is `dialog.tsx` + `sheet.tsx`**, and §3.2's "modals are the main verb"
+  now has a rule behind it: a **dialog interrupts** (a decision, a short form), a **sheet
+  accompanies** (a surface you work in while the page stays relevant). `CommandDialog` in
+  `command.tsx` is the ⌘K palette, built on Dialog rather than `cmdk`; it filters nothing
+  on its own, so matching is this phase's job.
+- **There is no `tailwindcss-animate`.** `animate-in` / `fade-in-0` / `zoom-in-95` silently
+  do nothing. Overlay motion is `ui-overlay` / `ui-panel` / `ui-pop` / `ui-sheet`.
+- **The home strip's stat cards use the state set** (`LoadingState`, `EmptyState`,
+  `ErrorState` from `@/components/states`), and the streak comes from
+  `getGlobalSummary().streakDays` per FR0's row above — which returns 0 in `live` mode.
+
+One thing FR1 did **not** build that this phase might have assumed: **no `AppShell`
+component exists.** The vocabulary is the parts, not an assembled shell — assembling them
+is FR2 task 1, deliberately, because the shell's arrangement is this phase's decision.
+
 ---
 
 ## 2. Out of scope

@@ -480,7 +480,7 @@ export function DiagnosticPage() {
         ) : null}
 
         {!fit.fits ? (
-          <div className="border-grade-again/40 bg-grade-again/5 flex items-start gap-2 rounded-lg border p-3">
+          <div className="border-grade-again-mark/50 bg-grade-again-mark/8 flex items-start gap-2 rounded-lg border p-3">
             <AlertTriangleIcon
               className="text-muted-foreground mt-0.5 size-4 shrink-0"
               aria-hidden

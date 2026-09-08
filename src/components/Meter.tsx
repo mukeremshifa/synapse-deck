@@ -23,6 +23,18 @@ import { cn } from '@/lib/utils';
  * climbing in even steps — the property that keeps it readable under
  * deuteranopia. A second red-to-green ramp in the same app would be both
  * redundant and, being unaudited, probably worse.
+ *
+ * The bands use the **mark** ramp (FR1). A meter's fill has nothing on top of
+ * it and sits directly on the page or a card, which is the mark case; the field
+ * ramp is for stops that carry a label. Under the pre-FR1 single ramp a
+ * `strong` meter was 1.21:1 against the page — a bar you could not see, which
+ * rather defeats a bar.
+ *
+ * `accent` is the exception and stays `--primary`: rule 2 in `globals.css`
+ * allows the accent as a field, and a full-width mastery bar is a field in the
+ * sense that matters — a large solid area, not a hairline or a glyph. It is
+ * also the one tone whose meaning is "this is the good outcome", which is the
+ * accent's only job.
  */
 
 export type MeterTone = 'neutral' | 'accent' | 'weak' | 'developing' | 'strong';
@@ -30,9 +42,9 @@ export type MeterTone = 'neutral' | 'accent' | 'weak' | 'developing' | 'strong';
 const TONE_FILL: Record<MeterTone, string> = {
   neutral: 'bg-foreground/70',
   accent: 'bg-primary',
-  weak: 'bg-grade-again',
-  developing: 'bg-grade-good',
-  strong: 'bg-grade-easy',
+  weak: 'bg-grade-again-mark',
+  developing: 'bg-grade-good-mark',
+  strong: 'bg-grade-easy-mark',
 };
 
 export function Meter({

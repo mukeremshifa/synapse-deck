@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatDurationWords, plural } from '@/lib/format';
 import { GRADES, GRADE_LABELS } from '@/lib/fsrs';
-import { GRADE_TOKEN } from '@/lib/grade-tokens';
+import { GRADE_MARK_TOKEN } from '@/lib/grade-tokens';
 import type { Grade } from '@/lib/schemas';
 
 /**
@@ -16,6 +16,11 @@ import type { Grade } from '@/lib/schemas';
  * is the one screen where the four ratings are compared against each other. The
  * accent appearing on Easy here is the ramp doing its job, not a second accent
  * competing with the badge above it (P6).
+ *
+ * The dots use `GRADE_MARK_TOKEN`, not the field ramp: they sit *on* a card
+ * with nothing over them. Under the pre-FR1 single ramp the Easy dot was
+ * 1.21:1 against the page — this screen is where that bug was visible, and the
+ * mark ramp is what fixes it. See rule 4 in `globals.css`.
  */
 export function SessionSummary({
   reviewed,
@@ -53,7 +58,7 @@ export function SessionSummary({
                   <span
                     aria-hidden
                     className="size-1.5 rounded-full"
-                    style={{ backgroundColor: GRADE_TOKEN[grade] }}
+                    style={{ backgroundColor: GRADE_MARK_TOKEN[grade] }}
                   />
                   {GRADE_LABELS[grade]}
                 </dt>

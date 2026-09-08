@@ -10,16 +10,30 @@ import { cn } from '@/lib/utils';
  * guessing. The intervals come from the same `previewSchedule` result that will
  * be written, so the number shown is the number the card gets.
  *
- * **These use the `--grade-*` tokens, and must keep doing so.** Through P1–P4
- * they did not: Again was `variant="destructive"` and the rest were `outline`,
- * while `ForecastChart` and `StateDistribution` read the tokens — so the same
- * rating was one colour on the button and another in the chart. The comment in
- * `globals.css` has always said these have to agree; now they do, and
- * `RatingButtons.test.tsx` fails if a variant creeps back in.
+ * **These use the `--grade-*` field tokens, and should keep doing so** — but
+ * for a reason worth restating, because the old one no longer holds.
  *
- * Labels are ink on every grade, including Again. The ramp runs 0.60 → 0.92 in
- * lightness, so ink clears 4.5:1 on all four while white would fail on the two
- * lightest — one rule for the row beats four exceptions.
+ * The original rationale was that the tokens were fixed and the buttons had to
+ * match them. At FR1 the owner released every token except the brand tone, so
+ * "the tokens are what they are" is no longer an argument for anything. What
+ * survives is the agreement itself: through P1–P4 Again was
+ * `variant="destructive"` and the rest were `outline`, while the charts read
+ * the tokens — so the same rating was one colour on the button and another in
+ * the chart, which is a lie about what the rating means. Whatever the ramp's
+ * values are, the button and the chart have to say the same thing with them.
+ *
+ * That agreement is now unenforced. `RatingButtons.test.tsx` asserted it until
+ * the suite was deleted (ADR 0005), so this comment is the whole guard: if you
+ * reach for a `variant` here, you are re-introducing the P1–P4 bug.
+ *
+ * These are **field** tokens — the stop is the button's background and the
+ * label sits on it. `GRADE_MARK_TOKEN` is the other ramp, for dots and chart
+ * strokes; using it here would give four buttons far too dark to read as a set.
+ *
+ * Labels are ink on every grade, including Again. The field ramp runs
+ * 0.655 → 0.922 in lightness, so ink clears 4.5:1 on all four (5.62 / 8.26 /
+ * 11.71 / 16.09, per `scripts/check-contrast.mjs`) while white would fail on
+ * the two lightest — one rule for the row beats four exceptions.
  */
 const GRADE_FIELD: Record<Grade, string> = {
   [Grade.Again]: 'bg-grade-again hover:bg-grade-again/85',

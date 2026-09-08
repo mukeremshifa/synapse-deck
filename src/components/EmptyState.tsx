@@ -1,51 +1,15 @@
-import type { ReactNode } from 'react';
-import { cn } from '@/lib/utils';
-
 /**
- * The screen a healthy user sees most often.
+ * `EmptyState` moved into the state set at FR1.
  *
- * In a spaced-repetition app "nothing due" is not an error state or an empty
- * shell — it is success, and it should read that way. Every list gets one
- * (SPEC-adjacent, P1 task 9), and each says what to do next rather than only
- * what is absent.
+ * It is one of four states that must look identical everywhere, and keeping it
+ * in its own file while the other three lived together is how the set would
+ * have drifted apart again. FR1 §5.7 says fold it in rather than duplicate it —
+ * so the component now lives in `states.tsx`, beside `LoadingState`,
+ * `ErrorState` and `GeneratingState`, and this module re-exports it.
  *
- * Restyled once, here, in P6 rather than per screen: the icon sits in a filled
- * disc so it reads as a deliberate mark instead of a stray glyph, and the whole
- * block is given room. Nine screens render this component, and nine hand-rolled
- * variations of it is how an app stops looking like one product.
+ * The re-export exists because nine screens import from this path and rewriting
+ * them all was not this phase's job — FR2–FR6 replace most of those screens
+ * anyway, and each can import from `states` as it is rewritten. When the last
+ * caller is gone, delete this file.
  */
-export function EmptyState({
-  icon,
-  title,
-  description,
-  action,
-  className,
-}: {
-  icon?: ReactNode;
-  title: string;
-  description?: ReactNode;
-  action?: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        'flex flex-col items-center rounded-xl border border-dashed px-6 py-14 text-center',
-        className,
-      )}
-    >
-      {icon && (
-        <div className="bg-muted text-muted-foreground mb-4 flex size-12 items-center justify-center rounded-full [&>svg]:size-6">
-          {icon}
-        </div>
-      )}
-      <p className="text-base font-medium">{title}</p>
-      {description && (
-        <div className="text-muted-foreground mt-2 max-w-sm text-sm leading-relaxed">
-          {description}
-        </div>
-      )}
-      {action && <div className="mt-6">{action}</div>}
-    </div>
-  );
-}
+export { EmptyState } from '@/components/states';

@@ -1,6 +1,10 @@
 # FR1 — The design system
 
-**Status:** 📋 Planned 2026-09-07, before FR0 executed. Not started.
+**Status:** ✅ **Complete 2026-09-08.** `npm run verify` passes. See §6 for what was
+decided, §8 for the handoff, §9 for what went unverified — and
+[docs/DESIGN-SYSTEM.md](../DESIGN-SYSTEM.md) for the system itself.
+
+**Planned:** 2026-09-07, before FR0 executed.
 **Parent:** [FE-REARCHITECTURE-BRIEF.md](FE-REARCHITECTURE-BRIEF.md) §3.6 — read it first.
 **Depends on:** [FR0](FR0-contract-and-fake.md) complete.
 **Hands off to:** [FR2](FR2-shell-and-routing.md).
@@ -189,30 +193,179 @@ Do not upgrade every screen. FR2–FR6 replace most of them.
 
 ---
 
-## 6. Decisions to record
+## 6. Decisions recorded — 2026-09-08
 
-1. The palette, and **why the brand tone resolved to the value it did**.
-2. The typography rule, in one sentence per face.
-3. shadcn vs Mantine — as an ADR if you take the brief's recommendation, and **especially**
-   if you do not.
-4. Anything in the brief's §3.6 primitive list that turned out unnecessary, and why.
+The full write-up is [docs/DESIGN-SYSTEM.md](../DESIGN-SYSTEM.md). The four this plan asked
+for, answered:
 
-## 7. What will go unverified
+### 6.1 The palette, and why the brand tone resolved as it did
 
-No tests ([ADR 0005](../adr/0005-no-test-suite.md)). Report **"typechecks and builds"**.
+**Hue 122.5 → 130**, same yellow-green family, lightness and chroma unchanged in spirit
+(`oklch(0.922 0.178 130)`). The nudge toward green was forced by the ramp rather than
+chosen for its own sake: with four stops to fit between red and the accent, at 122.5 the
+Good and Easy stops were too close to separate at a glance. It remains a **field, never a
+foreground** — 1.21:1 against paper.
 
-1. **That the system looks good.** Judgement; task 7 is the only real check.
-2. **Contrast in every combination.** You will check the ones you compute. A token pair
-   nothing uses yet is unchecked until FR2–FR6 use it.
-3. **Motion.** Nothing verifies the reduced-motion path except opening it with the OS
-   setting on. Do that once.
-4. **The unused primitives.** Twelve of fifteen will have no consumer until FR2+.
+**Two structural findings, both from measuring rather than looking.** They are the real
+output of this phase:
+
+1. **The grade ramp had to become two ramps.** A stop light enough for ink to sit on it
+   (≥4.5:1) is too light to *be* a mark on paper (≥3:1); the overlap is so narrow that
+   forcing one ramp to serve both would have flattened the lightness climb the brief
+   specifically said to preserve. So `--grade-*` (field, ink on top) and `--grade-*-mark`
+   (a dot, a stroke, an icon). The old single ramp put an Easy dot at **1.22:1** on
+   `SessionSummary` — invisible, and shipped that way since P5.
+2. **Borders had to split the same way.** `--border` stays decorative at 1.35:1 because a
+   hairline that passes 3:1 does not read as a hairline; `--border-strong` / `--input` is
+   3.17:1 and carries anything SC 1.4.11 governs.
+
+Both ramps climb in lightness in both themes: field `0.655 → 0.745 → 0.835 → 0.922`
+(+0.090, +0.090, +0.087), mark `0.545 → 0.585 → 0.625 → 0.655`. **52 pairs computed, all
+passing**, by [`scripts/check-contrast.mjs`](../../scripts/check-contrast.mjs) — which
+parses `globals.css` rather than carrying its own copy, so it cannot drift.
+
+That script also found two failures in the inherited palette that nobody had measured:
+`muted-foreground` on `muted` at **4.34** (secondary text inside a Card — drawn constantly),
+and every border at **1.35**.
+
+### 6.2 The typography rule
+
+- **sans** (Plus Jakarta Sans) — everything; the default, and the answer unless one of the
+  two below applies.
+- **serif** (DM Serif Display) — the name of the thing you are looking at, **once per
+  screen**; never body text, never a label, never twice on one screen.
+- **mono** (JetBrains Mono) — a value you might compare, count or type: a number, an
+  interval, an id, an email, a keyboard hint.
+
+**Enforced, not merely written:** `PageHeader` owns the serif face, so a screen gets it by
+using the component; `SectionHeader` is deliberately sans, because a screen has one subject.
+
+### 6.3 shadcn vs Mantine
+
+Stayed with shadcn/ui — **[ADR 0016](../adr/0016-shadcn-over-mantine.md)**, which records
+the counter-argument as live rather than dismissed. The palette argument really was void
+once the owner released the tokens; what survived is that the distinctive surfaces ship with
+no library, and that source-in-repo turned out to be load-bearing — splitting the grade ramp
+into two variants with different contrast contracts is not something a library that owns its
+theming layer lets you express.
+
+### 6.4 The primitive list
+
+**All fifteen were built; none turned out unnecessary.** Two diverge from stock shadcn on
+purpose, and both are traps for a later session:
+
+- **`resizable.tsx`** — the installed `react-resizable-panels` is **v4** (`Group` / `Panel` /
+  `Separator`, `orientation`), not the v2 the published shadcn source targets. Pasting
+  upstream's file in does not compile.
+- **`command.tsx`** — built on our `Dialog`, not `cmdk`, to hold the two-dependency line the
+  brief drew. Exported names are `cmdk`'s so swapping it in later is small.
+
+A third thing the brief did not name but the phase needed: **there is no
+`tailwindcss-animate`**, so overlay motion is four `ui-*` classes in `globals.css` keyed off
+Radix's `data-state`. `animate-in` and friends silently do nothing in this repo.
+
+## 7. Acceptance criteria — met
+
+| # | Criterion | Status |
+| --- | --- | --- |
+| 1 | Palette re-derived, contrast **computed and recorded** | ✅ 52 pairs, `scripts/check-contrast.mjs`, recorded in DESIGN-SYSTEM.md §1 |
+| 2 | Ramp varies in **lightness**, L values stated | ✅ §6.1 above |
+| 3 | All five ramp consumers re-pointed; `RatingButtons` comment updated | ✅ `globals.css`, `grade-tokens.ts`, `Meter.tsx`, `RatingButtons.tsx`, `DiagnosticPage.tsx` |
+| 4 | Spacing, radius, elevation, motion tokens exist and are used | ✅ used by the primitives, the layout vocabulary and the rebuilt Settings |
+| 5 | All fifteen primitives present, on the new palette | ✅ |
+| 6 | `react-resizable-panels`, `@tanstack/react-virtual` installed | ✅ |
+| 7 | Layout vocabulary; `EmptyState` folded in, not duplicated | ✅ moved to `states.tsx`, old path is a re-export |
+| 8 | Four states documented, `generating` included | ✅ `src/components/states.tsx` |
+| 9 | Typography rule written down | ✅ §6.2, DESIGN-SYSTEM.md §3 |
+| 10 | One real screen rebuilt **and opened in a browser, both themes** | ⚠️ **partially — see §9.1** |
+| 11 | `prefers-reduced-motion` intact | ✅ unchanged from P5 |
+| 12 | `npm run verify` passes | ✅ 27.9s |
+| 13 | §6 recorded; drift log appended; FR2 updated | ✅ 10 rows; FR2 §1b |
 
 ## 8. Handoff to FR2
 
-State explicitly, in this file, at completion:
+### The layout components — `src/components/layout.tsx`
 
-- **the layout components' names and props** — FR2's shell is built from them;
-- **the four state components' names** — FR2+ apply them identically;
-- **the modal/sheet primitives' API** — brief §3.2 makes modals the main verb;
-- **anything you did not build** that FR2 assumed it would have.
+| Component | Props | Notes |
+| --- | --- | --- |
+| `Page` | `width?: 'prose' \| 'wide' \| 'full'` | `prose` one readable column, `wide` a grid, `full` edge-to-edge with **no padding** — that is the shell's frame. |
+| `PageHeader` | `title`, `description?`, `actions?` | **Owns the serif face.** |
+| `SectionHeader` | `title`, `description?`, `actions?` | Sans, `<h2>`. |
+| `Section` | `title?`, `description?`, `actions?` | `SectionHeader` + content. |
+| `Toolbar` | — | Fixed `h-11`, so panes line up across the shell. |
+| `ToolbarSpacer` | — | Pushes the rest to the far end. |
+| `Rail` | `side?: 'left' \| 'right'` | `w-60`, **does not resize**. |
+| `PaneGroup` | `orientation?`, plus `Group`'s props (`defaultLayout`, `onLayoutChanged`, …) | |
+| `Pane` | `defaultSize?`, `minSize?`, `maxSize?`, `collapsible?` | Percentages of the group. |
+| `PaneHandle` | `withHandle?: boolean` | Hairline with a 9px grab area; keyboard-resizable. |
+
+**`Rail` vs `Pane` is the distinction to get right:** a rail is fixed, a pane resizes. A nav
+column a user can drag is a decision they did not want.
+
+### The four state components — `src/components/states.tsx`
+
+`LoadingState({ lines?, label? })`, `LoadingCard({ className? })`,
+`EmptyState({ icon?, title, description?, action? })`,
+`ErrorState({ title?, detail?, onRetry?, retryLabel? })`,
+`GeneratingState({ stage, value?, detail?, onCancel? })`.
+
+- **Import from `@/components/states`.** `src/components/EmptyState.tsx` is now a re-export
+  kept only for the nine existing callers.
+- **`GeneratingState` is not `LoadingState`.** A skeleton promises the answer exists and is
+  in transit; generation is being *made*, takes tens of seconds, and can fail partway.
+  Pass `value={null}` when the total is unknown — FR0's `failNextJob: { at: 'immediately' }`
+  is exactly that case, and 0 would falsely claim the size is known.
+
+### The modal / sheet API
+
+`dialog.tsx`: `Dialog`, `DialogTrigger`, `DialogContent` (`showClose?`), `DialogHeader`,
+`DialogFooter`, `DialogTitle`, `DialogDescription`, `DialogClose`.
+`sheet.tsx`: the same shape, plus `side?: 'top' | 'right' | 'bottom' | 'left'` on
+`SheetContent`.
+`command.tsx`: `CommandDialog` (`open`, `onOpenChange`, `title?`, `description?`),
+`CommandInput`, `CommandList`, `CommandEmpty`, `CommandGroup`, `CommandItem`
+(`value`, `onSelect`), `CommandShortcut`, `CommandSeparator`.
+
+**The rule for §3.2's "modals are the main verb":** a **dialog interrupts** — a decision or
+a short form, the thing behind it stops mattering. A **sheet accompanies** — a surface you
+work in while the page is still the subject. `ConfirmDialog` stays on AlertDialog and is
+unchanged.
+
+### What FR1 did **not** build
+
+- **No `AppShell`.** The vocabulary is the parts; assembling them is FR2's decision and its
+  task 1. This is deliberate, not an omission.
+- **No command-palette matching.** `CommandItem` renders and selects; **filtering is the
+  caller's**. The component scores nothing.
+- **No virtualisation.** `@tanstack/react-virtual` is installed and unused. `ScrollArea` is
+  a styled scrollbar, *not* virtualisation — wrapping ten thousand rows in it renders ten
+  thousand rows. FR3/FR5 own that.
+- **No toast changes.** `sonner` is untouched.
+- **No `Skeleton` layout presets** beyond `LoadingState`/`LoadingCard`.
+
+## 9. What went unverified
+
+No tests ([ADR 0005](../adr/0005-no-test-suite.md)). This **typechecks and builds** —
+`verify` passed in 27.9s. It does not mean anything works or looks right.
+
+1. **Criterion 10 is only half met, and that is the one honest gap.** Settings was rebuilt
+   on the system and the dev server serves it; the CSS was verified to compile with every
+   new token and utility emitted. **But no browser rendered it in this session** — no
+   browser tooling was available — so neither theme was actually looked at. The contrast
+   numbers are computed and trustworthy; the *composition* is not reviewed. **Open
+   `/settings` in both themes before building on this.**
+2. **Motion and the reduced-motion path.** Nothing verifies either. The `ui-*` classes are
+   emitted and the `prefers-reduced-motion` block is intact and matches `*`; that the
+   animations look right, and that opting out degrades correctly, is unchecked.
+3. **Twelve of the fifteen primitives have no consumer.** Only `separator`, `alert` and
+   `progress` (via `GeneratingState`) are used. `command`, `resizable`, `table`, `avatar`,
+   `scroll-area`, `toggle-group`, `sheet`, `tabs`, `tooltip`, `dropdown-menu`, `popover`
+   and `dialog` have never rendered. **Expect small things wrong the first time each is
+   used** — cheaper to say so than to pretend otherwise.
+4. **Contrast in pairs nothing draws yet.** 52 pairs are checked because 52 pairs are drawn.
+   **Add yours to `PAIRS` in `scripts/check-contrast.mjs` when you introduce it** — a pair
+   nobody listed is a pair nobody checked.
+5. **The other screens.** FR1 deliberately rebuilt one. Every other screen now renders on a
+   changed palette without having been looked at; FR2–FR6 replace most of them, but
+   `DiagnosticPage`, `BlueprintPage` and the exam surfaces will look slightly different and
+   nobody has checked how.

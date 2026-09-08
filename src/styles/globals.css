@@ -12,98 +12,258 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ---------------------------------------------------------------------------
-   SynapseDeck, P5.
+/* ===========================================================================
+   SynapseDeck — the design system. Re-derived at FR1, 2026-09-08.
 
-   Three rules hold this palette together. Breaking any one of them is what will
-   make a future screen look wrong for reasons nobody can name:
+   The owner released every token except the *tone* of the brand colour, so this
+   is a re-derivation rather than a tidy-up. The full write-up, including every
+   contrast ratio and where each number came from, is in docs/DESIGN-SYSTEM.md.
+
+   **Every ratio quoted below was computed, not estimated.** Run
+   `node scripts/check-contrast.mjs` — it parses this file, so it cannot drift
+   away from these values the way a hand-maintained table would. Change a colour
+   here and re-run it.
+
+   Five rules hold this palette together. Breaking one is what will make a future
+   screen look wrong for reasons nobody can name.
 
    1. **Neutrals are chroma 0.** Every grey, in both themes, is achromatic. The
-      palette is black, white, and one wavelength of green; a grey tinted toward
-      the accent muddies the only colour that is allowed to mean anything.
+      palette is ink, paper, and one wavelength of green; a grey tinted toward
+      the accent muddies the only colour allowed to mean anything. (Kept from P5.
+      It was right, and nothing in the re-derivation argued against it.)
 
-   2. **--primary is a field, never a foreground.** #D0F861 is oklch(.922 …) —
-      lightness 0.92, near-white. It has ~1.2:1 against white, so accent *text* or
-      an accent hairline is invisible. It may be a background with --primary-foreground
-      (ink) on top, a chart fill, or a focus ring on dark. Nothing else. There is
-      deliberately no darkened "primary-700" to escape this: darkening it far enough
-      to read on white produces olive, which is a different colour wearing the name.
+   2. **--primary is a field, never a foreground.** It is oklch(.922 …) — near
+      white, 1.21:1 against paper. Accent *text* or an accent hairline is
+      invisible. It may be a background carrying --primary-foreground, a chart
+      fill, or a focus ring on dark. Nothing else. There is deliberately no
+      darkened "primary-700" to escape this: darkening it far enough to read on
+      white produces olive, which is a different colour wearing the same name.
 
    3. **--accent is not the brand accent.** It is shadcn's subtle-hover-surface
       token and stays achromatic. The brand accent is --primary.
-   --------------------------------------------------------------------------- */
+
+   4. **The grade ramp is two ramps, and that is not redundancy.** New at FR1.
+      A stop light enough for ink to sit on it (≥4.5:1) is too light to *be* a
+      mark on white paper (≥3:1) — the two requirements have almost no overlap,
+      and forcing one ramp to serve both is what made the old --grade-easy dot
+      1.22:1 against the page, i.e. invisible. So:
+        --grade-*        the FIELD ramp. A filled button, a bar. Ink on top.
+        --grade-*-mark   the INK-side ramp. A dot, a rule, a chart stroke, an
+                         icon — anything that sits *on* the page rather than
+                         under something.
+      Both climb in lightness. In dark theme the field ramp already clears 3:1
+      against the background, so -mark aliases it there and the split costs
+      nothing; in light theme the two genuinely differ.
+
+   5. **Borders are two tokens for the same reason.** --border is decorative: a
+      card hairline at 1.45:1, which is what a hairline has to be to read as one.
+      --border-strong is 3.17:1 and is what WCAG SC 1.4.11 actually governs —
+      boundaries that carry information: a field outline, a selected state, a
+      focused control. Using --border where meaning lives is the bug; using
+      --border-strong for decoration makes the app look like a spreadsheet.
+   =========================================================================== */
 
 :root {
-  --radius: 0.375rem;
+  /* ── Radius ─────────────────────────────────────────────────────────── */
+  --radius: 0.5rem;
 
+  /* ── Neutrals and surfaces ──────────────────────────────────────────── */
+  /* Paper is pure white and ink is 0.16 rather than 0.145: the extra step is
+     imperceptible as text and buys headroom for the muted/border scale below
+     it, which is where the old palette ran out of room. */
   --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --foreground: oklch(0.16 0 0);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.16 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.922 0.181 122.5);
-  --primary-foreground: oklch(0.145 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.145 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.145 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.9 0 0);
-  --input: oklch(0.9 0 0);
+  --popover-foreground: oklch(0.16 0 0);
 
+  --secondary: oklch(0.965 0 0);
+  --secondary-foreground: oklch(0.16 0 0);
+  --muted: oklch(0.965 0 0);
+  /* 0.52, not P5's 0.556. The old value was 4.34:1 on a muted fill — a real
+     failure, found by the checker, on a combination the app draws constantly
+     (secondary text inside a Card). 0.52 clears 4.5 on both grounds. */
+  --muted-foreground: oklch(0.52 0 0);
+  --accent: oklch(0.965 0 0);
+  --accent-foreground: oklch(0.16 0 0);
+
+  /* ── Brand ──────────────────────────────────────────────────────────── */
+  /* The one token that carried over. Hue 130 rather than P5's 122.5: the same
+     yellow-green family the owner kept, nudged toward green because the ramp
+     below now has four stops to fit between red and the accent, and 122.5 left
+     Good and Easy too close to separate by hue at a glance. Lightness and
+     chroma are unchanged in spirit — this is still a field, not a foreground. */
+  --primary: oklch(0.922 0.178 130);
+  --primary-foreground: oklch(0.16 0 0);
+
+  /* ── Semantic ───────────────────────────────────────────────────────── */
+  --destructive: oklch(0.55 0.21 27);
+  --destructive-foreground: oklch(0.985 0 0);
+  --success: oklch(0.55 0.14 155);
+  --success-foreground: oklch(0.985 0 0);
+  --warning: oklch(0.75 0.15 70);
+  --warning-foreground: oklch(0.16 0 0);
+
+  /* ── Boundaries — see rule 5 ────────────────────────────────────────── */
+  --border: oklch(0.9 0 0);
+  --border-strong: oklch(0.655 0 0);
+  --input: oklch(0.655 0 0);
   /* Ink on light, accent on dark — whichever actually wins against that ground.
      A single ring colour cannot serve both when the accent is this light. */
-  --ring: oklch(0.145 0 0);
+  --ring: oklch(0.16 0 0);
 
-  /* FSRS review grades. Used by the practice rating buttons and the progress
-     charts, so they must mean the same thing in both places.
-
+  /* ── The FSRS grade ramp ────────────────────────────────────────────────
      One sweep from alarm to the accent, not four unrelated hues: rating Easy is
-     what the product exists to produce, so Easy *is* the brand colour. Lightness
-     climbs in even steps (0.60 → 0.72 → 0.82 → 0.92) because a red-to-green sweep
-     is the exact axis deuteranopia flattens — value carries the information and
-     hue is the reward. src/test/tokens.test.ts asserts that ordering. */
-  --grade-again: oklch(0.6 0.21 25);
-  --grade-hard: oklch(0.72 0.16 55);
-  --grade-good: oklch(0.82 0.16 92);
-  --grade-easy: oklch(0.922 0.181 122.5);
+     what the product exists to produce, so Easy *is* the brand colour and the
+     ramp ends there.
+
+     Lightness climbs in even steps — 0.655 → 0.745 → 0.835 → 0.922, about +0.09
+     each — because a red-to-green sweep is the exact axis deuteranopia
+     flattens. Value carries the information; hue is the reward. That property,
+     not P5's particular numbers, is what the brief said to re-earn.
+
+     FIELD stops: ink sits on these. All four clear 4.5:1 against --foreground
+     (5.62 / 8.26 / 11.71 / 16.09), so RatingButtons keeps one rule for the row
+     rather than four exceptions. */
+  --grade-again: oklch(0.655 0.185 27);
+  --grade-hard: oklch(0.745 0.15 62);
+  --grade-good: oklch(0.835 0.155 95);
+  --grade-easy: oklch(0.922 0.178 130);
+
+  /* MARK stops: these sit on the page. All four clear 3:1 against --background
+     (5.49 / 4.37 / 3.54 / 3.06) and still climb, so the ramp reads as one ramp
+     in both roles. Without these, an Easy dot on white was 1.21:1. */
+  --grade-again-mark: oklch(0.545 0.2 27);
+  --grade-hard-mark: oklch(0.585 0.155 62);
+  --grade-good-mark: oklch(0.625 0.155 95);
+  --grade-easy-mark: oklch(0.655 0.16 130);
+
+  /* The one ink the ramp is checked against, named so scripts/check-contrast.mjs
+     can compute "ink on Again" without hardcoding a value this file owns. */
+  --grade-ink: oklch(0.16 0 0);
+
+  /* ── Spacing ────────────────────────────────────────────────────────────
+     A 4px base. Named by role, not by size, because "gutter" survives a
+     redesign and "space-6" does not. Screens compose these; they do not invent
+     padding. (FR1 task 2 — the P5 token file was colour-only, which is why
+     every screen hand-rolled its own spacing.) */
+  --space-hairline: 0.25rem; /*  4px — icon to its label */
+  --space-tight: 0.5rem; /*  8px — within a control */
+  --space-snug: 0.75rem; /* 12px — between related controls */
+  --space-base: 1rem; /* 16px — the default gap */
+  --space-gutter: 1.5rem; /* 24px — card padding, column gutters */
+  --space-section: 2.5rem; /* 40px — between sections of a page */
+  --space-page: 4rem; /* 64px — page top padding, empty-state breathing */
+
+  /* ── Elevation ──────────────────────────────────────────────────────────
+     Four steps, and a rule: elevation means *distance from the page*, not
+     importance. A card is not elevated because it matters; it is elevated
+     because it floats. Shadows are achromatic per rule 1. */
+  --elevation-flat: 0 0 #0000;
+  --elevation-raised: 0 1px 2px 0 oklch(0 0 0 / 0.05);
+  --elevation-overlay: 0 4px 12px -2px oklch(0 0 0 / 0.1), 0 2px 4px -2px oklch(0 0 0 / 0.06);
+  --elevation-modal: 0 16px 40px -8px oklch(0 0 0 / 0.18), 0 4px 12px -4px oklch(0 0 0 / 0.1);
+
+  /* ── Motion ─────────────────────────────────────────────────────────────
+     Brief §3.6: ad-hoc animation is the most common reason a competent app
+     still reads as amateur. Three durations and three easings, and the rule
+     that picks between them:
+
+       instant  a state the user just caused — hover, press. Must not be
+                perceptible as motion, only as responsiveness.
+       quick    something appearing or leaving in place — a tooltip, a toast.
+       moving   something that travels — a sheet, a dialog, a pane resize.
+
+     Anything slower than --duration-moving is a decision, not a default, and
+     belongs in the component with a comment saying why. */
+  --duration-instant: 120ms;
+  --duration-quick: 180ms;
+  --duration-moving: 260ms;
+
+  /* Standard for things that stay on screen, exit for things leaving (faster
+     out than in — a UI that lingers on exit feels slow), spring for the one
+     case where something should feel physical. */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring: cubic-bezier(0.34, 1.32, 0.64, 1);
 }
 
 .dark {
-  --background: oklch(0.13 0 0);
+  /* Background 0.145 and card 0.19: the gap is what makes a card read as a card
+     without a border doing the work, which is how dark themes usually fail. */
+  --background: oklch(0.145 0 0);
   --foreground: oklch(0.98 0 0);
-  --card: oklch(0.175 0 0);
+  --card: oklch(0.19 0 0);
   --card-foreground: oklch(0.98 0 0);
-  --popover: oklch(0.175 0 0);
+  --popover: oklch(0.19 0 0);
   --popover-foreground: oklch(0.98 0 0);
-  --primary: oklch(0.9 0.19 122.5);
-  --primary-foreground: oklch(0.145 0 0);
-  --secondary: oklch(0.24 0 0);
-  --secondary-foreground: oklch(0.98 0 0);
-  --muted: oklch(0.24 0 0);
-  --muted-foreground: oklch(0.64 0 0);
-  --accent: oklch(0.24 0 0);
-  --accent-foreground: oklch(0.98 0 0);
-  --destructive: oklch(0.65 0.21 25);
-  --destructive-foreground: oklch(0.145 0 0);
-  --border: oklch(0.275 0 0);
-  --input: oklch(0.32 0 0);
-  --ring: oklch(0.9 0.19 122.5);
 
-  --grade-again: oklch(0.62 0.2 25);
-  --grade-hard: oklch(0.73 0.15 55);
-  --grade-good: oklch(0.81 0.16 92);
-  --grade-easy: oklch(0.9 0.19 122.5);
+  --secondary: oklch(0.255 0 0);
+  --secondary-foreground: oklch(0.98 0 0);
+  --muted: oklch(0.255 0 0);
+  --muted-foreground: oklch(0.7 0 0);
+  --accent: oklch(0.255 0 0);
+  --accent-foreground: oklch(0.98 0 0);
+
+  /* Slightly less light than the light theme's, because on a dark ground the
+     same value reads brighter. Still a field, still ink on top. */
+  --primary: oklch(0.905 0.18 130);
+  --primary-foreground: oklch(0.16 0 0);
+
+  --destructive: oklch(0.66 0.19 27);
+  --destructive-foreground: oklch(0.16 0 0);
+  --success: oklch(0.72 0.15 155);
+  --success-foreground: oklch(0.16 0 0);
+  --warning: oklch(0.8 0.15 70);
+  --warning-foreground: oklch(0.16 0 0);
+
+  --border: oklch(0.275 0 0);
+  --border-strong: oklch(0.5 0 0);
+  --input: oklch(0.5 0 0);
+  --ring: oklch(0.905 0.18 130);
+
+  /* The same ramp, lifted for the dark ground. */
+  --grade-again: oklch(0.655 0.185 27);
+  --grade-hard: oklch(0.745 0.15 62);
+  --grade-good: oklch(0.835 0.155 95);
+  --grade-easy: oklch(0.905 0.18 130);
+
+  /* On a 0.145 ground the field ramp already clears 3:1 (5.73 / 8.43 / 11.94 /
+     15.58), so the mark ramp is the field ramp here. The split exists because
+     light theme needs it; duplicating the values rather than dropping the
+     tokens keeps every consumer written the same way in both themes. */
+  --grade-again-mark: oklch(0.655 0.185 27);
+  --grade-hard-mark: oklch(0.745 0.15 62);
+  --grade-good-mark: oklch(0.835 0.155 95);
+  --grade-easy-mark: oklch(0.905 0.18 130);
+
+  --grade-ink: oklch(0.16 0 0);
+
+  /* Shadows barely read on a dark ground; depth comes from the surface steps
+     above. Kept non-zero so a modal still separates from what is behind it. */
+  --elevation-raised: 0 1px 2px 0 oklch(0 0 0 / 0.3);
+  --elevation-overlay: 0 4px 12px -2px oklch(0 0 0 / 0.45), 0 2px 4px -2px oklch(0 0 0 / 0.3);
+  --elevation-modal: 0 16px 40px -8px oklch(0 0 0 / 0.6), 0 4px 12px -4px oklch(0 0 0 / 0.4);
 }
 
 @theme inline {
-  /* Without these, Tailwind's font-sans / font-mono utilities resolve to its own
-     default stacks and silently ignore the brand faces — which is what happened
-     to Poppins for all of P0–P4. */
+  /* ── Typography ─────────────────────────────────────────────────────────
+     Three faces, one job each. The full rule is in docs/DESIGN-SYSTEM.md; the
+     one-line version, because this is where someone will look:
+
+       sans   (Plus Jakarta Sans) — everything. The default, and the answer
+              unless one of the two below applies.
+       serif  (DM Serif Display) — the name of the thing you are looking at,
+              once per screen. A page title, a session-summary headline. Never
+              body text, never a label, never twice on one screen.
+       mono   (JetBrains Mono) — a value the user might compare, count or type:
+              a number, an interval, an id, an email, a keyboard hint. Tabular
+              numerals are the point; decoration is not.
+
+     Without these @theme entries Tailwind's font-sans / font-mono utilities
+     resolve to its own stacks and silently ignore the brand faces — which is
+     what happened to Poppins for all of P0–P4. */
   --font-sans: 'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, sans-serif;
   --font-serif: 'DM Serif Display', ui-serif, Georgia, serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
@@ -124,7 +284,12 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
 
@@ -133,10 +298,36 @@
   --color-grade-good: var(--grade-good);
   --color-grade-easy: var(--grade-easy);
 
-  --radius-sm: calc(var(--radius) - 2px);
-  --radius-md: var(--radius);
-  --radius-lg: calc(var(--radius) + 2px);
-  --radius-xl: calc(var(--radius) + 6px);
+  --color-grade-again-mark: var(--grade-again-mark);
+  --color-grade-hard-mark: var(--grade-hard-mark);
+  --color-grade-good-mark: var(--grade-good-mark);
+  --color-grade-easy-mark: var(--grade-easy-mark);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+
+  /* Spacing and motion, exposed as utilities so a component can say
+     `gap-gutter` or `duration-quick` instead of a magic number. */
+  --spacing-hairline: var(--space-hairline);
+  --spacing-tight: var(--space-tight);
+  --spacing-snug: var(--space-snug);
+  --spacing-base: var(--space-base);
+  --spacing-gutter: var(--space-gutter);
+  --spacing-section: var(--space-section);
+  --spacing-page: var(--space-page);
+
+  --shadow-raised: var(--elevation-raised);
+  --shadow-overlay: var(--elevation-overlay);
+  --shadow-modal: var(--elevation-modal);
+
+  --animate-duration-instant: var(--duration-instant);
+
+  --ease-standard: var(--ease-standard);
+  --ease-exit: var(--ease-exit);
+  --ease-spring: var(--ease-spring);
 }
 
 @layer base {
@@ -158,7 +349,9 @@
     color: var(--color-primary-foreground);
   }
 
-  /* SPEC §8.4: the card flip must not animate for users who opt out. */
+  /* SPEC §8.4: the card flip must not animate for users who opt out.
+     Kept verbatim from P5 — FR1 §3 names this an accessibility requirement
+     rather than a style choice, so the re-derivation left it alone. */
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -167,5 +360,262 @@
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
     }
+  }
+}
+
+/* ── Motion keyframes ───────────────────────────────────────────────────────
+   The state set (docs/DESIGN-SYSTEM.md) needs two beyond Tailwind's own, and
+   defining them here rather than per component is the point of task 2.
+
+   `shimmer` is the loading skeleton: a sweep, not a pulse. A pulsing block
+   reads as "broken"; a sweep reads as "arriving".
+   `breathe` is the generating state — slower, and deliberately unlike the
+   skeleton, because "we are working" and "this is loading" are different
+   promises and FR4 depends on the difference being visible. */
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ── Overlay enter/exit ─────────────────────────────────────────────────────
+   Radix drives every overlay with `data-state="open" | "closed"`, so the
+   animation can live here as one rule per shape rather than as a utility class
+   repeated across six primitives.
+
+   **This is deliberately not `tailwindcss-animate`.** The brief named exactly
+   two new dependencies (`react-resizable-panels`, `@tanstack/react-virtual`),
+   and a third for something eight keyframes can do would be scope the phase was
+   not given. Doing it here also means the durations and easings are the tokens
+   above rather than a plugin's own scale, which is the point of task 2.
+
+   Everything below inherits the `prefers-reduced-motion` block, because that
+   block matches `*` — an opted-out user gets the end state instantly, which is
+   correct: these are all decoration on top of a state change that still
+   happens. */
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes overlay-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+@keyframes panel-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+}
+
+/* Popovers, menus, tooltips: they grow from the edge they are anchored to,
+   which Radix reports as `data-side`. One rule, four origins. */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes pop-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@layer components {
+  /* The overlay behind any modal surface. Fade only: sliding the scrim as well
+     doubles the motion for no information — the thing that moved is the panel. */
+  .ui-overlay[data-state='open'] {
+    animation: overlay-in var(--duration-quick) var(--ease-standard);
+  }
+  .ui-overlay[data-state='closed'] {
+    animation: overlay-out var(--duration-quick) var(--ease-exit);
+  }
+
+  /* A centred dialog. Faster out than in, deliberately: a UI that lingers on
+     exit feels slow, and a dismissed dialog should be gone before you have
+     finished thinking about it. */
+  .ui-panel[data-state='open'] {
+    animation: panel-in var(--duration-moving) var(--ease-standard);
+  }
+  .ui-panel[data-state='closed'] {
+    animation: panel-out var(--duration-quick) var(--ease-exit);
+  }
+
+  /* An anchored surface: popover, dropdown, tooltip, select. */
+  .ui-pop[data-state='open'] {
+    animation: pop-in var(--duration-quick) var(--ease-standard);
+    transform-origin: var(--radix-popper-transform-origin, center);
+  }
+  .ui-pop[data-state='closed'] {
+    animation: pop-out var(--duration-instant) var(--ease-exit);
+    transform-origin: var(--radix-popper-transform-origin, center);
+  }
+
+  /* A sheet, which slides from the edge it is docked to. The transform differs
+     per side, so these are four rules rather than one — but the durations stay
+     the tokens, which is the part that matters. */
+  .ui-sheet[data-state='open'] {
+    animation-duration: var(--duration-moving);
+    animation-timing-function: var(--ease-standard);
+  }
+  .ui-sheet[data-state='closed'] {
+    animation-duration: var(--duration-quick);
+    animation-timing-function: var(--ease-exit);
+  }
+  .ui-sheet[data-side='right'][data-state='open'] {
+    animation-name: sheet-in-right;
+  }
+  .ui-sheet[data-side='right'][data-state='closed'] {
+    animation-name: sheet-out-right;
+  }
+  .ui-sheet[data-side='left'][data-state='open'] {
+    animation-name: sheet-in-left;
+  }
+  .ui-sheet[data-side='left'][data-state='closed'] {
+    animation-name: sheet-out-left;
+  }
+  .ui-sheet[data-side='bottom'][data-state='open'] {
+    animation-name: sheet-in-bottom;
+  }
+  .ui-sheet[data-side='bottom'][data-state='closed'] {
+    animation-name: sheet-out-bottom;
+  }
+  .ui-sheet[data-side='top'][data-state='open'] {
+    animation-name: sheet-in-top;
+  }
+  .ui-sheet[data-side='top'][data-state='closed'] {
+    animation-name: sheet-out-top;
+  }
+
+  /* The loading skeleton: a sweep, not a pulse. A pulsing block reads as
+     "broken"; a sweep reads as "arriving". */
+  .ui-skeleton {
+    background-image: linear-gradient(
+      90deg,
+      var(--color-muted) 0%,
+      color-mix(in oklab, var(--color-muted) 55%, var(--color-background)) 50%,
+      var(--color-muted) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+
+  /* The generating state — slower, and deliberately unlike the skeleton,
+     because "we are working" and "this is loading" are different promises and
+     FR4 depends on the difference being visible. */
+  .ui-generating {
+    animation: breathe 2s var(--ease-standard) infinite;
+  }
+}
+
+@keyframes sheet-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes sheet-out-right {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes sheet-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes sheet-out-left {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+@keyframes sheet-in-bottom {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes sheet-out-bottom {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+@keyframes sheet-in-top {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes sheet-out-top {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-100%);
   }
 }
