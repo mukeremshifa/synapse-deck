@@ -1,31 +1,36 @@
 import { FlagIcon } from 'lucide-react';
 
-import type { ExamAnswer } from '@/lib/schemas';
-import type { PreparedQuestion } from '@/lib/exam';
+import type { AttemptAnswer, Question } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 /**
  * The question grid — jump to any question, and see at a glance what is left.
  *
- * Every real exam interface has one, and it is what makes flagging worth having:
- * a flag with no way to find the flagged question again is decoration. It also
- * carries the honest count of what is unanswered, which is the number a
+ * Every real exam interface has one, and it is what makes flagging worth
+ * having: a flag with no way to find the flagged question again is decoration.
+ * It also carries the honest count of what is unanswered, which is the number a
  * candidate actually navigates by in the last five minutes.
  *
+ * This is `features/exam/QuestionNavigator` re-pointed at the contract's
+ * `Question` and `AttemptAnswer` — the old one takes `PreparedQuestion` and
+ * `ExamAnswer` from the browser-assembled exam that FR0 replaced. The rendering
+ * is unchanged; only the shapes moved.
+ *
  * **Not a `<nav>`, and the states are not colour-only.** The grid is a list of
- * buttons in a labelled group; each button's accessible name says its number and
- * its state in words, because the difference between answered and unanswered is
- * carried visually by fill, and fill alone fails anyone who cannot distinguish
- * it. The flag is an icon rather than a second shade for the same reason.
+ * buttons in a labelled group; each button's accessible name says its number
+ * and its state in words, because the difference between answered and
+ * unanswered is carried visually by fill, and fill alone fails anyone who
+ * cannot distinguish it. The flag is an icon rather than a second shade for the
+ * same reason.
  */
-export function QuestionNavigator({
+export function ExamNavigator({
   questions,
   answers,
   currentIndex,
   onNavigate,
 }: {
-  questions: readonly PreparedQuestion[];
-  answers: ReadonlyMap<string, ExamAnswer>;
+  questions: readonly Question[];
+  answers: ReadonlyMap<string, AttemptAnswer>;
   currentIndex: number;
   onNavigate: (index: number) => void;
 }) {
@@ -50,8 +55,8 @@ export function QuestionNavigator({
             type="button"
             onClick={() => onNavigate(index)}
             aria-current={isCurrent ? 'true' : undefined}
-            // The state in words. A screen reader user navigating this grid needs
-            // "12, answered, flagged" — not twelve identical numbered buttons.
+            // The state in words. A screen reader user navigating this grid
+            // needs "12, answered, flagged" — not identical numbered buttons.
             aria-label={`Question ${index + 1}${answered ? ', answered' : ', unanswered'}${
               flagged ? ', flagged' : ''
             }`}
@@ -59,7 +64,7 @@ export function QuestionNavigator({
               'relative flex size-9 items-center justify-center rounded-md border text-xs font-medium tabular-nums transition-colors',
               'focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none',
               'hover:bg-accent',
-              // Ink for answered, not the accent: during an attempt nothing is
+              // Ink for answered, not the accent: during a sitting nothing is
               // correct yet, and a green grid would read as a score.
               answered && 'border-foreground bg-foreground text-background',
               !answered && 'text-muted-foreground border-dashed',

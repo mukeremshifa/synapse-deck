@@ -85,7 +85,7 @@ const PracticePage = lazy(() =>
   })),
 );
 const ExamPage = lazy(() =>
-  import('@/features/exam/ExamPage').then(module => ({
+  import('@/features/study/ExamPage').then(module => ({
     default: module.ExamPage,
   })),
 );

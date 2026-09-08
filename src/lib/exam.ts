@@ -26,8 +26,13 @@ import {
  * Fisher–Yates, seeded by nothing — order is resolved once per attempt and then
  * frozen (see `prepareAttempt`), so a non-deterministic shuffle is correct here.
  * Phase C may want a seeded variant to reproduce an attempt from its record.
+ *
+ * **Exported at FR5** for the contract-backed exam runner, which resolves its
+ * own presentation order once when a sitting starts. The rest of this module is
+ * the old stack's and dies with it; this function is model-independent and is
+ * the one piece the new runner needs.
  */
-function shuffled<T>(items: readonly T[]): T[] {
+export function shuffled<T>(items: readonly T[]): T[] {
   const result = [...items];
   for (let i = result.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
