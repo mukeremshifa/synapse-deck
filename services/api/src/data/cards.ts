@@ -520,8 +520,22 @@ export async function notebookQueue(
       order by c.due asc`,
     params,
   );
+  /*
+   * `c.created_at <= $3` is not a filter anyone asked for — it is how this
+   * statement uses the clock parameter at all.
+   *
+   * The three queries share one `params` array so `scope` can be shared, and
+   * Postgres rejects a bind that supplies more parameters than the statement
+   * references ("bind message supplies 3 parameters, but prepared statement
+   * requires 2"). Found by driving the API rather than by the compiler, which
+   * cannot see inside a SQL string.
+   *
+   * It is also true rather than a trick: a card created after the moment this
+   * queue was taken does not belong in it.
+   */
   const fresh = await query<CardRow & { notebook_id: string }>(
-    `select c.*, a.notebook_id ${scope} and c.fsrs_state = 'new'
+    `select c.*, a.notebook_id ${scope}
+       and c.fsrs_state = 'new' and c.created_at <= $3
       order by c.created_at asc`,
     params,
   );
