@@ -267,6 +267,14 @@ function artifactOr404(notebookId: string, artifactId: string): Artifact {
  * meaningfully construct one — the contract says it is opaque, and a fake that
  * makes it obviously an integer invites code that adds one to it.
  */
+/**
+ * One page of a list.
+ *
+ * **Callers must pass copies.** This slices whatever array it is given and does
+ * not clone the elements, so handing it `store.cards` directly would leak live
+ * store objects to the caller — see the note in `getPracticeQueue` for what
+ * that broke. Every call site maps a spread before it reaches here.
+ */
 function paginate<T>(items: T[], page?: PageRequest): Page<T> {
   const limit = Math.min(Math.max(page?.limit ?? 50, 1), 200);
   const offset = page?.cursor ? Number.parseInt(atob(page.cursor), 10) || 0 : 0;
@@ -887,7 +895,8 @@ export const fakeClient: ApiClient = {
       return paginate(
         store.sources
           .filter(source => source.notebookId === notebookId)
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          .map(source => ({ ...source })),
         page,
       );
     }),
@@ -1187,7 +1196,9 @@ export const fakeClient: ApiClient = {
     gate(() => {
       artifactOr404(notebookId, artifactId);
       return paginate(
-        store.cards.filter(card => card.artifactId === artifactId),
+        store.cards
+          .filter(card => card.artifactId === artifactId)
+          .map(card => ({ ...card })),
         page,
       );
     }),
@@ -1240,12 +1251,32 @@ export const fakeClient: ApiClient = {
       const zone = resolveTimeZone(store.profile.timezone);
       const dayStart = startOfStudyDay(new Date(), zone).getTime();
 
-      const scope = store.cards.filter(
-        card =>
-          card.notebookId === notebookId &&
-          card.status === 'active' &&
-          (artifactId === undefined || card.artifactId === artifactId),
-      );
+      /*
+       * **Copied out of the store, not referenced into it.**
+       *
+       * Every other read here returns `{ ...row }`, and this one did not — it
+       * filtered `store.cards` and handed the live objects to the caller. Two
+       * things went wrong with that, both found by driving the fake at FR5:
+       *
+       * 1. **`stale_card` could never fire.** `reviewCard` mutates the stored
+       *    card in place, so a caller holding a queue card watched its own
+       *    `updatedAt` change underneath it — and the byte-for-byte check
+       *    against `expectedUpdatedAt` compared the new value with itself and
+       *    passed. The one error code the contract has for two tabs rating the
+       *    same card was unreachable through the queue.
+       * 2. **React state could appear to mutate itself**, since a card held in
+       *    component state was the same object the store was writing to.
+       *
+       * A copy per card is what the rest of this file already does.
+       */
+      const scope = store.cards
+        .filter(
+          card =>
+            card.notebookId === notebookId &&
+            card.status === 'active' &&
+            (artifactId === undefined || card.artifactId === artifactId),
+        )
+        .map(card => ({ ...card }));
 
       const due = scope
         .filter(card => isDue(card, at))
@@ -1423,7 +1454,8 @@ export const fakeClient: ApiClient = {
               attempt.notebookId === notebookId &&
               (artifactId === undefined || attempt.artifactId === artifactId),
           )
-          .sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+          .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+          .map(attempt => ({ ...attempt })),
         filter,
       );
     }),
