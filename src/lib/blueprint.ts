@@ -118,9 +118,9 @@ export type BlueprintTopic = z.infer<typeof BlueprintTopic>;
 /**
  * The mix of question formats.
  *
- * ── Six generatable, two not, and the split is about grading ──────────────
+ * ── Eight generatable, three not, and the split is about grading ──────────
  *
- * The six in `QUESTION_KINDS` all grade deterministically in the browser from
+ * The eight in `QUESTION_KINDS` all grade deterministically in the browser from
  * the payload alone. `problem` and `essay` do not: grading free text needs a
  * model and a rubric, which buys a per-attempt cost, a latency, and a score
  * that cannot be reproduced from the stored record. `schemas.ts` leaves them
@@ -131,11 +131,13 @@ export type BlueprintTopic = z.infer<typeof BlueprintTopic>;
  * ungeneratable ones rather than silently producing MCQs for them** — that was
  * true when five of the six did not exist and is still true for these two.
  *
- * `short` was in the ungeneratable group and is *not* promoted out of it. A
- * short answer graded against an accepted-answer key is a deterministic
- * question and could join the six; graded against a rubric it could not. That
- * is a product decision nobody has made, and inventing one here would put a
- * kind in the generator that the runner cannot render.
+ * `short` is still in the ungeneratable group and is *still* not promoted out
+ * of it. `fill_blank` is the neighbouring idea that *is* deterministic, and the
+ * line between them is how much the question constrains the answer: a blank
+ * inside a sentence admits a token, so its accepted spellings can be enumerated
+ * when the question is written. An open short-answer prompt invites a sentence,
+ * and judging a sentence needs a rubric. Adding `fill_blank` therefore does not
+ * make the `short` decision — it sharpens why that decision is still open.
  */
 export const QuestionFormat = z.enum([
   'mcq',
@@ -144,6 +146,8 @@ export const QuestionFormat = z.enum([
   'numeric',
   'matching',
   'ordering',
+  'fill_blank',
+  'categorize',
   'short',
   'problem',
   'essay',

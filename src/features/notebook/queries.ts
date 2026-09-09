@@ -242,12 +242,42 @@ export function useSaveResponseAsNote(notebookId: string) {
       api.createArtifact(notebookId, {
         kind: 'noteset',
         title: titleForResponse(response),
-        sourceIds,
+        sourceIds: [noteSourceFor(response, sourceIds)],
+        // Ignored when `fromResponseId` is set — a saved answer is one topic,
+        // however long the answer was. Sent because the contract requires it.
+        topicCount: 1,
         depth: 'balanced',
         fromResponseId: response.id,
       }),
     onSuccess: () => invalidateNotebook(queryClient, notebookId),
   });
+}
+
+/**
+ * Which single source a saved answer is filed under.
+ *
+ * **A note set names one resource** (the contract's `sourceIds.length(1)`), and
+ * a grounded answer may have cited several. Something has to choose, and the
+ * choice is made here rather than at the call site so that every caller cannot
+ * make it differently.
+ *
+ * **The first cited source wins**, because a citation is evidence the answer
+ * actually drew on that document, and the first is the one the answer reached
+ * for first. The selection the user had in the composer is only the fallback:
+ * it says what was *available*, not what was used, and an answer can be
+ * grounded in one of five selected sources.
+ *
+ * The final fallback is the first selected id, which is reached only when an
+ * answer cited nothing — and an answer with no citations and no selection
+ * cannot be saved at all, which is why `ChatPane` hides the button in that case
+ * rather than letting this return something invented.
+ */
+function noteSourceFor(response: AskResponse, sourceIds: string[]): string {
+  const cited = response.citations[0]?.sourceId;
+  if (cited !== undefined) return cited;
+  const selected = sourceIds[0];
+  if (selected !== undefined) return selected;
+  throw new Error('An answer with no cited or selected source cannot become a note.');
 }
 
 /**

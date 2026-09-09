@@ -116,7 +116,7 @@ export function ChatPane({
       </Toolbar>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-gutter p-gutter">
+        <div className="gap-gutter p-gutter mx-auto flex w-full max-w-2xl flex-col">
           {exchanges.length === 0 && (
             <EmptyState
               icon={<MessageCircleIcon />}
@@ -152,8 +152,8 @@ export function ChatPane({
         </div>
       </div>
 
-      <div className="border-t p-snug">
-        <div className="mx-auto flex w-full max-w-2xl items-end gap-tight">
+      <div className="p-snug border-t">
+        <div className="gap-tight mx-auto flex w-full max-w-2xl items-end">
           <Textarea
             rows={2}
             className="resize-none"
@@ -211,6 +211,10 @@ function Exchange({
   const [highlighted, setHighlighted] = useState<number | null>(null);
   const save = useSaveResponseAsNote(notebookId);
 
+  // What the note would be filed under — see `noteSourceFor`. No source, no
+  // save, and the button below is hidden rather than offered and broken.
+  const canSave = response.citations.length > 0 || sourceIds.length > 0;
+
   /*
    * A `[1]` in the answer scrolls to the citation it names and marks it. That
    * is what makes an answer *traceable* rather than merely footnoted, and it is
@@ -228,26 +232,26 @@ function Exchange({
   };
 
   return (
-    <article className="flex flex-col gap-snug">
+    <article className="gap-snug flex flex-col">
       <p className="text-sm font-medium">{response.question}</p>
 
       {response.answer === null ? (
         <p className="text-muted-foreground text-sm">
-          Nothing in this notebook&rsquo;s sources answers that. Try another
-          question, or add a source that covers it.
+          Nothing in this notebook&rsquo;s sources answers that. Try another question, or
+          add a source that covers it.
         </p>
       ) : (
         <>
           <AnswerText text={response.answer} onCitationClick={showCitation} />
 
           {response.citations.length > 0 && (
-            <ul className="flex flex-col gap-tight">
+            <ul className="gap-tight flex flex-col">
               {response.citations.map(citation => (
                 <li
                   key={`${citation.sourceId}-${String(citation.marker)}`}
                   id={`${response.id}-citation-${String(citation.marker)}`}
                   className={cn(
-                    'flex gap-tight rounded-md p-tight text-xs transition-colors',
+                    'gap-tight p-tight flex rounded-md text-xs transition-colors',
                     highlighted === citation.marker
                       ? 'bg-accent ring-border-strong ring-1'
                       : 'bg-muted/40',
@@ -276,34 +280,43 @@ function Exchange({
             used rather than staying live: a second press would make a second
             identical note set, which is a duplicate the user did not ask for
             and would have to go and delete.
+
+            **It is also absent when there is nothing to file the note under.**
+            A note set names exactly one source (§4.2), and `noteSourceFor`
+            takes the first cited one — so an answer that cited nothing, with
+            nothing selected in the composer, has no source to name. Hiding the
+            button is the honest response: the alternative is offering a save
+            that throws, or inventing a provenance the answer never had.
           */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="self-start"
-            disabled={saved || save.isPending}
-            onClick={() => {
-              save.mutate(
-                { response, sourceIds },
-                {
-                  onSuccess: () => {
-                    setSaved(true);
-                    toast.success('Saved as a note', {
-                      description: 'It is in Studio under Notes.',
-                    });
+          {canSave && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="self-start"
+              disabled={saved || save.isPending}
+              onClick={() => {
+                save.mutate(
+                  { response, sourceIds },
+                  {
+                    onSuccess: () => {
+                      setSaved(true);
+                      toast.success('Saved as a note', {
+                        description: 'It is in Studio under Notes.',
+                      });
+                    },
+                    onError: (error: unknown) =>
+                      toast.error('Could not save the note', {
+                        description:
+                          error instanceof Error ? error.message : 'Unknown error',
+                      }),
                   },
-                  onError: (error: unknown) =>
-                    toast.error('Could not save the note', {
-                      description:
-                        error instanceof Error ? error.message : 'Unknown error',
-                    }),
-                },
-              );
-            }}
-          >
-            <BookmarkPlusIcon aria-hidden />
-            {saved ? 'Saved as a note' : 'Save as note'}
-          </Button>
+                );
+              }}
+            >
+              <BookmarkPlusIcon aria-hidden />
+              {saved ? 'Saved as a note' : 'Save as note'}
+            </Button>
+          )}
         </>
       )}
     </article>

@@ -20,7 +20,12 @@ import {
   type QuestionResponse,
 } from '@/lib/schemas';
 import { cn } from '@/lib/utils';
-import { QuizAnswer, commitsImmediately, isComplete } from './QuizAnswer';
+import {
+  QuizAnswer,
+  commitsImmediately,
+  isComplete,
+  isTypingTarget,
+} from './QuizAnswer';
 import { QuestionPrompt } from './QuestionPrompt';
 import { AttemptReview } from './AttemptReview';
 import { NotReady, WrongKind } from './WrongKind';
@@ -406,6 +411,12 @@ function QuizRunner({
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      /*
+       * A keystroke aimed at an answer field belongs to that field. Enter is
+       * the one exception: confirming from the keyboard is the whole point of
+       * having a confirm step, and it is not a character any input needs.
+       */
+      if (isTypingTarget(event.target) && event.key !== 'Enter') return;
       const key = event.key.toLowerCase();
 
       if (key === 'arrowright' || key === 'n') {

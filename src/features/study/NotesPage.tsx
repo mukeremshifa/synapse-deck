@@ -1,38 +1,56 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { CheckIcon } from 'lucide-react';
 
 import { FocusFrame } from '@/app/FocusFrame';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState, ErrorState } from '@/components/states';
 import { notebookPath } from '@/lib/notebooks';
 import { useSources } from '@/features/notebook/queries';
-import type { NoteBlock, SourceSnapshot } from '@/lib/api';
+import type { NoteTopic, SourceSnapshot } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import { NoteBlocks } from './NoteBlocks';
 import { NotReady, WrongKind } from './WrongKind';
-import { useArtifact, useMarkBlocksRead, useNoteBlocks } from './queries';
+import {
+  useArtifact,
+  useNoteTopics,
+  useSetNoteSetCompleted,
+  useSetTopicCompleted,
+} from './queries';
 
 /**
  * `/notebooks/:notebookId/notes/:noteSetId` — the note **reader**.
  *
- * Read-only, deliberately: FR5 §2's scope table gives the editor to a later
- * phase, and §1.2(2)'s block structure is what keeps that cheap — block-level
- * editing and reordering can be added to a union of blocks, and cannot be added
- * to a string without re-parsing content that was never structured.
+ * ══ Read-only, and no longer "for now" ════════════════════════════════════
  *
- * ── Reading is progress, and it is per block ─────────────────────────────
+ * Earlier revisions of this file called the editor "a later phase". **It is not
+ * planned.** A note set is generated from one source and read; if it is wrong,
+ * the answer is to regenerate it, not to edit the model's output into something
+ * whose provenance no longer matches the `sourcesSnapshot` beside it. The block
+ * structure stays because it is what makes the rendering safe and the topics
+ * addressable — not because something will edit it later.
  *
- * A note set contributes to readiness through `readBlockCount` — the contract's
- * comment on `markBlocksRead` says it is "per block, so a reader can resume".
- * That makes reading itself the unit of work here, in the way a rating is in
- * practice, and it is why this page observes blocks rather than offering a
- * "mark as read" button: a button measures intent and an observer measures
- * reading.
+ * ── Progress is per topic, declared, and reversible ──────────────────────
  *
- * **Read is monotonic.** The fake takes the maximum of what it holds and what
- * arrives, so scrolling back up cannot un-read a section — and that is right,
- * because it did not become unread.
+ * This page used to mark blocks read **by observation**: an IntersectionObserver
+ * counted blocks that crossed the viewport, monotonically, and that count was
+ * readiness. That is gone, and the reasoning is worth keeping:
+ *
+ * > Scrolling past a paragraph is not a claim about having understood it. The
+ * > observer measured **which pixels had been on screen**, then reported it as
+ * > reading — so a fast scroll to the bottom marked a note set fully read, and
+ * > nothing the student did could correct it, because the count only ever went
+ * > up.
+ *
+ * A tick is a claim, so it can be withdrawn. Ticking is per topic (§4.2), which
+ * is why `NoteTopic` exists as a contract noun rather than being inferred from
+ * heading levels — see its comment for why that inference would be wrong.
+ *
+ * **The button at the end is a separate axis.** Ticking every topic does not
+ * press it, and pressing it does not tick every topic. See `ArtifactPayload`.
  */
 export function NotesPage() {
   const { notebookId, noteSetId } = useParams<{
@@ -45,7 +63,7 @@ export function NotesPage() {
 
 function Notes({ notebookId, noteSetId }: { notebookId: string; noteSetId: string }) {
   const artifact = useArtifact(notebookId, noteSetId);
-  const blocks = useNoteBlocks(notebookId, noteSetId);
+  const topics = useNoteTopics(notebookId, noteSetId);
   const sources = useSources(notebookId);
 
   const frameProps = {
@@ -54,8 +72,8 @@ function Notes({ notebookId, noteSetId }: { notebookId: string; noteSetId: strin
     exitTo: notebookPath.open(notebookId),
   };
 
-  if (artifact.isError || blocks.isError) {
-    const error = artifact.error ?? blocks.error;
+  if (artifact.isError || topics.isError) {
+    const error = artifact.error ?? topics.error;
     return (
       <FocusFrame {...frameProps}>
         <ErrorState
@@ -63,14 +81,14 @@ function Notes({ notebookId, noteSetId }: { notebookId: string; noteSetId: strin
           {...(error instanceof Error ? { detail: error.message } : {})}
           onRetry={() => {
             void artifact.refetch();
-            void blocks.refetch();
+            void topics.refetch();
           }}
         />
       </FocusFrame>
     );
   }
 
-  if (artifact.isPending || blocks.isPending) {
+  if (artifact.isPending || topics.isPending) {
     return (
       <FocusFrame {...frameProps}>
         <div className="space-y-4">
@@ -98,12 +116,12 @@ function Notes({ notebookId, noteSetId }: { notebookId: string; noteSetId: strin
     );
   }
 
-  if (blocks.data.length === 0) {
+  if (topics.data.length === 0) {
     return (
       <FocusFrame {...frameProps}>
         <EmptyState
           title="These notes are empty"
-          description="Generation finished without writing any sections."
+          description="Generation finished without writing any topics."
           action={
             <Button asChild>
               <Link to={notebookPath.open(notebookId)}>Back to the notebook</Link>
@@ -114,23 +132,22 @@ function Notes({ notebookId, noteSetId }: { notebookId: string; noteSetId: strin
     );
   }
 
-  const payload = artifact.data.payload;
+  const { payload } = artifact.data;
 
   return (
     <Reader
       notebookId={notebookId}
       noteSetId={noteSetId}
       title={artifact.data.title}
-      blocks={blocks.data}
+      topics={topics.data}
       sourcesSnapshot={artifact.data.sourcesSnapshot}
       // `sourceIds` *links*; the snapshot *names*. A source id that no longer
       // appears in `listSources` is a valid state, so what is live is computed
       // by intersecting rather than by assuming a lookup hits.
-      liveSourceIds={
-        new Set((sources.data ?? []).map(source => source.id))
-      }
+      liveSourceIds={new Set((sources.data ?? []).map(source => source.id))}
       origin={payload.kind === 'noteset' ? payload.origin : 'generated'}
-      alreadyRead={payload.kind === 'noteset' ? payload.readBlockCount : 0}
+      completedCount={payload.kind === 'noteset' ? payload.completedTopicCount : 0}
+      completedAt={payload.kind === 'noteset' ? payload.completedAt : null}
     />
   );
 }
@@ -139,107 +156,46 @@ function Reader({
   notebookId,
   noteSetId,
   title,
-  blocks,
+  topics,
   sourcesSnapshot,
   liveSourceIds,
   origin,
-  alreadyRead,
+  completedCount,
+  completedAt,
 }: {
   notebookId: string;
   noteSetId: string;
   title: string;
-  blocks: NoteBlock[];
+  topics: NoteTopic[];
   sourcesSnapshot: SourceSnapshot[];
   liveSourceIds: ReadonlySet<string>;
   origin: 'generated' | 'chat';
-  alreadyRead: number;
+  completedCount: number;
+  completedAt: string | null;
 }) {
-  const markRead = useMarkBlocksRead(notebookId, noteSetId);
+  const setTopic = useSetTopicCompleted(notebookId, noteSetId);
+  const setCompleted = useSetNoteSetCompleted(notebookId, noteSetId);
 
   /*
-   * Which blocks have been on screen.
+   * **Which topics are ticked is derived, not held in state.**
    *
-   * Seeded from what the server already counted, so a reader who returns is not
-   * told they have read nothing. The count is what the contract stores — it has
-   * no per-index record — so the seed is "the first N", which is what
-   * `readBlockCount` means for a document read top to bottom.
-   */
-  const [read, setRead] = useState<Set<number>>(
-    () => new Set(Array.from({ length: alreadyRead }, (_, index) => index)),
-  );
-
-  // The set as the observer sees it, so the callback does not need to be
-  // rebuilt — and re-attached to every element — on each new block read.
-  const readRef = useRef(read);
-  readRef.current = read;
-
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  const pending = useRef<Set<number>>(new Set());
-  const flushTimer = useRef<number | null>(null);
-
-  /**
-   * Send what has been read, at most once per idle second.
+   * The payload carries a *count*, not the ids — the contract's reason is that
+   * a list endpoint must not ship every id of every artifact — so the reader
+   * reconstructs "the first n" from the count, exactly as a document read in
+   * order implies. Holding a local set instead would mean two sources of truth
+   * for the same fact, and the optimistic update in `useSetTopicCompleted`
+   * already keeps the count honest between the click and the response.
    *
-   * Batched because scrolling through a long note crosses many blocks in a
-   * moment, and one request per block would be a burst of writes that all say
-   * the same thing. The whole set is sent, not a delta: the contract takes the
-   * indexes read so far, so a request that fails costs nothing — the next one
-   * carries the same information.
+   * The consequence, stated rather than hidden: **ticking out of order is
+   * displayed in order.** Ticking only the third topic shows the first as
+   * ticked instead. That is a real limitation of storing a count, and the fix
+   * is a payload that carries ids — a contract change, not a change here.
    */
-  const scheduleFlush = useCallback(() => {
-    if (flushTimer.current !== null) return;
-    flushTimer.current = window.setTimeout(() => {
-      flushTimer.current = null;
-      const indexes = [...readRef.current].sort((a, b) => a - b);
-      if (indexes.length <= alreadyRead) return;
-      markRead.mutate(indexes);
-    }, 1000);
-  }, [alreadyRead, markRead]);
+  const ticked = (index: number) => index < completedCount;
 
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      entries => {
-        let changed = false;
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const index = Number(entry.target.getAttribute('data-block-index'));
-          if (Number.isNaN(index) || readRef.current.has(index)) continue;
-          pending.current.add(index);
-          changed = true;
-        }
-        if (!changed) return;
-        setRead(previous => {
-          const next = new Set(previous);
-          for (const index of pending.current) next.add(index);
-          pending.current.clear();
-          return next;
-        });
-        scheduleFlush();
-      },
-      // A block counts as read once half of it has been on screen. Any lower
-      // and scrolling past a heading marks the section beneath it read.
-      { threshold: 0.5 },
-    );
-    observerRef.current = observer;
-    return () => {
-      observer.disconnect();
-      observerRef.current = null;
-      if (flushTimer.current !== null) window.clearTimeout(flushTimer.current);
-    };
-  }, [scheduleFlush]);
-
-  /** Attach one block to the observer, and label it with its index. */
-  const blockRef = useCallback(
-    (index: number) => (node: HTMLElement | null) => {
-      if (!node) return;
-      node.setAttribute('data-block-index', String(index));
-      observerRef.current?.observe(node);
-    },
-    [],
-  );
-
-  const readCount = Math.min(blocks.length, read.size);
-  const complete = readCount >= blocks.length;
+  const total = topics.length;
+  const done = Math.min(total, completedCount);
+  const complete = completedAt !== null;
 
   return (
     <FocusFrame
@@ -248,50 +204,146 @@ function Reader({
       exitTo={notebookPath.open(notebookId)}
       status={
         <span className="text-muted-foreground text-sm tabular-nums">
-          {readCount} / {blocks.length} read
+          {done} / {total} topics
         </span>
       }
     >
-      <article className="mx-auto max-w-2xl space-y-gutter">
-        <header className="space-y-snug border-b pb-gutter">
+      <article className="space-y-gutter mx-auto max-w-2xl">
+        <header className="space-y-snug pb-gutter border-b">
           <h1 className="font-serif text-3xl leading-tight">{title}</h1>
           <div className="flex flex-wrap items-center gap-2">
             {/*
               Where a note came from is worth saying: one written from a chat
               answer (§1.2(4)) is a different kind of artefact from one
-              generated over the sources, and the reader should not have to
-              guess which they are reading.
+              generated over a source, and the reader should not have to guess
+              which they are reading.
             */}
             <Badge variant="outline">
-              {origin === 'chat' ? 'Saved from chat' : 'Generated from sources'}
+              {origin === 'chat' ? 'Saved from chat' : 'Generated from a source'}
             </Badge>
-            {complete && <Badge variant="outline">Read</Badge>}
+            {complete && <Badge variant="outline">Completed</Badge>}
           </div>
           {sourcesSnapshot.length > 0 && (
             <p className="text-muted-foreground text-xs">
               Built from {sourcesSnapshot.map(source => source.title).join(', ')}
             </p>
           )}
+          <Progress value={total === 0 ? 0 : (done / total) * 100} />
         </header>
 
-        <NoteBlocks
-          blocks={blocks}
-          sourcesSnapshot={sourcesSnapshot}
-          liveSourceIds={liveSourceIds}
-          blockRef={blockRef}
-        />
+        {topics.map((topic, index) => (
+          <Topic
+            key={topic.id}
+            topic={topic}
+            index={index}
+            completed={ticked(index)}
+            sourcesSnapshot={sourcesSnapshot}
+            liveSourceIds={liveSourceIds}
+            onToggle={completed => {
+              setTopic.mutate({ topicId: topic.id, completed });
+            }}
+          />
+        ))}
 
-        <footer className="flex items-center justify-between gap-3 border-t pt-gutter">
+        <footer className="pt-gutter flex flex-wrap items-center justify-between gap-3 border-t">
           <span className="text-muted-foreground text-xs">
             {complete
-              ? 'You have read all of this.'
-              : `${blocks.length - readCount} sections still to read.`}
+              ? 'You marked this complete.'
+              : done === total
+                ? 'Every topic is ticked.'
+                : `${String(total - done)} of ${String(total)} topics still to read.`}
           </span>
-          <Button asChild variant="ghost">
-            <Link to={notebookPath.open(notebookId)}>Back to the notebook</Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="ghost">
+              <Link to={notebookPath.open(notebookId)}>Back to the notebook</Link>
+            </Button>
+            {/*
+              **The declaration, and it is reversible.** A student who presses
+              this by accident, or who comes back to re-read, can take it back —
+              the same reasoning as an untickable topic. It is deliberately not
+              disabled while topics are outstanding: finishing early is a
+              legitimate thing to decide, and a button that refused would be
+              arguing with the person who decided it.
+            */}
+            <Button
+              variant={complete ? 'outline' : 'default'}
+              disabled={setCompleted.isPending}
+              onClick={() => {
+                setCompleted.mutate(!complete);
+              }}
+            >
+              {complete ? (
+                <>
+                  <CheckIcon aria-hidden />
+                  Completed
+                </>
+              ) : (
+                'Mark as complete'
+              )}
+            </Button>
+          </div>
         </footer>
       </article>
     </FocusFrame>
+  );
+}
+
+/**
+ * One topic: its heading, its blocks, and the tick that says it is read.
+ *
+ * The checkbox sits in the heading rather than after the content, so the state
+ * is visible while reading and reachable without scrolling to the end of a long
+ * topic — and so the whole set can be scanned for what is left.
+ */
+function Topic({
+  topic,
+  index,
+  completed,
+  sourcesSnapshot,
+  liveSourceIds,
+  onToggle,
+}: {
+  topic: NoteTopic;
+  index: number;
+  completed: boolean;
+  sourcesSnapshot: SourceSnapshot[];
+  liveSourceIds: ReadonlySet<string>;
+  onToggle: (completed: boolean) => void;
+}) {
+  const labelId = `topic-${topic.id}-title`;
+
+  return (
+    <section
+      aria-labelledby={labelId}
+      className={cn(
+        'space-y-gutter pt-gutter border-t transition-opacity',
+        // Read topics recede rather than disappear — still there to re-read,
+        // but no longer competing for attention with what is left.
+        completed && 'opacity-70',
+      )}
+    >
+      <div className="gap-snug flex items-start">
+        <Checkbox
+          className="mt-1.5"
+          checked={completed}
+          aria-labelledby={labelId}
+          onCheckedChange={value => {
+            onToggle(value === true);
+          }}
+        />
+        <h2 id={labelId} className="flex-1 font-serif text-xl leading-tight">
+          <span className="text-muted-foreground mr-2 text-sm tabular-nums">
+            {index + 1}.
+          </span>
+          {topic.title}
+        </h2>
+      </div>
+
+      <NoteBlocks
+        blocks={topic.blocks}
+        sourcesSnapshot={sourcesSnapshot}
+        liveSourceIds={liveSourceIds}
+      />
+    </section>
   );
 }

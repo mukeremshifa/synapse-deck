@@ -438,9 +438,10 @@ async function artifactKind(
  * what it did; whether that is right is a fact about the question, and a client
  * that could assert it could score its own exam.
  *
- * **The rule itself is `gradeResponse`, imported rather than restated.** Six
- * kinds now grade six different ways — a set comparison for multi-select, a
- * tolerance for numeric, a permutation check for ordering — and a second
+ * **The rule itself is `gradeResponse`, imported rather than restated.** Eight
+ * kinds now grade eight different ways — a set comparison for multi-select, a
+ * tolerance for numeric, a permutation check for ordering, a normalised string
+ * match for a fill-in-the-blank — and a second
  * implementation of any of them here would be the version that disagrees with
  * the runner. The runner grades to show the answer immediately; this grades to
  * decide the record. They must never differ, so there is one function.

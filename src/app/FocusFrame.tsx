@@ -33,6 +33,21 @@ import { cn } from '@/lib/utils';
  * `exitTo` is a route rather than `history.back()` for the reason
  * `NotebookHeader` gives: a user who arrived by pasting a URL, or who was
  * redirected here from the gate, has no useful back.
+ *
+ * ── `fill`, and why it is opt-in ─────────────────────────────────────────
+ *
+ * `main` has always been `flex-1`, so the *frame* fills the viewport — but a
+ * flex item's height does not reach its children, so a runner whose content is
+ * one card got a card sized to its own text, floating under the header with
+ * the rest of the screen empty. `fill` passes the height down: `main` becomes
+ * a column, and the child is told to grow into it.
+ *
+ * It is opt-in because it is wrong for three of the four runners. The exam,
+ * the quiz and the note reader scroll — content taller than the viewport that
+ * the user reads downwards — and giving those a `min-h-0` growing child just
+ * moves the scrollbar inside a nested box for no gain. Practice is the one
+ * surface showing exactly one thing at a time, which is the case a full-height
+ * child is actually for.
  */
 export function FocusFrame({
   title,
@@ -45,6 +60,11 @@ export function FocusFrame({
   bare = false,
   /** Practice and the gate want a readable column; the exam manages its own. */
   width = 'narrow',
+  /**
+   * Hand the child the leftover viewport height instead of letting it size to
+   * its content. For single-artifact runners; see the note above.
+   */
+  fill = false,
   children,
 }: {
   title: string;
@@ -54,10 +74,15 @@ export function FocusFrame({
   status?: ReactNode;
   bare?: boolean;
   width?: 'narrow' | 'wide' | 'full';
+  fill?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-h-dvh flex-col">
+    // `min-h-dvh` normally, so a long page grows and the window scrolls. Under
+    // `fill` it must be `h-dvh` instead: a *minimum* height gives the child
+    // nothing to grow into, so the card would still size to its content and
+    // `fill` would silently do nothing.
+    <div className={cn('flex flex-col', fill ? 'h-dvh' : 'min-h-dvh')}>
       {!bare && (
         <header className="bg-background/85 sticky top-0 z-40 border-b backdrop-blur-sm">
           <div className="mx-auto flex h-14 w-full max-w-5xl items-center gap-4 px-4">
@@ -84,6 +109,10 @@ export function FocusFrame({
           'w-full flex-1 px-4 py-8',
           width === 'narrow' && 'mx-auto max-w-2xl',
           width === 'wide' && 'mx-auto max-w-5xl',
+          // `min-h-0` is what makes this work: without it the flex item floors
+          // at its content height and a tall card overflows the viewport
+          // instead of scrolling inside itself.
+          fill && 'flex min-h-0 flex-col',
         )}
       >
         {children}

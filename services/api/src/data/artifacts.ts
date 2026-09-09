@@ -30,7 +30,7 @@ import type { ArtifactKind, ArtifactRow, ArtifactStatus } from '../lib/rows.ts';
 
 const COLUMNS =
   'id, user_id, notebook_id, kind, title, status, error, source_ids, ' +
-  'sources_snapshot, payload, created_at, updated_at';
+  'sources_snapshot, payload, created_at, updated_at, completed_at';
 
 /** An artifact with every count its kind's payload needs. */
 export interface ArtifactWithCounts extends ArtifactRow {
@@ -39,8 +39,8 @@ export interface ArtifactWithCounts extends ArtifactRow {
   newCount: number;
   questionCount: number;
   answeredCount: number;
-  blockCount: number;
-  readBlockCount: number;
+  topicCount: number;
+  completedTopicCount: number;
   attemptCount: number;
 }
 
@@ -70,12 +70,12 @@ const COUNTS_JOIN = `
   ) q on q.artifact_id = a.id
   left join (
     select artifact_id,
-           count(*)::int                                    as blocks,
-           count(*) filter (where read_at is not null)::int  as read_blocks
-      from public.note_blocks
+           count(*)::int                                        as topics,
+           count(*) filter (where completed_at is not null)::int as done
+      from public.note_topics
      where user_id = $1
      group by artifact_id
-  ) nb on nb.artifact_id = a.id
+  ) nt on nt.artifact_id = a.id
   left join (
     select artifact_id, count(*)::int as attempts
       from public.attempts
@@ -102,8 +102,8 @@ const COUNTS_SELECT = `
   coalesce(c.fresh, 0)        as "newCount",
   coalesce(q.questions, 0)    as "questionCount",
   coalesce(ans.answered, 0)   as "answeredCount",
-  coalesce(nb.blocks, 0)      as "blockCount",
-  coalesce(nb.read_blocks, 0) as "readBlockCount",
+  coalesce(nt.topics, 0)      as "topicCount",
+  coalesce(nt.done, 0)        as "completedTopicCount",
   coalesce(at.attempts, 0)    as "attemptCount"`;
 
 const SELECT_LIST = COLUMNS.split(', ')
@@ -254,6 +254,40 @@ export async function updateArtifact(
       input.title ?? null,
       input.blueprint === undefined ? null : JSON.stringify(input.blueprint),
     ],
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
+ * The button at the end — the student declaring a note set finished.
+ *
+ * **`completed_at` is a column, not a payload key**, because it is a fact about
+ * the artifact rather than a derived count: `payload` stores only what cannot be
+ * derived (ADR 0017), and this cannot be derived from anything.
+ *
+ * Re-pressing keeps the original stamp, for the same reason `setTopicCompleted`
+ * does: the moment the student said they were done is a fact about *when*.
+ *
+ * **Scoped to notesets in the statement itself.** A `kind = 'noteset'` in the
+ * where clause means a request naming a deck returns null and becomes a 404,
+ * rather than quietly stamping a completion onto an artifact kind that has no
+ * meaning for one.
+ */
+export async function setNoteSetCompleted(
+  userId: string,
+  notebookId: string,
+  artifactId: string,
+  completed: boolean,
+): Promise<ArtifactRow | null> {
+  const result = await query<ArtifactRow>(
+    `update public.artifacts
+        set completed_at = case
+              when $4::boolean then coalesce(completed_at, now())
+              else null
+            end
+      where user_id = $1 and notebook_id = $2 and id = $3 and kind = 'noteset'
+      returning ${COLUMNS}`,
+    [userId, notebookId, artifactId, completed],
   );
   return result.rows[0] ?? null;
 }

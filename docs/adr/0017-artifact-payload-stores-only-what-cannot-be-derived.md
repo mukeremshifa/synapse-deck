@@ -20,15 +20,15 @@ The contract's payload is a discriminated union, and every arm carries counts:
 ```ts
 deck     { cardCount, dueCount, newCount }
 quiz     { questionCount, answeredCount }
-noteset  { origin, blockCount, readBlockCount }
+noteset  { origin, topicCount, completedTopicCount, completedAt }
 exam     { config, blueprint, questionCount, attemptCount }
 ```
 
 Two facts about those fields decide this, and they point in opposite directions:
 
 1. **Most of them are counts of rows in other tables.** `cardCount` is
-   `count(*) from cards where artifact_id = …`; `readBlockCount` is the same over
-   `note_blocks where read_at is not null`. They are questions about the database, not
+   `count(*) from cards where artifact_id = …`; `completedTopicCount` is the same over
+   `note_topics where completed_at is not null`. They are questions about the database, not
    facts the artifact knows.
 2. **A few of them are genuinely inputs.** A note set's `origin` records whether it was
    generated from sources or saved from a chat response — nothing can recompute that. An
@@ -106,3 +106,23 @@ note set and an exam, 18 cards and 79 reviews, with the rendered counts checked 
 database by hand — but **no test asserts that a count stays right after a partial write**,
 which is the exact failure this decision exists to prevent. The argument is structural: the
 count cannot drift because it is not stored, so there is no state to get out of step.
+
+
+## Revisited 2026-09-09 — `completedAt` is a column, and it belongs on the row
+
+SPEC §4.2's revision gave a note set a completion the student presses at the end.
+It looks like a payload field and it is not one: **`artifacts.completed_at` is a
+real column.**
+
+That is this ADR applied rather than an exception to it. `completedTopicCount` is
+a count of rows in another table, so it is derived on read like every other count.
+`completedAt` cannot be derived from anything — not from the topics (ticking them
+all does not press the button), not from the artifact, not from any other table.
+By this ADR's own test it is an input, and inputs are stored.
+
+It sits on the row rather than inside `payload` because a nullable timestamp with
+a meaning is exactly what a column is for: it is queryable, it is typed, and
+readiness reads it directly. `origin` stays in `payload` because it is an enum of
+two values with no query behind it. The rule is unchanged — **store what cannot be
+derived, derive the rest** — and this is what following it looks like when the
+thing that cannot be derived happens to be a timestamp.

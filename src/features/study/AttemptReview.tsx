@@ -7,7 +7,13 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Meter } from '@/components/Meter';
 import { notebookPath } from '@/lib/notebooks';
 import type { Attempt, AttemptAnswer, Question } from '@/lib/api';
-import { questionStem, type QuestionPayload, type QuestionResponse } from '@/lib/schemas';
+import {
+  gradeResponse,
+  questionStem,
+  splitBlank,
+  type QuestionPayload,
+  type QuestionResponse,
+} from '@/lib/schemas';
 import { cn } from '@/lib/utils';
 
 /**
@@ -415,6 +421,85 @@ function ReviewAnswer({
             );
           })}
         </ol>
+      );
+    }
+
+    case 'fill_blank': {
+      const typed = response?.kind === 'fill_blank' ? response.text : '';
+      const right = response !== null && gradeResponse(payload, response);
+      const { before, after } = splitBlank(payload.text);
+      return (
+        <div className="space-y-1 text-sm">
+          {/*
+            The sentence with their word in it, rather than the word alone.
+            A fill-blank answer is only judgeable in context — "cache" is right
+            or wrong depending on the sentence it was written into.
+          */}
+          <p className="leading-7 whitespace-pre-wrap">
+            {before}
+            <span
+              className={cn(
+                'mx-1 rounded px-1.5 py-0.5 font-medium',
+                response === null
+                  ? 'bg-muted'
+                  : right
+                    ? 'bg-primary/15'
+                    : 'bg-destructive/10',
+              )}
+            >
+              {typed.trim() === '' ? '—' : typed}
+            </span>
+            {after}
+          </p>
+          {!right && (
+            <p className="text-muted-foreground text-xs">
+              Answer: <span className="text-primary">{payload.accepted[0]}</span>
+              {payload.accepted.length > 1 &&
+                ` (also accepted: ${payload.accepted.slice(1).join(', ')})`}
+            </p>
+          )}
+        </div>
+      );
+    }
+
+    case 'categorize': {
+      const assignments =
+        response?.kind === 'categorize' ? response.assignments : [];
+      return (
+        <ul className="space-y-1 text-sm">
+          {payload.items.map((item, itemIndex) => {
+            const placed = assignments[itemIndex] ?? null;
+            const right = placed === item.category;
+            return (
+              <li
+                key={itemIndex}
+                className={cn(
+                  'flex items-baseline gap-2 rounded-md px-2 py-1',
+                  assignments.length === 0
+                    ? undefined
+                    : right
+                      ? 'bg-primary/15'
+                      : 'bg-destructive/10',
+                )}
+              >
+                <span className="flex-1 whitespace-pre-wrap">{item.text}</span>
+                <span className="text-primary shrink-0 text-xs">
+                  {payload.categories[item.category]}
+                </span>
+                {/*
+                  Where they put it, only when that was not where it belongs —
+                  the same rule the matching review follows.
+                */}
+                {assignments.length > 0 && !right && (
+                  <span className="text-muted-foreground shrink-0 text-xs">
+                    you put:{' '}
+                    {placed === null ? 'nowhere' : (payload.categories[placed] ?? '—')}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
       );
     }
   }

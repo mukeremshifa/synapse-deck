@@ -69,7 +69,7 @@ export function ArtifactList({
    * property §3 asks of readiness, applied to the grouping.
    */
   return (
-    <div className="flex flex-col gap-gutter">
+    <div className="gap-gutter flex flex-col">
       {ARTIFACT_KINDS.map(kind => {
         const own = artifacts.filter(artifact => artifact.kind === kind);
         if (own.length === 0) return null;
@@ -80,10 +80,14 @@ export function ArtifactList({
               title={own.length === 1 ? label.one : label.many}
               description={countLine(kind, own)}
             />
-            <ul className="mt-tight flex flex-col gap-tight">
+            <ul className="mt-tight gap-tight flex flex-col">
               {own.map(artifact => (
                 <li key={artifact.id}>
-                  <ArtifactCard artifact={artifact} notebookId={notebookId} liveSourceIds={liveSourceIds} />
+                  <ArtifactCard
+                    artifact={artifact}
+                    notebookId={notebookId}
+                    liveSourceIds={liveSourceIds}
+                  />
                 </li>
               ))}
             </ul>
@@ -107,10 +111,7 @@ export function ArtifactList({
 function countLine(kind: ArtifactKind, artifacts: readonly Artifact[]): string {
   const ready = artifacts.filter(artifact => artifact.status === 'ready');
   const unready = artifacts.length - ready.length;
-  const suffix =
-    unready === 0
-      ? ''
-      : ` · ${String(unready)} not ready`;
+  const suffix = unready === 0 ? '' : ` · ${String(unready)} not ready`;
 
   let total = 0;
   for (const artifact of ready) {
@@ -123,13 +124,12 @@ function countLine(kind: ArtifactKind, artifacts: readonly Artifact[]): string {
         total += artifact.payload.questionCount;
         break;
       case 'noteset':
-        total += artifact.payload.blockCount;
+        total += artifact.payload.topicCount;
         break;
     }
   }
 
-  const noun =
-    kind === 'deck' ? 'card' : kind === 'noteset' ? 'section' : 'question';
+  const noun = kind === 'deck' ? 'card' : kind === 'noteset' ? 'topic' : 'question';
   return `${plural(total, noun)}${suffix}`;
 }
 
@@ -152,7 +152,7 @@ function ArtifactCard({
 }) {
   const body = (
     <CardContent className="py-snug">
-      <div className="flex items-start gap-tight">
+      <div className="gap-tight flex items-start">
         <p className="min-w-0 flex-1 truncate font-medium" title={artifact.title}>
           {artifact.title}
         </p>

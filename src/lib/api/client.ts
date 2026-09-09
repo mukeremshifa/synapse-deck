@@ -8,7 +8,7 @@ import type {
   DueForecast,
   GlobalSummary,
   Job,
-  NoteBlock,
+  NoteTopic,
   Notebook,
   Page,
   PageRequest,
@@ -117,7 +117,10 @@ async function call<T>(operation: () => Promise<T>): Promise<T> {
  * The cursor is opaque — base64url of a keyset, though this side neither knows
  * nor cares — so it is passed straight back rather than interpreted.
  */
-function pageQuery(page: PageRequest | undefined, extra?: Record<string, string>): string {
+function pageQuery(
+  page: PageRequest | undefined,
+  extra?: Record<string, string>,
+): string {
   const params = new URLSearchParams();
   if (page?.limit !== undefined) params.set('limit', String(page.limit));
   if (page?.cursor) params.set('cursor', page.cursor);
@@ -263,8 +266,7 @@ export const liveClient: ApiClient = {
 
   updateArtifact: (notebookId, artifactId, input) =>
     call(
-      async () =>
-        await api.patch<Artifact>(path.artifact(notebookId, artifactId), input),
+      async () => await api.patch<Artifact>(path.artifact(notebookId, artifactId), input),
     ),
 
   deleteArtifact: (notebookId, artifactId) =>
@@ -289,7 +291,9 @@ export const liveClient: ApiClient = {
     ),
 
   setCardStatus: (_notebookId, cardIds, status) =>
-    call(async () => await api.post<{ ids: string[] }>('/cards/status', { cardIds, status })),
+    call(
+      async () => await api.post<{ ids: string[] }>('/cards/status', { cardIds, status }),
+    ),
 
   deleteCards: (_notebookId, cardIds) =>
     call(async () => await api.post<{ ids: string[] }>('/cards/delete', { cardIds })),
@@ -401,28 +405,43 @@ export const liveClient: ApiClient = {
 
   // ── Notes ────────────────────────────────────────────────────────────────
 
-  listNoteBlocks: (notebookId, artifactId) =>
+  listNoteTopics: (notebookId, artifactId) =>
     call(
       async () =>
-        await api.get<NoteBlock[]>(`${path.artifact(notebookId, artifactId)}/blocks`),
+        await api.get<NoteTopic[]>(`${path.artifact(notebookId, artifactId)}/topics`),
     ),
 
   /**
-   * Monotonic: a block once read stays read, and the server enforces it.
+   * Tick one topic off, or untick it.
    *
-   * **Indexes, not ids.** `NoteBlock` is a discriminated union with no id
-   * field — the contract identifies a block by its position in the array
-   * `listNoteBlocks` returned, which is stable because blocks are written once
-   * at generation and never reordered.
+   * **By id, and reversible** — unlike the block indexes this replaced. A topic
+   * has an id because completion is stored against it, and the student can
+   * withdraw a tick, so the request carries the state it wants rather than
+   * appending to a monotonic set.
+   *
+   * `PATCH` carrying the desired state, rather than a `POST` that appends:
+   * setting a topic completed twice is the same as setting it once, so a
+   * retried request after a dropped response cannot mean something different
+   * from the first.
    *
    * Returns the whole `Artifact` so the reader's readiness updates from one
    * response rather than a second fetch.
    */
-  markBlocksRead: (notebookId, artifactId, blockIndexes) =>
+  setTopicCompleted: (notebookId, artifactId, topicId, completed) =>
     call(
       async () =>
-        await api.post<Artifact>(`${path.artifact(notebookId, artifactId)}/blocks`, {
-          blockIndexes,
+        await api.patch<Artifact>(
+          `${path.artifact(notebookId, artifactId)}/topics/${encodeURIComponent(topicId)}`,
+          { completed },
+        ),
+    ),
+
+  /** The button at the end. Idempotent for the same reason. */
+  setNoteSetCompleted: (notebookId, artifactId, completed) =>
+    call(
+      async () =>
+        await api.patch<Artifact>(`${path.artifact(notebookId, artifactId)}/completion`, {
+          completed,
         }),
     ),
 
@@ -510,9 +529,7 @@ export const liveClient: ApiClient = {
   getTopicMastery: notebookId =>
     call(
       async () =>
-        await api.get<TopicMasteryReport>(
-          `${path.notebook(notebookId)}/stats/mastery`,
-        ),
+        await api.get<TopicMasteryReport>(`${path.notebook(notebookId)}/stats/mastery`),
     ),
 };
 
@@ -521,7 +538,7 @@ export type {
   Attempt,
   CardStates,
   DueForecast,
-  NoteBlock,
+  NoteTopic,
   Question,
   RetentionSummary,
   ReviewHistory,

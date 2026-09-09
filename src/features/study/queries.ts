@@ -8,7 +8,7 @@ import {
   type Blueprint,
   type Card,
   type NextSchedule,
-  type NoteBlock,
+  type NoteTopic,
   type PracticeQueue,
   type Question,
   type SubmitAttemptInput,
@@ -56,8 +56,8 @@ export const studyKeys = {
     [...notebookKeys.all(notebookId), 'attempt', attemptId] as const,
   attempts: (notebookId: string, artifactId: string) =>
     [...notebookKeys.all(notebookId), 'attempts', artifactId] as const,
-  blocks: (notebookId: string, artifactId: string) =>
-    [...notebookKeys.all(notebookId), 'blocks', artifactId] as const,
+  noteTopics: (notebookId: string, artifactId: string) =>
+    [...notebookKeys.all(notebookId), 'note-topics', artifactId] as const,
 };
 
 /* ── The artifact a runner is a sitting of ────────────────────────────── */
@@ -160,7 +160,10 @@ export function useReviewCard(notebookId: string, artifactId: string) {
 
     onError: (_error, _variables, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(studyKeys.queue(notebookId, artifactId), context.previous);
+        queryClient.setQueryData(
+          studyKeys.queue(notebookId, artifactId),
+          context.previous,
+        );
       }
     },
 
@@ -171,7 +174,9 @@ export function useReviewCard(notebookId: string, artifactId: string) {
       void queryClient.invalidateQueries({
         queryKey: studyKeys.artifact(notebookId, artifactId),
       });
-      void queryClient.invalidateQueries({ queryKey: notebookKeys.artifacts(notebookId) });
+      void queryClient.invalidateQueries({
+        queryKey: notebookKeys.artifacts(notebookId),
+      });
       void queryClient.invalidateQueries({ queryKey: notebookKeys.detail(notebookId) });
       void queryClient.invalidateQueries({ queryKey: homeKeys.notebooks });
     },
@@ -200,7 +205,9 @@ export function useUndoReview(notebookId: string, artifactId: string) {
       void queryClient.invalidateQueries({
         queryKey: studyKeys.artifact(notebookId, artifactId),
       });
-      void queryClient.invalidateQueries({ queryKey: notebookKeys.artifacts(notebookId) });
+      void queryClient.invalidateQueries({
+        queryKey: notebookKeys.artifacts(notebookId),
+      });
       void queryClient.invalidateQueries({ queryKey: homeKeys.notebooks });
     },
   });
@@ -321,7 +328,9 @@ export function useSubmitAttempt(notebookId: string, artifactId: string) {
       void queryClient.invalidateQueries({
         queryKey: studyKeys.artifact(notebookId, artifactId),
       });
-      void queryClient.invalidateQueries({ queryKey: notebookKeys.artifacts(notebookId) });
+      void queryClient.invalidateQueries({
+        queryKey: notebookKeys.artifacts(notebookId),
+      });
       void queryClient.invalidateQueries({ queryKey: notebookKeys.detail(notebookId) });
       void queryClient.invalidateQueries({ queryKey: homeKeys.notebooks });
     },
@@ -341,34 +350,97 @@ export function useAttempts(notebookId: string, artifactId: string) {
 
 /* ── Notes ────────────────────────────────────────────────────────────── */
 
-/** A note set's blocks, in order. The reader renders them as elements. */
-export function useNoteBlocks(notebookId: string, artifactId: string) {
-  return useQuery<NoteBlock[]>({
-    queryKey: studyKeys.blocks(notebookId, artifactId),
+/**
+ * A note set's topics, in reading order, each carrying its own blocks.
+ *
+ * `staleTime: Infinity` because the content is written once at generation and
+ * never changes — there is no editor (§4.2). What *does* change is completion,
+ * and that lives on the artifact rather than here, which is why ticking a topic
+ * refreshes the artifact and leaves this query alone.
+ */
+export function useNoteTopics(notebookId: string, artifactId: string) {
+  return useQuery<NoteTopic[]>({
+    queryKey: studyKeys.noteTopics(notebookId, artifactId),
     staleTime: Infinity,
-    queryFn: () => api.listNoteBlocks(notebookId, artifactId),
+    queryFn: () => api.listNoteTopics(notebookId, artifactId),
   });
 }
 
 /**
- * Mark blocks read — what readiness counts for a note set.
+ * What every note-set mutation has to refresh.
  *
- * The **indexes read so far**, not a delta: the contract takes a list and the
- * fake reconciles it against what it already has, so a reader that has read
- * blocks 0–4 sends all five. Sending only the newest would make the count
- * depend on every earlier call having landed.
+ * Completion is a *readiness* input, so it is not enough to update the artifact
+ * the reader is looking at: the Studio lists this note set with its readiness,
+ * the notebook header aggregates it, and home's grid aggregates that. All three
+ * are stale the moment a topic is ticked, and a reader who ticks the last topic
+ * and navigates back to a notebook still claiming "2 topics to read" is the bug
+ * this exists to prevent.
  */
-export function useMarkBlocksRead(notebookId: string, artifactId: string) {
+function onNoteSetChanged(
+  queryClient: ReturnType<typeof useQueryClient>,
+  notebookId: string,
+  artifactId: string,
+) {
+  return (artifact: Artifact) => {
+    queryClient.setQueryData(studyKeys.artifact(notebookId, artifactId), artifact);
+    void queryClient.invalidateQueries({ queryKey: notebookKeys.artifacts(notebookId) });
+    void queryClient.invalidateQueries({ queryKey: notebookKeys.detail(notebookId) });
+    void queryClient.invalidateQueries({ queryKey: homeKeys.notebooks });
+  };
+}
+
+/**
+ * Tick a topic off, or untick it.
+ *
+ * **Optimistic**, because a checkbox that waits for a round trip before it
+ * moves feels broken — and this one is safe to be: the mutation carries the
+ * desired state rather than an increment, so a failure rolls back to a value
+ * that is still correct, and a retry means the same thing as the first attempt.
+ */
+export function useSetTopicCompleted(notebookId: string, artifactId: string) {
+  const queryClient = useQueryClient();
+  const key = studyKeys.artifact(notebookId, artifactId);
+
+  return useMutation({
+    mutationFn: ({ topicId, completed }: { topicId: string; completed: boolean }) =>
+      api.setTopicCompleted(notebookId, artifactId, topicId, completed),
+    onMutate: async ({ completed }) => {
+      // Stop an in-flight refetch from landing on top of the optimistic value.
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<Artifact>(key);
+      if (previous?.payload.kind === 'noteset') {
+        const { payload } = previous;
+        queryClient.setQueryData<Artifact>(key, {
+          ...previous,
+          payload: {
+            ...payload,
+            // Clamped, so a double-click cannot show "3 of 2".
+            completedTopicCount: Math.max(
+              0,
+              Math.min(
+                payload.topicCount,
+                payload.completedTopicCount + (completed ? 1 : -1),
+              ),
+            ),
+          },
+        });
+      }
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(key, context.previous);
+    },
+    onSuccess: onNoteSetChanged(queryClient, notebookId, artifactId),
+  });
+}
+
+/** The button at the end — the student declaring the note set finished. */
+export function useSetNoteSetCompleted(notebookId: string, artifactId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (blockIndexes: number[]) =>
-      api.markBlocksRead(notebookId, artifactId, blockIndexes),
-    onSuccess: artifact => {
-      queryClient.setQueryData(studyKeys.artifact(notebookId, artifactId), artifact);
-      void queryClient.invalidateQueries({ queryKey: notebookKeys.artifacts(notebookId) });
-      void queryClient.invalidateQueries({ queryKey: notebookKeys.detail(notebookId) });
-      void queryClient.invalidateQueries({ queryKey: homeKeys.notebooks });
-    },
+    mutationFn: (completed: boolean) =>
+      api.setNoteSetCompleted(notebookId, artifactId, completed),
+    onSuccess: onNoteSetChanged(queryClient, notebookId, artifactId),
   });
 }

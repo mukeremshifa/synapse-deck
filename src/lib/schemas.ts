@@ -487,7 +487,7 @@ export const GradeSchema = z.union([
  * claim we can generate them. `GENERATABLE_FORMATS` is the field that answers
  * that, and it now names what is genuinely generatable.
  *
- * The shared rule across all six: **the payload carries the answer key.** A
+ * The shared rule across all of them: **the payload carries the answer key.** A
  * question the runner cannot grade without asking the server is a question the
  * quiz cannot reveal on demand, and reveal-on-demand is the quiz's whole
  * character (FR5 §3). The key being client-visible is the same trade the MCQ
@@ -641,18 +641,161 @@ export const OrderingPayload = z.object({
   explanation: z.string().trim().max(1000).optional(),
 });
 
+/**
+ * Fill in the blank: type the missing token into a sentence.
+ *
+ * ── Why this is deterministic, and not the `short` promotion ──────────────
+ *
+ * `blueprint.ts` records that promoting `short` out of the ungeneratable group
+ * is "a product decision nobody has made", and this is **not** that decision.
+ * The difference is how much the question constrains the answer. A short-answer
+ * prompt invites a sentence, and judging a sentence needs a rubric; a blank
+ * inside a sentence the learner can read admits a token, and the surrounding
+ * text is what makes the accepted set enumerable in advance.
+ *
+ * So the key is an explicit list of accepted spellings, written by whoever
+ * wrote the question, and grading is set membership after normalisation. There
+ * is no similarity threshold and no model: a synonym nobody listed is wrong,
+ * which is a limitation of the question rather than a judgement call made at
+ * grade time. That keeps the promise every kind here makes — the same response
+ * grades the same way forever, in the browser, from the payload alone.
+ *
+ * `text` carries exactly one `{{blank}}`. One blank per question, for the same
+ * reason a cloze card stores one deletion group: two blanks is two things being
+ * recalled, and a single boolean cannot say which one was missed.
+ */
+export const BLANK_MARKER = '{{blank}}';
+
+export const FillBlankPayload = z.object({
+  kind: z.literal('fill_blank'),
+  /** The sentence, containing exactly one `{{blank}}`. */
+  text: z
+    .string()
+    .trim()
+    .min(1, 'Text is required')
+    .max(1000)
+    .refine(value => value.split(BLANK_MARKER).length === 2, {
+      message: 'Needs exactly one {{blank}}',
+    }),
+  /**
+   * Every spelling that counts as right, compared after `normaliseBlank`.
+   *
+   * A list rather than a single string because case, spacing and the common
+   * British/American split are not different answers, and making the author
+   * enumerate them is honest about what the grader can actually recognise.
+   */
+  accepted: z
+    .array(z.string().trim().min(1, 'An accepted answer cannot be empty').max(200))
+    .min(1, 'At least one accepted answer')
+    .max(8, 'At most 8 accepted answers')
+    .refine(
+      accepted =>
+        new Set(accepted.map(value => normaliseBlank(value))).size === accepted.length,
+      { message: 'Accepted answers must differ by more than case or spacing' },
+    ),
+  explanation: z.string().trim().max(1000).optional(),
+});
+
+/**
+ * Categorise: drop each item into the bucket it belongs to.
+ *
+ * **The key is `items[i].category`, an index into `categories`** — the same
+ * principle as `matching` and `ordering`, where the payload is its own answer
+ * key and there is no second array to drift out of sync.
+ *
+ * Distinct from `matching` on purpose rather than by accident: matching is a
+ * bijection, so every right-hand item is used exactly once and choosing one
+ * releases it from wherever it was. A category holds any number of items, and
+ * modelling that as a matching with repeated right-hand values would trip the
+ * distinctness refinement that stops matching grading a right answer wrong.
+ *
+ * Every category must be used. An empty bucket is a distractor, and a
+ * distractor in a sorting task is a different exercise — the learner cannot
+ * tell "nothing goes here" from "I found nothing for this", so it grades
+ * confidence rather than knowledge.
+ */
+export const CategorizePayload = z
+  .object({
+    kind: z.literal('categorize'),
+    stem: z.string().trim().min(1, 'Instruction is required').max(1000),
+    categories: z
+      .array(z.string().trim().min(1, 'A category cannot be empty').max(120))
+      .min(2, 'At least 2 categories — one bucket is not a sort')
+      .max(4, 'At most 4 categories')
+      .refine(
+        categories =>
+          new Set(categories.map(value => value.toLowerCase())).size ===
+          categories.length,
+        { message: 'Categories must be distinct' },
+      ),
+    items: z
+      .array(
+        z.object({
+          text: z.string().trim().min(1, 'An item cannot be empty').max(300),
+          /** Index into `categories`. The key: there is no separate answer array. */
+          category: z.number().int().nonnegative(),
+        }),
+      )
+      .min(4, 'At least 4 items')
+      .max(10, 'At most 10 items')
+      .refine(
+        items =>
+          new Set(items.map(item => item.text.toLowerCase())).size === items.length,
+        { message: 'Items must be distinct' },
+      ),
+    explanation: z.string().trim().max(1000).optional(),
+  })
+  // Cross-field, so these live on the object rather than on either array: an
+  // index past the end of `categories` is a question with no right answer.
+  .refine(
+    payload => payload.items.every(item => item.category < payload.categories.length),
+    { message: 'Every item must name a category that exists' },
+  )
+  .refine(
+    payload =>
+      payload.categories.every((_, index) =>
+        payload.items.some(item => item.category === index),
+      ),
+    { message: 'Every category needs at least one item — an empty bucket is a trick' },
+  );
+
+/**
+ * The comparison used for `fill_blank`, and the only place it is defined.
+ *
+ * Case, surrounding whitespace, internal runs of whitespace and trailing
+ * punctuation are not part of an answer. Nothing else is stripped: removing
+ * hyphens or accents would silently accept spellings the author did not list,
+ * which is the model-judgement this kind exists to avoid.
+ */
+export function normaliseBlank(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[.,;:!?]+$/, '');
+}
+
+/** The sentence around a `fill_blank`, split into what precedes and follows the blank. */
+export function splitBlank(text: string): { before: string; after: string } {
+  const [before = '', after = ''] = text.split(BLANK_MARKER);
+  return { before, after };
+}
+
 export type MsqPayload = z.infer<typeof MsqPayload>;
 export type TrueFalsePayload = z.infer<typeof TrueFalsePayload>;
 export type NumericPayload = z.infer<typeof NumericPayload>;
 export type MatchingPayload = z.infer<typeof MatchingPayload>;
 export type OrderingPayload = z.infer<typeof OrderingPayload>;
+export type FillBlankPayload = z.infer<typeof FillBlankPayload>;
+export type CategorizePayload = z.infer<typeof CategorizePayload>;
 
 /**
  * Every kind a quiz or an exam can ask.
  *
- * Free-text is still deliberately absent: grading it needs a model and a
+ * Open free-text is still deliberately absent: grading it needs a model and a
  * rubric (§7 q8), and every kind in this union grades in the browser from the
- * payload alone.
+ * payload alone. `fill_blank` is not an exception to that — its answer is a
+ * token checked against an enumerated list, not prose judged by a rubric.
  */
 export const QuestionPayload = z.discriminatedUnion('kind', [
   McqPayload,
@@ -661,6 +804,8 @@ export const QuestionPayload = z.discriminatedUnion('kind', [
   NumericPayload,
   MatchingPayload,
   OrderingPayload,
+  FillBlankPayload,
+  CategorizePayload,
 ]);
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
 export type QuestionKind = QuestionPayload['kind'];
@@ -672,6 +817,8 @@ export const QUESTION_KINDS = [
   'numeric',
   'matching',
   'ordering',
+  'fill_blank',
+  'categorize',
 ] as const satisfies readonly QuestionKind[];
 
 export const QUESTION_KIND_LABELS: Record<QuestionKind, string> = {
@@ -681,11 +828,29 @@ export const QUESTION_KIND_LABELS: Record<QuestionKind, string> = {
   numeric: 'Numeric',
   matching: 'Matching',
   ordering: 'Ordering',
+  fill_blank: 'Fill in the blank',
+  categorize: 'Categorise',
 };
 
-/** The prompt shown at the top of a question, whatever its kind. */
+/**
+ * The prompt shown at the top of a question, whatever its kind.
+ *
+ * `fill_blank` has no separate stem: the sentence *is* the prompt, and it is
+ * rendered by the answer surface with an input where the blank goes. Returning
+ * the raw text here would print the sentence twice — once with a literal
+ * `{{blank}}` — so it yields a fixed instruction and the surface shows the
+ * sentence. Anything summarising a question by its stem (the navigator, the
+ * review list) still gets something meaningful rather than an empty string.
+ */
 export function questionStem(payload: QuestionPayload): string {
-  return payload.kind === 'true_false' ? payload.statement : payload.stem;
+  switch (payload.kind) {
+    case 'true_false':
+      return payload.statement;
+    case 'fill_blank':
+      return 'Fill in the blank.';
+    default:
+      return payload.stem;
+  }
 }
 
 /* ── Responses ────────────────────────────────────────────────────────────
@@ -732,6 +897,26 @@ export const QuestionResponse = z.discriminatedUnion('kind', [
     kind: z.literal('ordering'),
     /** `order[i]` is the index in `payload.items` placed at position `i`. */
     order: z.array(z.number().int().nonnegative()).max(7),
+  }),
+  z.object({
+    kind: z.literal('fill_blank'),
+    /**
+     * What the learner typed, verbatim. Normalisation happens at grade time
+     * rather than here, so the review can show exactly what they wrote — a
+     * near-miss is the most useful thing on the review screen, and storing the
+     * normalised form would hide it.
+     */
+    text: z.string().max(200),
+  }),
+  z.object({
+    kind: z.literal('categorize'),
+    /**
+     * `assignments[i]` is the category index the learner put item `i` in, or
+     * null while it is still unsorted. Indices are into `payload.items` and
+     * `payload.categories` — neither is shuffled, because the buckets are
+     * labelled and the items carry no positional meaning.
+     */
+    assignments: z.array(z.number().int().nonnegative().nullable()).max(10),
   }),
 ]);
 export type QuestionResponse = z.infer<typeof QuestionResponse>;
@@ -810,6 +995,23 @@ export function gradeResponse(
       const order = (response as { order: number[] }).order;
       if (order.length !== payload.items.length) return false;
       return order.every((item, index) => item === index);
+    }
+
+    case 'fill_blank': {
+      const typed = normaliseBlank((response as { text: string }).text);
+      // An empty entry is wrong rather than unanswered — `isComplete` is what
+      // decides whether it counted as an answer at all, and by the time a
+      // response reaches the grader that question has been committed.
+      if (typed === '') return false;
+      return payload.accepted.some(accepted => normaliseBlank(accepted) === typed);
+    }
+
+    case 'categorize': {
+      const assignments = (response as { assignments: (number | null)[] }).assignments;
+      // Every item in the bucket its payload names. An unsorted item is null,
+      // which never equals a category index, so a partly-sorted response is
+      // wrong without needing a separate length check.
+      return payload.items.every((item, index) => assignments[index] === item.category);
     }
   }
 }

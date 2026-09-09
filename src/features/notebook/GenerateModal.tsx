@@ -24,7 +24,7 @@ import {
 } from '@/lib/api';
 // The limits are shared with the server, per CLAUDE.md's one-definition rule:
 // the form clamps to the same numbers the contract validates against.
-import { EXAM_LIMITS, GENERATION_LIMITS } from '@/lib/schemas';
+import { EXAM_LIMITS, GENERATION_LIMITS, NOTESET_LIMITS } from '@/lib/schemas';
 import { useModal } from '@/app/modals';
 import { failureFromError } from './generation-errors';
 import { useCreateArtifact, useSources } from './queries';
@@ -136,7 +136,7 @@ const KIND_LABELS: Record<ArtifactKindType, { title: string; blurb: string }> = 
   },
   noteset: {
     title: 'New note set',
-    blurb: 'A structured summary you can read and mark off.',
+    blurb: 'A structured reading of one source, in as many topics as you choose.',
   },
   exam: {
     title: 'New exam',
@@ -158,6 +158,7 @@ interface Options {
   cardCount: number;
   cardKinds: ('basic' | 'cloze' | 'mcq')[];
   questionCount: number;
+  topicCount: number;
   depth: 'recall' | 'balanced' | 'deep';
   durationMinutes: number | null;
   shuffleQuestions: boolean;
@@ -170,6 +171,7 @@ const DEFAULTS: Options = {
   cardCount: 20,
   cardKinds: ['basic', 'cloze'],
   questionCount: 10,
+  topicCount: 5,
   depth: 'balanced',
   durationMinutes: 20,
   shuffleQuestions: true,
@@ -200,18 +202,47 @@ function GenerateForm({
     [sources.data],
   );
 
+  /**
+   * **A note set takes exactly one source; every other kind takes many.**
+   *
+   * The contract is what forces this (`sourceIds.length(1)`), and the reason is
+   * in §4.2: a note set is a structured reading *of a resource*, so its topics
+   * are that resource's topics. The modal enforces it by construction rather
+   * than by validating afterwards — the picker below renders radios instead of
+   * checkboxes — because a form that lets you tick four things and then refuses
+   * is a form that wasted your time.
+   */
+  const singleSource = kind === 'noteset';
+
   /*
-   * Everything ready, preselected — the common case is "generate from what I
-   * have", and a modal that opens with nothing ticked makes the user do work to
-   * express the default. Runs when the ready set changes, so a source that
-   * finishes processing while the modal is open joins the selection rather than
+   * Preselected — the common case is "generate from what I have", and a modal
+   * that opens with nothing ticked makes the user do work to express the
+   * default. Everything ready, or **the first ready one** when only one is
+   * allowed. Runs when the ready set changes, so a source that finishes
+   * processing while the modal is open joins the selection rather than
    * appearing silently unticked.
    */
   useEffect(() => {
+    if (singleSource) {
+      const first = ready[0];
+      // Preserved across a re-run so a deliberate choice is not overwritten
+      // when another source finishes processing behind the modal.
+      setSelected(current =>
+        current.size === 1 && ready.some(source => current.has(source.id))
+          ? current
+          : new Set(first ? [first.id] : []),
+      );
+      return;
+    }
     setSelected(new Set(ready.map(source => source.id)));
-  }, [ready]);
+  }, [ready, singleSource]);
 
   const toggle = (sourceId: string) => {
+    // Choosing replaces rather than adds when only one is allowed.
+    if (singleSource) {
+      setSelected(new Set([sourceId]));
+      return;
+    }
     setSelected(current => {
       const next = new Set(current);
       if (next.has(sourceId)) next.delete(sourceId);
@@ -274,8 +305,8 @@ function GenerateForm({
         <DialogDescription>{labels.blurb}</DialogDescription>
       </DialogHeader>
 
-      <div className="flex flex-col gap-base py-base">
-        <div className="flex flex-col gap-tight">
+      <div className="gap-base py-base flex flex-col">
+        <div className="gap-tight flex flex-col">
           <Label htmlFor="generate-title">Title</Label>
           <Input
             id="generate-title"
@@ -293,6 +324,7 @@ function GenerateForm({
           sources={sources.data}
           isPending={sources.isPending}
           selected={selected}
+          singleSource={singleSource}
           onToggle={toggle}
           onSelectAll={() => {
             setSelected(new Set(ready.map(source => source.id)));
@@ -323,7 +355,9 @@ function GenerateForm({
         <p className="text-muted-foreground text-xs">
           {title.length === 0
             ? 'Give this a title to generate it.'
-            : 'Choose at least one source to generate from.'}
+            : singleSource
+              ? 'Choose the source these notes are about.'
+              : 'Choose at least one source to generate from.'}
         </p>
       )}
     </>
@@ -350,6 +384,7 @@ function SourcePicker({
   sources,
   isPending,
   selected,
+  singleSource,
   onToggle,
   onSelectAll,
   onSelectNone,
@@ -357,44 +392,64 @@ function SourcePicker({
   sources: Source[] | undefined;
   isPending: boolean;
   selected: ReadonlySet<string>;
+  /** One source only — a note set. Radios, and no All/None. */
+  singleSource: boolean;
   onToggle: (sourceId: string) => void;
   onSelectAll: () => void;
   onSelectNone: () => void;
 }) {
   if (isPending) {
-    return <p className="text-muted-foreground text-sm">Loading this notebook’s sources…</p>;
+    return (
+      <p className="text-muted-foreground text-sm">Loading this notebook’s sources…</p>
+    );
   }
 
   const all = sources ?? [];
   if (all.length === 0) {
     return (
-      <div className="border-border rounded-md border border-dashed p-snug">
+      <div className="border-border p-snug rounded-md border border-dashed">
         <p className="text-muted-foreground text-sm leading-relaxed">
-          This notebook has no sources yet. Add one first — everything generated here
-          is built from them.
+          This notebook has no sources yet. Add one first — everything generated here is
+          built from them.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-tight">
-      <div className="flex items-center gap-tight">
-        <Label>Sources</Label>
-        <span className="text-muted-foreground text-xs tabular-nums">
-          {selected.size} of {all.filter(source => source.status === 'ready').length}
-        </span>
-        <div className="ml-auto flex gap-hairline">
-          <Button type="button" variant="ghost" size="sm" onClick={onSelectAll}>
-            All
-          </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={onSelectNone}>
-            None
-          </Button>
-        </div>
+    <div className="gap-tight flex flex-col">
+      <div className="gap-tight flex items-center">
+        <Label>{singleSource ? 'Source' : 'Sources'}</Label>
+        {/*
+          **No count and no All/None when only one is allowed** — "1 of 4" reads
+          as a selection the user is part way through making, and an "All"
+          button offers something the contract forbids.
+        */}
+        {!singleSource && (
+          <>
+            <span className="text-muted-foreground text-xs tabular-nums">
+              {selected.size} of {all.filter(source => source.status === 'ready').length}
+            </span>
+            <div className="gap-hairline ml-auto flex">
+              <Button type="button" variant="ghost" size="sm" onClick={onSelectAll}>
+                All
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={onSelectNone}>
+                None
+              </Button>
+            </div>
+          </>
+        )}
       </div>
 
-      <ul className="border-border flex max-h-48 flex-col gap-hairline overflow-y-auto rounded-md border p-tight">
+      {singleSource && (
+        <p className="text-muted-foreground text-xs leading-relaxed">
+          Notes are written about one resource, so its sections are that resource&rsquo;s
+          sections.
+        </p>
+      )}
+
+      <ul className="border-border gap-hairline p-tight flex max-h-48 flex-col overflow-y-auto rounded-md border">
         {all.map(source => {
           const usable = source.status === 'ready';
           return (
@@ -402,18 +457,38 @@ function SourcePicker({
               <label
                 className={
                   usable
-                    ? 'hover:bg-accent flex cursor-pointer items-start gap-tight rounded-sm p-hairline'
-                    : 'flex items-start gap-tight rounded-sm p-hairline opacity-60'
+                    ? 'hover:bg-accent gap-tight p-hairline flex cursor-pointer items-start rounded-sm'
+                    : 'gap-tight p-hairline flex items-start rounded-sm opacity-60'
                 }
               >
-                <Checkbox
-                  className="mt-0.5"
-                  disabled={!usable}
-                  checked={selected.has(source.id)}
-                  onCheckedChange={() => {
-                    onToggle(source.id);
-                  }}
-                />
+                {/*
+                  A **radio** when one source is allowed, and a checkbox when
+                  many are. Not a styling choice: the control is what tells the
+                  user, before they touch it, that choosing here replaces rather
+                  than adds. A checkbox that silently unticks its neighbour is
+                  the control lying about what it does.
+                */}
+                {singleSource ? (
+                  <input
+                    type="radio"
+                    name="generate-source"
+                    className="accent-primary mt-0.5 size-4 shrink-0"
+                    disabled={!usable}
+                    checked={selected.has(source.id)}
+                    onChange={() => {
+                      onToggle(source.id);
+                    }}
+                  />
+                ) : (
+                  <Checkbox
+                    className="mt-0.5"
+                    disabled={!usable}
+                    checked={selected.has(source.id)}
+                    onCheckedChange={() => {
+                      onToggle(source.id);
+                    }}
+                  />
+                )}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm">{source.title}</span>
                   {!usable && (
@@ -507,12 +582,30 @@ function KindOptions({
 
     case 'noteset':
       return (
-        <DepthField
-          value={options.depth}
-          onChange={value => {
-            set('depth', value);
-          }}
-        />
+        <>
+          {/*
+            **Topics of the one chosen resource, not a number of resources.**
+            The count is the number of sections written, and so also the number
+            of things the reader will be asked to tick off — which is why the
+            ceiling is 12 rather than the 50 a deck allows (`NOTESET_LIMITS`).
+          */}
+          <NumberField
+            id="generate-topic-count"
+            label="Topics"
+            value={options.topicCount}
+            min={NOTESET_LIMITS.minTopics}
+            max={NOTESET_LIMITS.maxTopics}
+            onChange={value => {
+              set('topicCount', value);
+            }}
+          />
+          <DepthField
+            value={options.depth}
+            onChange={value => {
+              set('depth', value);
+            }}
+          />
+        </>
       );
 
     case 'exam':
@@ -570,7 +663,7 @@ function NumberField({
   onChange: (value: number) => void;
 }) {
   return (
-    <div className="flex flex-col gap-tight">
+    <div className="gap-tight flex flex-col">
       <Label htmlFor={id}>
         {label}{' '}
         <span className="text-muted-foreground font-normal">
@@ -603,7 +696,7 @@ function CardKindsField({
   onChange: (value: ('basic' | 'cloze' | 'mcq')[]) => void;
 }) {
   return (
-    <div className="flex flex-col gap-tight">
+    <div className="gap-tight flex flex-col">
       <Label>Card types</Label>
       <ToggleGroup
         type="multiple"
@@ -638,7 +731,7 @@ function DepthField({
   onChange: (value: Options['depth']) => void;
 }) {
   return (
-    <div className="flex flex-col gap-tight">
+    <div className="gap-tight flex flex-col">
       <Label>Depth</Label>
       <ToggleGroup
         type="single"
@@ -680,7 +773,7 @@ function DurationField({
   onChange: (value: number | null) => void;
 }) {
   return (
-    <div className="flex flex-col gap-tight">
+    <div className="gap-tight flex flex-col">
       <Label htmlFor="generate-duration">Time limit</Label>
       <Select
         id="generate-duration"
@@ -708,7 +801,7 @@ function ExamToggles({
   set: <K extends keyof Options>(key: K, value: Options[K]) => void;
 }) {
   return (
-    <div className="flex flex-col gap-tight">
+    <div className="gap-tight flex flex-col">
       <CheckRow
         id="generate-shuffle-questions"
         label="Shuffle questions"
@@ -738,10 +831,10 @@ function ExamToggles({
         lockdown is trivially defeated — a second device, a phone camera — so
         this says what it does rather than claiming to prevent anything.
       */}
-      <p className="text-muted-foreground flex items-start gap-hairline text-xs leading-relaxed">
+      <p className="text-muted-foreground gap-hairline flex items-start text-xs leading-relaxed">
         <AlertTriangleIcon className="mt-0.5 size-3 shrink-0" aria-hidden />
-        Focus mode is full-screen with locked navigation and auto-submit. It makes an
-        exam feel like an exam; it is not anti-cheating.
+        Focus mode is full-screen with locked navigation and auto-submit. It makes an exam
+        feel like an exam; it is not anti-cheating.
       </p>
     </div>
   );
@@ -759,7 +852,7 @@ function CheckRow({
   onChange: (next: boolean) => void;
 }) {
   return (
-    <label htmlFor={id} className="flex cursor-pointer items-center gap-tight">
+    <label htmlFor={id} className="gap-tight flex cursor-pointer items-center">
       <Checkbox
         id={id}
         checked={checked}
@@ -812,6 +905,7 @@ function toInput(
         kind: 'noteset',
         title: options.title,
         sourceIds,
+        topicCount: options.topicCount,
         depth: options.depth,
       };
     case 'exam':

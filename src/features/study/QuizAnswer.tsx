@@ -4,7 +4,11 @@ import { CheckIcon, GripVerticalIcon, XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
+  gradeResponse,
   shuffledOrder,
+  splitBlank,
+  type CategorizePayload,
+  type FillBlankPayload,
   type MatchingPayload,
   type McqPayload,
   type MsqPayload,
@@ -28,11 +32,12 @@ import { cn } from '@/lib/utils';
  * the exam and live in the quiz.
  *
  * That argument is about *reveal*, and it is untouched. This switches on
- * `payload.kind`, which is a different axis: six kinds is six input shapes —
- * radios, checkboxes, a number field, two columns, a reorderable list — and
- * they are the same six in both surfaces. Splitting on kind *as well* would
- * mean twelve components and twelve chances for the exam's checkbox to drift
- * from the quiz's. So: one component per surface, switching on kind.
+ * `payload.kind`, which is a different axis: eight kinds is eight input shapes
+ * — radios, checkboxes, a number field, two columns, a reorderable list, a
+ * blank inside a sentence, a set of buckets — and they are the same eight in
+ * both surfaces. Splitting on kind *as well* would mean sixteen components and
+ * sixteen chances for the exam's checkbox to drift from the quiz's. So: one
+ * component per surface, switching on kind.
  *
  * ── Presentation order is resolved once, and this is where ────────────────
  *
@@ -100,6 +105,25 @@ export function QuizAnswer({
     case 'ordering':
       return (
         <OrderingAnswer
+          questionId={questionId}
+          payload={payload}
+          response={response}
+          onRespond={onRespond}
+          revealed={revealed}
+        />
+      );
+    case 'fill_blank':
+      return (
+        <FillBlankAnswer
+          payload={payload}
+          response={response}
+          onRespond={onRespond}
+          revealed={revealed}
+        />
+      );
+    case 'categorize':
+      return (
+        <CategorizeAnswer
           questionId={questionId}
           payload={payload}
           response={response}
@@ -637,12 +661,316 @@ function OrderingAnswer({
   );
 }
 
+/* ── fill in the blank ─────────────────────────────────────────────────── */
+
+function FillBlankAnswer({
+  payload,
+  response,
+  onRespond,
+  revealed,
+}: {
+  payload: FillBlankPayload;
+  response: QuestionResponse | null;
+  onRespond: (response: QuestionResponse) => void;
+  revealed: boolean;
+}) {
+  const typed = response?.kind === 'fill_blank' ? response.text : '';
+  const { before, after } = splitBlank(payload.text);
+
+  /*
+   * Graded through the same function the runner uses, not re-derived here. A
+   * component that decided its own correctness would be the second opinion
+   * `gradeResponse` exists to prevent.
+   */
+  const isCorrect = revealed && response !== null && gradeResponse(payload, response);
+
+  /*
+   * The input sits *inside* the sentence rather than beneath it.
+   *
+   * A blank rendered as a separate field below the text turns "read this
+   * sentence and supply the missing word" into "read this sentence, then answer
+   * a question about it" — the reader loses the surrounding grammar, which is
+   * the only thing that makes the accepted-answer list fair.
+   */
+  return (
+    <div className="space-y-3">
+      <p className="text-sm leading-8 whitespace-pre-wrap">
+        {before}
+        {revealed ? (
+          <span
+            className={cn(
+              'mx-1 inline-flex items-center rounded-md border px-2 py-0.5 font-medium',
+              isCorrect
+                ? 'border-primary bg-primary/15 text-primary'
+                : 'border-destructive/60 bg-destructive/10',
+            )}
+          >
+            {typed.trim() === '' ? '—' : typed}
+          </span>
+        ) : (
+          <Input
+            type="text"
+            value={typed}
+            onChange={event =>
+              onRespond({ kind: 'fill_blank', text: event.target.value.slice(0, 200) })
+            }
+            placeholder="…"
+            aria-label="Your answer for the blank"
+            /*
+             * Inline rather than a block field, so it flows with the text — a
+             * full-width box in the middle of a sentence reads as a form field
+             * rather than as a gap in a line of prose.
+             */
+            className="mx-1 inline-flex h-8 w-40 max-w-full align-baseline"
+          />
+        )}
+        {after}
+      </p>
+
+      {revealed && (
+        <p className="text-sm">
+          <span className="text-muted-foreground">
+            {isCorrect ? 'Accepted: ' : 'Answer: '}
+          </span>
+          <span className="text-primary font-medium">{payload.accepted[0]}</span>
+          {/*
+            The rest of the accepted list, shown only when the learner got it
+            wrong. Someone who was right does not need to be told what else
+            would have passed; someone who was wrong may have written one of
+            them with a typo, and seeing the set explains the mark.
+          */}
+          {!isCorrect && payload.accepted.length > 1 && (
+            <span className="text-muted-foreground text-xs">
+              {' '}
+              (also accepted: {payload.accepted.slice(1).join(', ')})
+            </span>
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* ── categorise ────────────────────────────────────────────────────────── */
+
+function CategorizeAnswer({
+  questionId,
+  payload,
+  response,
+  onRespond,
+  revealed,
+}: {
+  questionId: string;
+  payload: CategorizePayload;
+  response: QuestionResponse | null;
+  onRespond: (response: QuestionResponse) => void;
+  revealed: boolean;
+}) {
+  /*
+   * Items are shuffled for presentation; the buckets are not.
+   *
+   * `payload.items` is stored grouped by category — it is its own key — so
+   * rendering it as stored would put every item of a category together in the
+   * tray and hand over the grouping. The categories are labelled, so their
+   * order carries no information and is left alone.
+   */
+  const presented = useMemo(
+    () => shuffledOrder(payload.items.length),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one shuffle per question, deliberately
+    [questionId, payload.items.length],
+  );
+
+  const assignments =
+    response?.kind === 'categorize'
+      ? response.assignments
+      : payload.items.map(() => null);
+
+  const assign = (itemIndex: number, category: number | null) => {
+    if (revealed) return;
+    const next = payload.items.map((_, index) => assignments[index] ?? null);
+    next[itemIndex] = category;
+    onRespond({ kind: 'categorize', assignments: next });
+  };
+
+  const unsorted = presented.filter(itemIndex => assignments[itemIndex] == null);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-muted-foreground text-xs font-medium">
+        Put every item into a group — drag it, or use the menu on each item.
+      </p>
+
+      {/* The tray of unsorted items, and the target for putting one back. */}
+      {!revealed && (
+        <div
+          onDragOver={event => event.preventDefault()}
+          onDrop={event => {
+            event.preventDefault();
+            const itemIndex = Number(event.dataTransfer.getData('text/plain'));
+            if (Number.isInteger(itemIndex)) assign(itemIndex, null);
+          }}
+          className="border-input min-h-14 rounded-lg border border-dashed p-2"
+        >
+          {unsorted.length === 0 ? (
+            <p className="text-muted-foreground p-1 text-xs">
+              Everything is sorted. Drag an item back here to unsort it.
+            </p>
+          ) : (
+            <ul className="flex flex-wrap gap-2">
+              {unsorted.map(itemIndex => (
+                <li key={itemIndex}>
+                  <ItemChip
+                    text={payload.items[itemIndex]?.text ?? ''}
+                    itemIndex={itemIndex}
+                    categories={payload.categories}
+                    current={null}
+                    onAssign={assign}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        {payload.categories.map((category, categoryIndex) => {
+          const held = presented.filter(
+            itemIndex => assignments[itemIndex] === categoryIndex,
+          );
+
+          return (
+            <div
+              key={categoryIndex}
+              onDragOver={event => {
+                if (!revealed) event.preventDefault();
+              }}
+              onDrop={event => {
+                if (revealed) return;
+                event.preventDefault();
+                const itemIndex = Number(event.dataTransfer.getData('text/plain'));
+                if (Number.isInteger(itemIndex)) assign(itemIndex, categoryIndex);
+              }}
+              className="bg-muted/30 min-h-24 rounded-lg border p-2"
+            >
+              <p className="mb-2 text-xs font-semibold">{category}</p>
+              <ul className="flex flex-wrap gap-2">
+                {held.map(itemIndex => (
+                  <li key={itemIndex}>
+                    <ItemChip
+                      text={payload.items[itemIndex]?.text ?? ''}
+                      itemIndex={itemIndex}
+                      categories={payload.categories}
+                      current={categoryIndex}
+                      onAssign={assign}
+                      state={
+                        revealed
+                          ? payload.items[itemIndex]?.category === categoryIndex
+                            ? 'correct'
+                            : 'wrong'
+                          : undefined
+                      }
+                    />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+
+      {/*
+        On reveal, name the right bucket for everything misplaced. Colouring a
+        chip red says it is wrong; it does not say where it belonged, and that
+        is the part worth reading.
+      */}
+      {revealed && (
+        <ul className="space-y-1 text-xs">
+          {payload.items.map((item, itemIndex) =>
+            assignments[itemIndex] === item.category ? null : (
+              <li key={itemIndex} className="text-muted-foreground">
+                <span className="font-medium">{item.text}</span> belongs in{' '}
+                <span className="text-primary">{payload.categories[item.category]}</span>
+              </li>
+            ),
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One item chip: draggable for a pointer, with a bucket menu for everyone else.
+ *
+ * **Drag is the affordance and the menu is the interface.** Drag-and-drop needs
+ * a pointer, so a categorise question that could only be dragged could not be
+ * answered from a keyboard at all — the same argument `OrderingAnswer` makes
+ * for its move buttons. The `<select>` is what a keyboard and a screen reader
+ * use; the drag handlers are layered on top of it, never in place of it.
+ */
+function ItemChip({
+  text,
+  itemIndex,
+  categories,
+  current,
+  onAssign,
+  state,
+}: {
+  text: string;
+  itemIndex: number;
+  categories: string[];
+  current: number | null;
+  onAssign: (itemIndex: number, category: number | null) => void;
+  state?: 'correct' | 'wrong';
+}) {
+  const revealed = state !== undefined;
+
+  return (
+    <span
+      draggable={!revealed}
+      onDragStart={event => {
+        event.dataTransfer.setData('text/plain', String(itemIndex));
+        event.dataTransfer.effectAllowed = 'move';
+      }}
+      className={cn(
+        'bg-background flex items-center gap-1 rounded-md border py-1 pr-1 pl-2 text-sm',
+        !revealed && 'cursor-grab active:cursor-grabbing',
+        state === 'correct' && 'border-primary bg-primary/15',
+        state === 'wrong' && 'border-destructive/60 bg-destructive/10',
+      )}
+    >
+      <span className="whitespace-pre-wrap">{text}</span>
+      {!revealed && (
+        <select
+          aria-label={`Group for ${text}`}
+          value={current === null ? '' : String(current)}
+          onChange={event =>
+            onAssign(
+              itemIndex,
+              event.target.value === '' ? null : Number(event.target.value),
+            )
+          }
+          className="border-input bg-background focus-visible:ring-ring rounded border px-1 py-0.5 text-xs focus-visible:ring-2 focus-visible:outline-none"
+        >
+          <option value="">—</option>
+          {categories.map((category, index) => (
+            <option key={index} value={index}>
+              {category}
+            </option>
+          ))}
+        </select>
+      )}
+    </span>
+  );
+}
+
 /* ── Commit ───────────────────────────────────────────────────────────── */
 
 /**
  * Whether a response is complete enough to be committed as an answer.
  *
- * **The four composite kinds need a confirm step and the two single-choice
+ * **The six composite kinds need a confirm step and the two single-choice
  * kinds do not**, and this predicate is the seam between them. Clicking one
  * radio is a whole answer; ticking one checkbox of three is not, and a runner
  * that recorded it as one would grade a half-built multi-select wrong the
@@ -665,10 +993,41 @@ export function isComplete(response: QuestionResponse | null): boolean {
       return response.pairs.every(pair => pair !== null);
     case 'ordering':
       return response.order.length > 0;
+    /*
+     * A blank with only whitespace in it is not an answer. Same reasoning as
+     * `numeric`: someone who has typed nothing yet has not answered, and
+     * recording it would grade them wrong for not having started.
+     */
+    case 'fill_blank':
+      return response.text.trim() !== '';
+    case 'categorize':
+      return response.assignments.every(assignment => assignment !== null);
   }
 }
 
 /** Whether this kind commits on the first interaction, or waits for a confirm. */
 export function commitsImmediately(kind: QuestionPayload['kind']): boolean {
   return kind === 'mcq' || kind === 'true_false';
+}
+
+/**
+ * Whether a keystroke came from somewhere the runner must not read it.
+ *
+ * **Both runners bind their shortcuts on a container, so every keystroke made
+ * inside an answer field bubbles up to them.** With six kinds that was already
+ * wrong for `numeric` — typing `3` into the box also selected option 3 of a
+ * question that had no options, and `n` was unreachable as a character because
+ * it moved to the next question. `fill_blank` makes it unmissable: its answer
+ * is prose, so every navigation letter is a keystroke a learner means to type.
+ *
+ * The guard is on the event target rather than on the question kind, because
+ * the thing that matters is where the caret is, not what is being asked. A
+ * `<select>` is included: it does its own type-ahead, and stealing digits from
+ * it breaks choosing a category by keyboard.
+ */
+export function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 }

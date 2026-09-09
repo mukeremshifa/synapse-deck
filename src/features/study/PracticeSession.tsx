@@ -180,14 +180,28 @@ export function PracticeSession({
             toast.error('Could not save that rating', {
               description: error instanceof Error ? error.message : undefined,
             });
-            // Put it back rather than silently losing the review.
+            /*
+             * Put it back **where it was**, not at the end.
+             *
+             * `[...previous, card]` sent a card whose write failed to the back
+             * of the session: the user rated it, saw an error toast, and the
+             * card they were told to re-rate was then dozens of cards away —
+             * or, at the end of a session, appeared after the summary should
+             * have shown. Restoring at `index` is what undo already does, and
+             * a failed write should land in the same place a reverted one
+             * does.
+             */
             setRated(previous => previous.filter(entry => entry.card.id !== card.id));
-            setCards(previous => [...previous, card]);
+            setCards(previous => [
+              ...previous.slice(0, index),
+              card,
+              ...previous.slice(index),
+            ]);
           },
         },
       );
     },
-    [card, preview, reviewCard],
+    [card, index, preview, reviewCard],
   );
 
   const undo = useCallback(() => {
@@ -204,6 +218,18 @@ export function PracticeSession({
           ...previous.slice(index),
         ]);
         setRevealed(false);
+        /*
+         * And clear the choice, which `setRevealed(false)` alone did not.
+         *
+         * The effect that resets per-card state is keyed on `card?.id`, and
+         * undo restores *the same id* — so it does not re-fire, and the stale
+         * `selectedOption` survived. On a multiple-choice card that meant the
+         * undone card came back with the previous answer still selected and
+         * the answer hidden: `suggestedGrade` was already computed from it, so
+         * pressing Space re-rated the card instantly with the grade the user
+         * had just undone.
+         */
+        setSelectedOption(null);
         toast.success('Rating undone');
       },
       onError: error =>
@@ -262,9 +288,18 @@ export function PracticeSession({
       onKeyDown={onKeyDown}
       role="region"
       aria-label="Practice session"
-      className="focus-visible:ring-ring mx-auto max-w-2xl space-y-5 rounded-xl outline-none focus-visible:ring-2"
+      /*
+       * A column that fills the height `FocusFrame fill` hands down. The meter
+       * and the footer keep their natural height; the card takes what is left.
+       *
+       * The card is the page's centre of gravity, not the whole of it — it
+       * grows into the leftover space, but the meter above and the undo row
+       * below keep their own, so it reads as the prominent component on a page
+       * rather than as a full-bleed panel with chrome jammed against the edges.
+       */
+      className="focus-visible:ring-ring mx-auto flex h-full w-full max-w-2xl flex-col gap-5 rounded-xl outline-none focus-visible:ring-2"
     >
-      <div className="space-y-2">
+      <div className="shrink-0 space-y-2">
         <div className="text-muted-foreground flex items-center justify-between text-xs">
           <span>
             <span className="text-foreground font-mono tabular-nums">{cards.length}</span>{' '}
@@ -290,10 +325,27 @@ export function PracticeSession({
         </div>
       </div>
 
-      <CardShell className="py-8">
-        <CardContent className="space-y-6 px-8">
-          {payload ? (
-            <>
+      {/*
+        Two regions, and the split is the point of this layout.
+
+        **The question sits in the middle; the controls sit flush against the
+        bottom edge.** They used to be one stack, so "Show answer" and the four
+        ratings floated directly beneath the question text — a one-line card put
+        them near the top of the panel, a long one pushed them down, and the
+        control pressed every few seconds was never twice in the same place.
+        Pinning them to the card's base makes them a fixed target, and leaves
+        the question centred in the space above it.
+
+        `min-h-0` on the shell and on the question region, for the reason
+        `FocusFrame` gives: without it a flex child floors at its content
+        height, so a long question would push the controls off the card instead
+        of scrolling within it.
+      */}
+      <CardShell className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+        {payload ? (
+          <>
+            {/* The question, centred in whatever height is left over. */}
+            <CardContent className="flex min-h-0 flex-1 flex-col justify-center gap-6 overflow-y-auto px-8 py-8">
               <CardFront
                 className="text-2xl"
                 payload={payload}
@@ -305,6 +357,27 @@ export function PracticeSession({
                 }}
               />
 
+              {/*
+                The answer stays with the question rather than moving into the
+                pinned region: it is something to read, and reading it is how
+                you choose between the four ratings. Only the controls pin.
+              */}
+              {revealed && (
+                <div
+                  id="card-answer"
+                  className={cn('border-t pt-6', 'motion-safe:animate-in')}
+                >
+                  <CardBack payload={payload} />
+                </div>
+              )}
+            </CardContent>
+
+            {/*
+              Flush bottom. `shrink-0` so it keeps its height when the question
+              above is long, and a top border so it reads as the card's base
+              rather than as content that merely happens to be last.
+            */}
+            <div className="shrink-0 border-t px-8 py-5">
               {/*
                 The flip is a button with aria-expanded (SPEC §8.4): the answer
                 must be reachable by a screen reader, and the card must not
@@ -323,31 +396,27 @@ export function PracticeSession({
                   Show answer <Kbd className="ml-1">Space</Kbd>
                 </Button>
               ) : (
-                <div
-                  id="card-answer"
-                  className={cn('space-y-6 border-t pt-6', 'motion-safe:animate-in')}
-                >
-                  <CardBack payload={payload} />
-                  <div className="space-y-2">
-                    <p className="text-muted-foreground text-xs tracking-wide uppercase">
-                      How well did you know it?
-                    </p>
-                    <RatingButtons
-                      preview={preview}
-                      onRate={rate}
-                      suggested={suggestedGrade}
-                    />
-                  </div>
+                <div className="space-y-2 motion-safe:animate-in">
+                  <p className="text-muted-foreground text-xs tracking-wide uppercase">
+                    How well did you know it?
+                  </p>
+                  <RatingButtons
+                    preview={preview}
+                    onRate={rate}
+                    suggested={suggestedGrade}
+                  />
                 </div>
               )}
-            </>
-          ) : (
+            </div>
+          </>
+        ) : (
+          <CardContent className="flex min-h-0 flex-1 flex-col justify-center px-8 py-8">
             <BrokenCard />
-          )}
-        </CardContent>
+          </CardContent>
+        )}
       </CardShell>
 
-      <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-2 text-xs">
+      <div className="text-muted-foreground flex shrink-0 flex-wrap items-center justify-between gap-2 text-xs">
         <Button
           type="button"
           variant="ghost"

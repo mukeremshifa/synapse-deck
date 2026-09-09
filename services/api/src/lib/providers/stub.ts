@@ -189,6 +189,26 @@ export class StubProvider implements CardProvider {
             items: ['Upload', 'Split', 'Generate', 'Finalise'],
           });
           break;
+        case 'fill_blank':
+          questions.push({
+            kind: 'fill_blank',
+            text: `${label} This question was produced by the {{blank}} provider, which calls no model.`,
+            accepted: ['stub', 'placeholder'],
+          });
+          break;
+        case 'categorize':
+          questions.push({
+            kind: 'categorize',
+            stem: `${label} Sort these into real providers and placeholders.`,
+            categories: ['Real provider', 'Placeholder'],
+            items: [
+              { text: 'Groq', category: 0 },
+              { text: 'Amazon Bedrock', category: 0 },
+              { text: 'Stub', category: 1 },
+              { text: 'This question', category: 1 },
+            ],
+          });
+          break;
         default:
           questions.push({
             kind: 'mcq',

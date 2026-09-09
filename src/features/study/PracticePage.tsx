@@ -118,9 +118,19 @@ function Practice({ notebookId, deckId }: { notebookId: string; deckId: string }
     );
   }
 
+  /*
+   * `fill` only here, and deliberately not on the branches above.
+   *
+   * A session is one card at a time and should own the screen. The error,
+   * loading and nothing-due branches are short blocks that read correctly at
+   * their natural height — stretching an empty state to the full viewport
+   * puts its button somewhere near the fold and makes a calm screen look
+   * broken.
+   */
   return (
     <FocusFrame
       {...frameProps}
+      fill
       status={
         <span className="text-muted-foreground text-sm tabular-nums">
           {sessionSize} in queue

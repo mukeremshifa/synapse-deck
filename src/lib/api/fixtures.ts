@@ -962,6 +962,38 @@ export const questions: Record<string, Question[]> = {
           'Coverage widens from the natural penicillins through the aminopenicillins and third-generation cephalosporins to the carbapenems.',
       },
     },
+    {
+      id: 'q-quiz-9',
+      topicId: 'top-pharm-resist',
+      topicName: 'Resistance mechanisms',
+      payload: {
+        kind: 'fill_blank',
+        text: 'Resistance to methicillin in Staphylococcus aureus is conferred by the {{blank}} gene, which encodes an altered penicillin-binding protein.',
+        accepted: ['mecA', 'mec A'],
+        explanation:
+          'mecA encodes PBP2a, which has low affinity for beta-lactams, so the cell wall continues to cross-link in their presence.',
+      },
+    },
+    {
+      id: 'q-quiz-10',
+      topicId: 'top-pharm-beta',
+      topicName: 'Beta-lactams',
+      payload: {
+        kind: 'categorize',
+        stem: 'Sort each agent by whether it is a beta-lactam.',
+        categories: ['Beta-lactam', 'Not a beta-lactam'],
+        items: [
+          { text: 'Meropenem', category: 0 },
+          { text: 'Piperacillin', category: 0 },
+          { text: 'Cefepime', category: 0 },
+          { text: 'Vancomycin', category: 1 },
+          { text: 'Gentamicin', category: 1 },
+          { text: 'Ciprofloxacin', category: 1 },
+        ],
+        explanation:
+          'Vancomycin is a glycopeptide, gentamicin an aminoglycoside and ciprofloxacin a fluoroquinolone — none carries a beta-lactam ring.',
+      },
+    },
   ],
   'art-exam-block': [
     {

@@ -197,6 +197,10 @@ QUESTION SHAPES — each question is exactly one of:
     ...],"explanation":"<optional>"}
   {"kind":"ordering","stem":"<instruction>","items":["<first>","<second>", ...],
     "explanation":"<optional>"}
+  {"kind":"fill_blank","text":"<a sentence containing exactly one {{blank}}>",
+    "accepted":["<the answer>","<another accepted spelling>"],"explanation":"<optional>"}
+  {"kind":"categorize","stem":"<instruction>","categories":["<group>","<group>"],
+    "items":[{"text":"<item>","category":0}, ...],"explanation":"<optional>"}
 
 SHAPE RULES — a question breaking one of these is discarded:
 - mcq: between 3 and 5 options, EXACTLY ONE correct, no two options with the same text.
@@ -210,6 +214,18 @@ SHAPE RULES — a question breaking one of these is discarded:
   match for "left" on the same line. Every left distinct, every right distinct.
 - ordering: between 3 and 7 items, LISTED IN THE CORRECT ORDER, all distinct. The
   order must be genuinely determinate — chronology, a pipeline, a magnitude ranking.
+- fill_blank: "text" contains the literal marker {{blank}} EXACTLY ONCE, and the
+  sentence around it must make the missing word inferable — blank out a term, not a
+  word that could be twenty things. "accepted" lists every spelling that should be
+  marked right; it is compared case-insensitively, so list genuine alternatives
+  (a synonym, an abbreviation, a British/American spelling), not case variants.
+  The grader accepts NOTHING outside this list, so a blank whose answer could
+  reasonably be phrased many ways is the wrong question — write it as an mcq.
+- categorize: between 2 and 4 categories and between 4 and 10 items, all distinct.
+  "category" is the INDEX into "categories" of the group that item belongs to.
+  EVERY category must get at least one item. Each item must belong to exactly one
+  group unambiguously — an item that could sit in two groups grades a right answer
+  wrong.
 
 RULES THAT DECIDE WHETHER A QUESTION IS WORTH ASKING:
 - Answer-independence. The question must be answerable by someone who has not seen
@@ -223,9 +239,11 @@ RULES THAT DECIDE WHETHER A QUESTION IS WORTH ASKING:
 - A true/false statement must not be trivially true. "Water is wet" tests nothing;
   a plausible-sounding claim that is subtly false tests a great deal.
 - Pick the kind that fits the fact. A sequence wants "ordering", a set of paired
-  terms wants "matching", a calculation wants "numeric". Do not force everything
-  into multiple choice, and do not use a kind the material does not support — a
-  text with no numbers in it should produce no numeric questions.
+  terms wants "matching", a calculation wants "numeric", a taxonomy or a
+  this-versus-that contrast wants "categorize", and a definition whose key term is
+  the thing worth recalling wants "fill_blank". Do not force everything into
+  multiple choice, and do not use a kind the material does not support — a text
+  with no numbers in it should produce no numeric questions.
 - Prefer the question that would actually be examined over the one easiest to
   extract.
 
@@ -239,6 +257,8 @@ const QUESTION_KIND_LABELS: Record<string, string> = {
   numeric: 'numeric (a calculated or counted value)',
   matching: 'matching (pair each item with its match)',
   ordering: 'ordering (arrange into the correct sequence)',
+  fill_blank: 'fill_blank (a sentence with one word missing)',
+  categorize: 'categorize (sort items into groups)',
 };
 
 /**

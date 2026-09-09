@@ -11,7 +11,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Kbd } from '@/components/ui/kbd';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState, ErrorState } from '@/components/states';
-import { QuizAnswer, isComplete } from './QuizAnswer';
+import { QuizAnswer, isComplete, isTypingTarget } from './QuizAnswer';
 import { QuestionPrompt } from './QuestionPrompt';
 import { useExamTimer } from '@/features/exam/useExamTimer';
 import { useFocusMode } from '@/features/exam/useFocusMode';
@@ -670,6 +670,10 @@ function ExamRunner({
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      // See `isTypingTarget`: a digit typed into a numeric or fill-blank answer
+      // is content, and the navigation letters are characters someone means to
+      // write. The exam has no confirm key, so nothing is excepted here.
+      if (isTypingTarget(event.target)) return;
       const key = event.key.toLowerCase();
 
       if (key === 'arrowright' || key === 'n') {

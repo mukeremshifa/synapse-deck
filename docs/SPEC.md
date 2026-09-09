@@ -80,7 +80,7 @@ into retention. Everything in v1 serves those two things.
 | Scheduler     | **FSRS** (via `ts-fsrs`)                               | Requires a per-review log table from day one                 |
 | Language      | **TypeScript** (migrate; strict-ish) + **Zod**         | Shared schemas across LLM parse / DB / forms                 |
 | Card types    | **basic + cloze + MCQ** (discriminated union)          | Content varies by type; scheduling state does not            |
-| Question types | **6 kinds**: mcq, msq, true/false, numeric, matching, ordering | A question is not a card; all six grade deterministically, no model at grade time |
+| Question types | **8 kinds**: mcq, msq, true/false, numeric, matching, ordering, fill-in-the-blank, categorise | A question is not a card; all eight grade deterministically, no model at grade time |
 | LLM provider  | **Groq, free tier** (OpenAI-compatible API)            | $0 marginal cost; rate limits replace cost as the constraint |
 | Generation UX | **Streaming** — cards appear one at a time             | SSE from Edge Function; NDJSON on the wire                   |
 | Tenancy       | **Open signup, private decks**                         | Needs RLS + per-user generation quota + rate limit           |
@@ -1414,13 +1414,32 @@ and kept whatever came back as an MCQ. That cost twice over — most of the toke
 went on basic and cloze cards that were discarded, and the only kind that survived the
 filter was the only kind a quiz could ask.
 
-A quiz or exam now asks **six kinds**: `mcq`, `msq` (select all that apply), `true_false`,
-`numeric`, `matching` and `ordering`. Every one of them grades deterministically in the
-browser from the payload alone, which is the selection criterion and not a coincidence —
-free text (short answer, problem, essay) needs a model and a rubric, which buys a
-per-attempt cost, a latency, and a score that cannot be reproduced from the stored record.
-The contract leaves those out, and `blueprint.ts` still names them so a blueprint can say
-"30% essay" while `GENERATABLE_FORMATS` refuses to claim we can produce one.
+A quiz or exam now asks **eight kinds**: `mcq`, `msq` (select all that apply),
+`true_false`, `numeric`, `matching`, `ordering`, and — added 2026-09-09 — `fill_blank`
+(type the missing token into a sentence) and `categorize` (sort items into named groups).
+Every one of them grades deterministically in the browser from the payload alone, which is
+the selection criterion and not a coincidence — open free text (short answer, problem,
+essay) needs a model and a rubric, which buys a per-attempt cost, a latency, and a score
+that cannot be reproduced from the stored record. The contract leaves those out, and
+`blueprint.ts` still names them so a blueprint can say "30% essay" while
+`GENERATABLE_FORMATS` refuses to claim we can produce one.
+
+**`fill_blank` is not the `short` promotion, and the line between them is where the
+grading rule holds.** A blank sits inside a sentence the learner can read, so it admits a
+token and its accepted spellings can be enumerated when the question is written; grading
+is set membership after normalising case, whitespace and trailing punctuation. An open
+short-answer prompt invites a sentence, and judging a sentence needs a rubric. So `short`
+stays ungeneratable and the decision about it stays open — adding `fill_blank` sharpens
+why, rather than settling it. The cost is real and is the question author's to carry: a
+synonym nobody listed is marked wrong, which makes a blank whose answer could be phrased
+many ways the wrong question to ask.
+
+**Grading stays all-or-nothing on every kind, including the ones that could support
+partial credit.** A partly-correct multi-select, a categorise with one item misplaced and
+an ordering with two items swapped are all simply wrong. Partial credit needs a scoring
+policy the product has not chosen, and inventing one would put a number in the mastery map
+that nothing else agrees with — the score is `correct / answered` everywhere in this
+codebase and it stays a count of booleans.
 
 A note set still comes from the card writer: it is the same material rendered as prose
 blocks, with cloze markers stripped — a note is read, not answered.

@@ -456,8 +456,8 @@ async function runCreateArtifact(
          * `writeContents` kept whatever came back with `kind === 'mcq'`. That
          * cost twice over — most of the token budget went on basic and cloze
          * cards that were then discarded, and the only kind that survived the
-         * filter was the only kind a quiz could ask. Six kinds exist now, and
-         * none of the other five is expressible as a flashcard.
+         * filter was the only kind a quiz could ask. Eight kinds exist now,
+         * and none of the other seven is expressible as a flashcard.
          *
          * A note set still goes through the card writer: it is the same
          * material read rather than drilled, and `writeNoteSet` turns card faces
@@ -576,9 +576,10 @@ async function writeContents(
      *
      * The filter used to be `kind === 'mcq'`, which was a kind check standing
      * in for a validity check — it kept anything calling itself an MCQ,
-     * including one with two correct options or a single option. Six kinds
+     * including one with two correct options or a single option. Eight kinds
      * makes that untenable: a `matching` payload with a duplicated right-hand
-     * item grades a right answer wrong, and nothing downstream would catch it.
+     * item grades a right answer wrong, a `categorize` payload can name a
+     * category that does not exist, and nothing downstream would catch either.
      *
      * `QuestionPayload` is the definition the runner and the grader share, so
      * parsing against it here means a question that reaches the database is one
