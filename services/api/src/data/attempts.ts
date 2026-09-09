@@ -18,7 +18,7 @@ const COLUMNS =
   'id, user_id, notebook_id, artifact_id, outcome, started_at, submitted_at, score';
 const ANSWER_COLUMNS =
   'id, user_id, attempt_id, question_id, question_text, topic_id, topic_name, ' +
-  'selected_option, correct, flagged, elapsed_ms, answered_at';
+  'response, selected_option, correct, flagged, elapsed_ms, answered_at';
 
 /**
  * Mark this user's stale in-progress attempts abandoned.
@@ -150,6 +150,13 @@ export interface AnswerInput {
   questionText: string;
   topicId: string | null;
   topicName: string | null;
+  /**
+   * The contract's `QuestionResponse` — what the candidate did, for every kind.
+   * Null means unanswered, and it is the only thing that means that: a matching
+   * or ordering answer has no `selectedOption` while being fully answered.
+   */
+  response: unknown;
+  /** The single-choice projection of `response`. Null for the four kinds without one. */
   selectedOption: number | null;
   correct: boolean;
   flagged: boolean;
@@ -187,15 +194,16 @@ export async function saveProgress(
       await client.query(
         `insert into public.attempt_answers
            (user_id, attempt_id, question_id, question_text, topic_id, topic_name,
-            selected_option, correct, flagged, elapsed_ms)
+            response, selected_option, correct, flagged, elapsed_ms)
          select $1, $2, u.question_id, u.question_text, u.topic_id, u.topic_name,
-                u.selected_option, u.correct, u.flagged, u.elapsed_ms
-           from unnest($3::uuid[], $4::text[], $5::uuid[], $6::text[],
-                       $7::int[], $8::boolean[], $9::boolean[], $10::int[])
+                u.response::jsonb, u.selected_option, u.correct, u.flagged, u.elapsed_ms
+           from unnest($3::uuid[], $4::text[], $5::uuid[], $6::text[], $7::jsonb[],
+                       $8::int[], $9::boolean[], $10::boolean[], $11::int[])
              as u(question_id, question_text, topic_id, topic_name,
-                  selected_option, correct, flagged, elapsed_ms)
+                  response, selected_option, correct, flagged, elapsed_ms)
          on conflict (attempt_id, question_id) do update
-            set selected_option = excluded.selected_option,
+            set response = excluded.response,
+                selected_option = excluded.selected_option,
                 correct = excluded.correct,
                 flagged = excluded.flagged,
                 elapsed_ms = excluded.elapsed_ms,
@@ -207,6 +215,13 @@ export async function saveProgress(
           answers.map(answer => answer.questionText),
           answers.map(answer => answer.topicId),
           answers.map(answer => answer.topicName),
+          // `null`, not `'null'`: a JSON null would satisfy `response is not
+          // null` and count an unanswered question toward the score.
+          answers.map(answer =>
+            answer.response === null || answer.response === undefined
+              ? null
+              : JSON.stringify(answer.response),
+          ),
           answers.map(answer => answer.selectedOption),
           answers.map(answer => answer.correct),
           answers.map(answer => answer.flagged),
@@ -231,6 +246,13 @@ export async function saveProgress(
  * paper abandoned two questions in does not read as 8% when it was 100% of what
  * was attempted. A paper with nothing answered scores 0 rather than dividing by
  * zero.
+ *
+ * **"Answered" is `response is not null`, not `selected_option is not null`.**
+ * Those were the same predicate until the quiz learned to ask matching and
+ * ordering questions, which have no single option index — counting the old way
+ * would drop every one of them from the denominator and score a fully answered
+ * paper against the handful of MCQs in it. Migration 0014 adds the column and
+ * the partial index this filter runs on.
  */
 export async function submitAttempt(
   userId: string,
@@ -251,15 +273,16 @@ export async function submitAttempt(
       await client.query(
         `insert into public.attempt_answers
            (user_id, attempt_id, question_id, question_text, topic_id, topic_name,
-            selected_option, correct, flagged, elapsed_ms)
+            response, selected_option, correct, flagged, elapsed_ms)
          select $1, $2, u.question_id, u.question_text, u.topic_id, u.topic_name,
-                u.selected_option, u.correct, u.flagged, u.elapsed_ms
-           from unnest($3::uuid[], $4::text[], $5::uuid[], $6::text[],
-                       $7::int[], $8::boolean[], $9::boolean[], $10::int[])
+                u.response::jsonb, u.selected_option, u.correct, u.flagged, u.elapsed_ms
+           from unnest($3::uuid[], $4::text[], $5::uuid[], $6::text[], $7::jsonb[],
+                       $8::int[], $9::boolean[], $10::boolean[], $11::int[])
              as u(question_id, question_text, topic_id, topic_name,
-                  selected_option, correct, flagged, elapsed_ms)
+                  response, selected_option, correct, flagged, elapsed_ms)
          on conflict (attempt_id, question_id) do update
-            set selected_option = excluded.selected_option,
+            set response = excluded.response,
+                selected_option = excluded.selected_option,
                 correct = excluded.correct,
                 flagged = excluded.flagged,
                 elapsed_ms = excluded.elapsed_ms,
@@ -271,6 +294,13 @@ export async function submitAttempt(
           answers.map(answer => answer.questionText),
           answers.map(answer => answer.topicId),
           answers.map(answer => answer.topicName),
+          // `null`, not `'null'`: a JSON null would satisfy `response is not
+          // null` and count an unanswered question toward the score.
+          answers.map(answer =>
+            answer.response === null || answer.response === undefined
+              ? null
+              : JSON.stringify(answer.response),
+          ),
           answers.map(answer => answer.selectedOption),
           answers.map(answer => answer.correct),
           answers.map(answer => answer.flagged),
@@ -285,7 +315,7 @@ export async function submitAttempt(
               submitted_at = now(),
               score = coalesce((
                 select count(*) filter (where correct)::float
-                     / nullif(count(*) filter (where selected_option is not null), 0)
+                     / nullif(count(*) filter (where response is not null), 0)
                   from public.attempt_answers
                  where user_id = $1 and attempt_id = $2
               ), 0)

@@ -55,11 +55,15 @@ import type {
   CardProvider,
   GenerateChunkRequest,
   GenerateChunkResult,
+  GenerateQuestionsRequest,
+  GenerateQuestionsResult,
 } from './types.ts';
 import {
   CARD_SYSTEM_PROMPT,
+  QUESTION_SYSTEM_PROMPT,
   CHAT_SYSTEM_PROMPT,
   buildChatUserTurn,
+  buildQuestionUserTurn,
   buildUserTurn,
 } from './prompt.ts';
 
@@ -337,6 +341,115 @@ export class GroqProvider implements CardProvider, AnsweringProvider {
       // The real figures, or null. Never a fabricated number: these flow into
       // cost accounting, and a made-up count corrupts the one figure that is
       // supposed to be measured honestly. `stub.ts` makes the same argument.
+      inputTokens: completion.usage?.prompt_tokens ?? null,
+      outputTokens: completion.usage?.completion_tokens ?? null,
+    };
+  }
+
+  /**
+   * Write exam questions rather than flashcards.
+   *
+   * Structurally the same call as `generateChunk` — same endpoint, same key,
+   * same error classification — with a different system prompt and a different
+   * reply key. The duplication is the request boilerplate, and the alternative
+   * (one method with a mode flag threading two prompts, two reply shapes and
+   * two error messages through every branch) reads worse than this does.
+   *
+   * **Temperature is 0.4, higher than the card call's 0.3.** A quiz asked to
+   * use six kinds needs to actually vary them, and at 0.3 a model handed a
+   * mixed-kind instruction tends to settle on multiple choice for the whole
+   * set. It is still low: distractors have to be plausible, and plausible is
+   * not the same as invented.
+   */
+  async generateQuestions(
+    request: GenerateQuestionsRequest,
+  ): Promise<GenerateQuestionsResult> {
+    let response: Response;
+    try {
+      response = await fetch(GROQ_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${apiKey()}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: model(),
+          messages: [
+            { role: 'system', content: QUESTION_SYSTEM_PROMPT },
+            { role: 'user', content: buildQuestionUserTurn(request) },
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.4,
+        }),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (error) {
+      throw new ProviderRetryableError(
+        `The question writer could not be reached: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        { cause: error },
+      );
+    }
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      const message = `Groq returned ${response.status}: ${detail.slice(0, 300)}`;
+      if (response.status === 429 || response.status >= 500) {
+        // Same `retry-after` handling as `generateChunk`, and for the reason
+        // its comment gives: the free tier limits tokens per minute, so the
+        // server's own number is the only one worth waiting.
+        const retryAfter = Number(response.headers.get('retry-after'));
+        throw new ProviderRetryableError(message, {
+          retryAfterMs:
+            Number.isFinite(retryAfter) && retryAfter > 0
+              ? Math.min(retryAfter * 1000, MAX_RETRY_AFTER_MS)
+              : undefined,
+        });
+      }
+      throw new Error(message);
+    }
+
+    let completion: ChatCompletion;
+    try {
+      completion = (await response.json()) as ChatCompletion;
+    } catch (error) {
+      throw new Error(
+        `Groq returned a 200 that was not JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    const content = completion.choices?.[0]?.message?.content;
+    if (typeof content !== 'string' || content.trim() === '') {
+      throw new Error('The question writer returned an empty response.');
+    }
+
+    let reply: { questions?: unknown; topics?: unknown };
+    try {
+      reply = JSON.parse(content) as { questions?: unknown; topics?: unknown };
+    } catch (error) {
+      throw new Error(
+        `The question writer's reply was not valid JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    if (!Array.isArray(reply.questions)) {
+      throw new Error(
+        'The question writer returned no "questions" array. Nothing usable ' +
+          'was produced for this section.',
+      );
+    }
+
+    return {
+      // Claimed, not proven — the per-question parse is the caller's, at the
+      // point the payload is written. Same boundary as `generateChunk`.
+      questions: reply.questions as GenerateQuestionsResult['questions'],
+      topics: readTopics(reply.topics),
+      provider: this.name,
       inputTokens: completion.usage?.prompt_tokens ?? null,
       outputTokens: completion.usage?.completion_tokens ?? null,
     };

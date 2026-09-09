@@ -80,6 +80,7 @@ into retention. Everything in v1 serves those two things.
 | Scheduler     | **FSRS** (via `ts-fsrs`)                               | Requires a per-review log table from day one                 |
 | Language      | **TypeScript** (migrate; strict-ish) + **Zod**         | Shared schemas across LLM parse / DB / forms                 |
 | Card types    | **basic + cloze + MCQ** (discriminated union)          | Content varies by type; scheduling state does not            |
+| Question types | **6 kinds**: mcq, msq, true/false, numeric, matching, ordering | A question is not a card; all six grade deterministically, no model at grade time |
 | LLM provider  | **Groq, free tier** (OpenAI-compatible API)            | $0 marginal cost; rate limits replace cost as the constraint |
 | Generation UX | **Streaming** — cards appear one at a time             | SSE from Edge Function; NDJSON on the wire                   |
 | Tenancy       | **Open signup, private decks**                         | Needs RLS + per-user generation quota + rate limit           |
@@ -277,12 +278,47 @@ says someone gave up would be a false record. It needs a server-side sweep of at
 `in-progress`, which is FR7's. Unanswered questions record `selectedOption: null` and are
 counted apart from wrong ones; a sitting with nothing answered has **no score**, not 0%.
 
-**Notes** — `/notebooks/:id/notes/:noteSetId`. A **reader**; the editor is later, and the
-block structure is what keeps it cheap. Blocks are rendered **as elements, never as HTML** —
-note content is untrusted model output, and the renderer never builds a string anything
-parses as markup, so the safety is structural rather than a setting someone can flip.
-Reading is the unit of progress: blocks are marked read **by observation**, monotonically,
-which is what a note set contributes to readiness.
+**Notes** — `/notebooks/:id/notes/:noteSetId`. A **reader**, and the three decisions below
+are what it is. Blocks are still rendered **as elements, never as HTML** — note content is
+untrusted model output, and the renderer never builds a string anything parses as markup,
+so the safety is structural rather than a setting someone can flip.
+
+**Revised 2026-09-09**, replacing "a reader; the editor is later" and observed block
+reading. Each change removed something that measured the wrong thing:
+
+1. **One resource, and a count of its topics.** A note set is generated from **exactly one
+   source** (`sourceIds.length(1)`), and the knob at generation is **how many of that
+   resource's topics to cover** — never how many resources to include. The claim a note set
+   makes is stronger than a deck's: it is a structured reading *of a document*, so its
+   topics are that document's topics and its order is that document's order. Merging three
+   sources produces a summary with no argument, and no honest answer to "how many topics
+   does it have". The modal enforces this with radio buttons rather than by validating
+   afterwards.
+
+2. **A topic is a contract noun** (`NoteTopic`), not a span inferred by splitting blocks at
+   `level: 2` headings. Progress is stored against topics, and a heading level is a
+   *rendering* choice — inferring topics from it would let the model's choice of `##`
+   versus `###` decide how many things the student must tick off.
+
+3. **Progress is declared, not observed, and it has two independent axes.** Blocks were
+   marked read by IntersectionObserver, monotonically. That measured *which pixels had been
+   on screen* and reported it as reading: a fast scroll to the bottom marked a note set
+   fully read, and nothing the student did could correct it, because the count only went up.
+   Now the student **ticks each topic** (reversible — a claim can be withdrawn) and
+   **presses a button at the end** (`completedAt`). Neither derives from the other:
+   ticking the last topic says the reading is done; the button says the *student* says it
+   is. Readiness follows the button, so a note set declared finished with topics
+   outstanding reads `ready` rather than arguing with the person who decided it.
+
+**There is no editor, and it is not "later".** Earlier revisions deferred one. A note set is
+generated and read; if it is wrong the answer is to regenerate it, not to edit model output
+into something whose provenance no longer matches the `sourcesSnapshot` beside it. The block
+structure remains because it is what makes rendering safe and topics addressable.
+
+**One known limitation, recorded rather than hidden:** the artifact payload carries a
+*count* of completed topics rather than their ids (a list endpoint must not ship every id —
+§3(1)), so the reader displays "the first n" as ticked. Ticking out of order is displayed in
+order. Fixing it is a contract change, not a UI change.
 
 ### 4.3 Manage
 
@@ -622,7 +658,7 @@ the second duplicates the exam runner without the timing that makes it worth sit
 > ├── Artifact      n         anything generated FROM sources. ONE kind-tagged noun:
 > │   ├── kind='deck'           a set of cards            → Practice
 > │   ├── kind='quiz'           untimed, reveal-on-answer → Quiz
-> │   ├── kind='noteset'        structured blocks         → Notes
+> │   ├── kind='noteset'        one source, n topics      → Notes
 > │   └── kind='exam'           timed, carries its own blueprint → Exam simulator
 > ├── Topic         n         notebook-scoped, reconciled from source metadata
 > ├── Attempt       n         one sitting of a quiz or an exam
@@ -1372,10 +1408,22 @@ screen. **A source that fails does not cost the others**: `unitsFailed` records 
 the artifact keeps what the rest produced, and `truncated` says so. A generation that
 produces nothing at all fails the artifact.
 
-**All four kinds come from the same call.** Decks take the requested card kinds; quizzes
-and exams request MCQs only, because grading free text needs a model and a rubric and the
-contract leaves it out; a note set is the same material rendered as prose blocks, with
-cloze markers stripped — a note is read, not answered.
+**Decks and note sets call the card writer; quizzes and exams call the question writer.**
+Revised 2026-09-09. They shared one call until then: quiz generation ran the card prompt
+and kept whatever came back as an MCQ. That cost twice over — most of the token budget
+went on basic and cloze cards that were discarded, and the only kind that survived the
+filter was the only kind a quiz could ask.
+
+A quiz or exam now asks **six kinds**: `mcq`, `msq` (select all that apply), `true_false`,
+`numeric`, `matching` and `ordering`. Every one of them grades deterministically in the
+browser from the payload alone, which is the selection criterion and not a coincidence —
+free text (short answer, problem, essay) needs a model and a rubric, which buys a
+per-attempt cost, a latency, and a score that cannot be reproduced from the stored record.
+The contract leaves those out, and `blueprint.ts` still names them so a blueprint can say
+"30% essay" while `GENERATABLE_FORMATS` refuses to claim we can produce one.
+
+A note set still comes from the card writer: it is the same material rendered as prose
+blocks, with cloze markers stripped — a note is read, not answered.
 
 **Topics are reconciled once per generation**, per notebook, by normalised slug
 ([ADR 0009](adr/0009-topic-reconciliation-by-name.md)), from the names the model returned
@@ -1426,7 +1474,7 @@ had to *guess* which notebook it was about.
 /notebooks/:id/decks/:deckId/practice      full-screen runner
 /notebooks/:id/quizzes/:quizId             full-screen runner — untimed, reveal-on-answer
 /notebooks/:id/exams/:examId               full-screen runner — timed
-/notebooks/:id/notes/:noteSetId            reader (editor later)
+/notebooks/:id/notes/:noteSetId            reader — per-topic ticks, no editor
 /settings                                  daily limits, timezone, quota usage
 /home  /notebooks                          → / (kept as redirects)
 *                                          404

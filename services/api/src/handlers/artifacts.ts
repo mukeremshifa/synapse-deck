@@ -13,6 +13,7 @@ import {
   deleteArtifact,
   getArtifact,
   listArtifacts,
+  setNoteSetCompleted,
   updateArtifact,
 } from '../data/artifacts.ts';
 import {
@@ -30,10 +31,21 @@ import {
   listArtifactCards,
   notebookQueue,
 } from '../data/cards.ts';
-import { listNoteBlocks, markBlocksRead } from '../data/note-blocks.ts';
+import {
+  listNoteBlocks,
+  listNoteTopics,
+  setTopicCompleted,
+} from '../data/note-topics.ts';
 import { getProfile } from '../data/profiles.ts';
 import { notebookExists } from '../data/notebooks.ts';
 import { listQuestions } from '../data/questions.ts';
+import {
+  QuestionPayload,
+  QuestionResponse,
+  gradeResponse,
+  questionStem,
+  responseSelectedOption,
+} from '../lib/schemas.ts';
 import {
   errorResponse,
   json,
@@ -54,7 +66,7 @@ import {
   toCard,
   toAttempt,
   toIso,
-  toNoteBlock,
+  toNoteTopic,
   toQuestion,
 } from './mappers.ts';
 
@@ -261,46 +273,90 @@ export async function handler(event: ApiEvent): Promise<ApiResponse> {
       );
     }
 
-    if (path.endsWith('/blocks')) {
+    if (path.endsWith('/topics')) {
+      if (method !== 'GET') throw new ApiError(405, `${method} is not allowed here.`);
       const artifact = await getArtifact(userId, notebookId, artifactId, new Date());
       if (!artifact) throw notFound('Artifact');
 
-      if (method === 'GET') {
-        const rows = await listNoteBlocks(userId, artifactId);
-        return json(200, rows.map(toNoteBlock));
+      /*
+       * **Two queries for the whole set, not two per topic.** The topics and
+       * every block of the note set are read once and grouped here; a note set
+       * is a dozen topics at most (`NOTESET_LIMITS`), and the page always
+       * renders all of them, so a per-topic fetch would be an N+1 for nothing.
+       */
+      const [topics, blocks] = await Promise.all([
+        listNoteTopics(userId, artifactId),
+        listNoteBlocks(userId, artifactId),
+      ]);
+
+      const byTopic = new Map<string, typeof blocks>();
+      for (const block of blocks) {
+        const bucket = byTopic.get(block.topic_id);
+        if (bucket) bucket.push(block);
+        else byTopic.set(block.topic_id, [block]);
       }
 
-      if (method === 'POST') {
-        /*
-         * Marking read. Monotonic by construction — see the data layer.
-         *
-         * **Indexes, not ids.** `NoteBlock` is a discriminated union with no id
-         * field: the contract identifies a block by its position in the array
-         * `listNoteBlocks` returned. That is stable because blocks are written
-         * once at generation and never reordered, and it is resolved to real
-         * row ids here rather than exposing them.
-         */
-        const body = readJsonBody(event) as { blockIndexes?: unknown };
-        const indexes = Array.isArray(body.blockIndexes)
-          ? body.blockIndexes.filter(
-              (value): value is number =>
-                typeof value === 'number' && Number.isInteger(value) && value >= 0,
-            )
-          : [];
-        const blocks = await listNoteBlocks(userId, artifactId);
-        const ids = indexes
-          .map(index => blocks[index]?.id)
-          .filter((id): id is string => typeof id === 'string');
-        await markBlocksRead(userId, artifactId, ids);
+      return json(
+        200,
+        topics.map(topic => toNoteTopic(topic, byTopic.get(topic.id) ?? [])),
+      );
+    }
 
-        // The whole artifact, so the reader's readiness updates from one
-        // response rather than a second fetch.
-        const updated = await getArtifact(userId, notebookId, artifactId, new Date());
-        if (!updated) throw notFound('Artifact');
-        return json(200, toArtifact(updated));
+    // Ticking one topic off, or unticking it: `…/topics/:topicId`.
+    const topicMatch = /\/topics\/([^/]+)$/.exec(path);
+    if (topicMatch) {
+      if (method !== 'PATCH') throw new ApiError(405, `${method} is not allowed here.`);
+      const artifact = await getArtifact(userId, notebookId, artifactId, new Date());
+      if (!artifact) throw notFound('Artifact');
+
+      const topicId = decodeURIComponent(topicMatch[1] ?? '');
+      const body = readJsonBody(event) as { completed?: unknown };
+      if (typeof body.completed !== 'boolean') {
+        throw new ApiError(400, '`completed` must be true or false.');
       }
 
-      throw new ApiError(405, `${method} is not allowed here.`);
+      /*
+       * A null return means the topic is not this user's, or not this note
+       * set's — a 404, rather than a success reporting a count for a write that
+       * never happened.
+       */
+      const count = await setTopicCompleted(
+        userId,
+        artifactId,
+        topicId,
+        body.completed,
+      );
+      if (count === null) throw notFound('Topic');
+
+      // The whole artifact, so the reader's readiness updates from one
+      // response rather than a second fetch.
+      const updated = await getArtifact(userId, notebookId, artifactId, new Date());
+      if (!updated) throw notFound('Artifact');
+      return json(200, toArtifact(updated));
+    }
+
+    // The button at the end: `…/completion`.
+    if (path.endsWith('/completion')) {
+      if (method !== 'PATCH') throw new ApiError(405, `${method} is not allowed here.`);
+
+      const body = readJsonBody(event) as { completed?: unknown };
+      if (typeof body.completed !== 'boolean') {
+        throw new ApiError(400, '`completed` must be true or false.');
+      }
+
+      // Scoped to notesets in the statement itself, so a deck id 404s rather
+      // than being stamped with a completion that means nothing for its kind.
+      const row = await setNoteSetCompleted(
+        userId,
+        notebookId,
+        artifactId,
+        body.completed,
+      );
+      if (!row) throw notFound('Note set');
+
+      const updated = await getArtifact(userId, notebookId, artifactId, new Date());
+      if (!updated) throw notFound('Artifact');
+      return json(200, toArtifact(updated));
     }
 
     if (path.endsWith('/attempts')) {
@@ -379,8 +435,20 @@ async function artifactKind(
  * Grade the submitted answers against the stored questions.
  *
  * **`correct` is decided here, never taken from the request.** The client sends
- * which option was picked; whether that option is right is a fact about the
- * question, and a client that could assert it could score its own exam.
+ * what it did; whether that is right is a fact about the question, and a client
+ * that could assert it could score its own exam.
+ *
+ * **The rule itself is `gradeResponse`, imported rather than restated.** Six
+ * kinds now grade six different ways — a set comparison for multi-select, a
+ * tolerance for numeric, a permutation check for ordering — and a second
+ * implementation of any of them here would be the version that disagrees with
+ * the runner. The runner grades to show the answer immediately; this grades to
+ * decide the record. They must never differ, so there is one function.
+ *
+ * The response is parsed rather than cast: it arrives from a request body, and
+ * `QuestionResponse` is what stands between it and a `jsonb` column. A response
+ * that fails the parse is treated as unanswered rather than rejected — a stale
+ * tab submitting an old shape should not fail a whole paper.
  *
  * `questionText` and the topic are copied from the stored question for the same
  * reason ADR 0013 gives — the answer must stay readable after the question is
@@ -402,7 +470,7 @@ async function gradeAnswers(
     if (typeof entry !== 'object' || entry === null) continue;
     const answer = entry as {
       questionId?: unknown;
-      selectedOption?: unknown;
+      response?: unknown;
       flagged?: unknown;
       elapsedMs?: unknown;
     };
@@ -413,24 +481,34 @@ async function gradeAnswers(
     // an error: a regeneration can remove a question a stale tab still holds.
     if (!question) continue;
 
-    const payload = (question.payload ?? {}) as {
-      stem?: unknown;
-      options?: { text?: unknown; correct?: unknown }[];
-    };
-    const options = Array.isArray(payload.options) ? payload.options : [];
-    const selected =
-      typeof answer.selectedOption === 'number' && Number.isInteger(answer.selectedOption)
-        ? answer.selectedOption
-        : null;
+    /*
+     * The stored question, parsed.
+     *
+     * A payload that fails this parse cannot be graded against — it is not a
+     * question of any kind we know. It still yields a row, marked unanswered
+     * and incorrect, because dropping it would quietly shorten the paper.
+     */
+    const parsedQuestion = QuestionPayload.safeParse(question.payload);
+    const parsedResponse = QuestionResponse.safeParse(answer.response);
+
+    const graded =
+      parsedQuestion.success && parsedResponse.success
+        ? gradeResponse(parsedQuestion.data, parsedResponse.data)
+        : false;
+    const response = parsedResponse.success ? parsedResponse.data : null;
 
     out.push({
       questionId: question.id,
-      questionText:
-        typeof payload.stem === 'string' && payload.stem ? payload.stem : 'Question',
+      questionText: parsedQuestion.success
+        ? questionStem(parsedQuestion.data)
+        : stemFallback(question.payload),
       topicId: question.topic_id,
       topicName: question.topic_name ?? null,
-      selectedOption: selected,
-      correct: selected !== null && options[selected]?.correct === true,
+      response,
+      // Derived, never taken from the body: it is a projection of `response`
+      // and a client-supplied one could disagree with it.
+      selectedOption: response ? responseSelectedOption(response) : null,
+      correct: graded,
       flagged: answer.flagged === true,
       elapsedMs:
         typeof answer.elapsedMs === 'number' && answer.elapsedMs >= 0
@@ -439,4 +517,19 @@ async function gradeAnswers(
     });
   }
   return out;
+}
+
+/**
+ * The prompt text of a payload that failed to parse.
+ *
+ * `question_text` is `not null` in the schema and is the authority for what an
+ * answer meant (ADR 0013), so a row still needs one even when the payload is
+ * unreadable. Both spellings are tried before giving up — `true_false` calls it
+ * `statement` — and the constant is a last resort rather than the normal path.
+ */
+function stemFallback(payload: unknown): string {
+  const shape = (payload ?? {}) as { stem?: unknown; statement?: unknown };
+  if (typeof shape.stem === 'string' && shape.stem.trim()) return shape.stem;
+  if (typeof shape.statement === 'string' && shape.statement.trim()) return shape.statement;
+  return 'Question';
 }

@@ -2,7 +2,7 @@ import type {
   Artifact,
   Attempt,
   Card,
-  NoteBlock,
+  NoteTopic,
   Notebook,
   Profile,
   Question,
@@ -267,8 +267,16 @@ export const artifacts: Artifact[] = [
     title: 'Antibiotics — mechanisms and coverage',
     sourceIds: ['src-pharm-lecture', IDS.deletedSource],
     sourcesSnapshot: [
-      { sourceId: 'src-pharm-lecture', title: 'Beta-lactams — lecture handout.pdf', kind: 'document' },
-      { sourceId: IDS.deletedSource, title: 'Cephalosporin generations (deleted)', kind: 'text' },
+      {
+        sourceId: 'src-pharm-lecture',
+        title: 'Beta-lactams — lecture handout.pdf',
+        kind: 'document',
+      },
+      {
+        sourceId: IDS.deletedSource,
+        title: 'Cephalosporin generations (deleted)',
+        kind: 'text',
+      },
     ],
     status: 'ready',
     readiness: { state: 'ready', detail: '' },
@@ -282,7 +290,11 @@ export const artifacts: Artifact[] = [
     title: 'Antifungals',
     sourceIds: ['src-pharm-review'],
     sourcesSnapshot: [
-      { sourceId: 'src-pharm-review', title: 'Antifungal therapy — a review', kind: 'url' },
+      {
+        sourceId: 'src-pharm-review',
+        title: 'Antifungal therapy — a review',
+        kind: 'url',
+      },
     ],
     status: 'ready',
     readiness: { state: 'none', detail: '' },
@@ -297,7 +309,11 @@ export const artifacts: Artifact[] = [
     title: 'Antibiotic coverage — quick check',
     sourceIds: ['src-pharm-lecture', 'src-pharm-notes'],
     sourcesSnapshot: [
-      { sourceId: 'src-pharm-lecture', title: 'Beta-lactams — lecture handout.pdf', kind: 'document' },
+      {
+        sourceId: 'src-pharm-lecture',
+        title: 'Beta-lactams — lecture handout.pdf',
+        kind: 'document',
+      },
       { sourceId: 'src-pharm-notes', title: 'My notes on aminoglycosides', kind: 'text' },
     ],
     status: 'ready',
@@ -310,15 +326,25 @@ export const artifacts: Artifact[] = [
     notebookId: IDS.pharmacology,
     kind: 'noteset',
     title: 'Resistance mechanisms — summary',
-    sourceIds: ['src-pharm-lecture', 'src-pharm-review'],
+    /** One source, as a note set now requires — it is a reading of one resource. */
+    sourceIds: ['src-pharm-lecture'],
     sourcesSnapshot: [
-      { sourceId: 'src-pharm-lecture', title: 'Beta-lactams — lecture handout.pdf', kind: 'document' },
-      { sourceId: 'src-pharm-review', title: 'Antifungal therapy — a review', kind: 'url' },
+      {
+        sourceId: 'src-pharm-lecture',
+        title: 'Beta-lactams — lecture handout.pdf',
+        kind: 'document',
+      },
     ],
     status: 'ready',
     readiness: { state: 'partial', detail: '' },
     createdAt: daysAgo(18),
-    payload: { kind: 'noteset', origin: 'generated', blockCount: 0, readBlockCount: 2 },
+    payload: {
+      kind: 'noteset',
+      origin: 'generated',
+      topicCount: 0,
+      completedTopicCount: 0,
+      completedAt: null,
+    },
   },
   {
     /**
@@ -337,7 +363,14 @@ export const artifacts: Artifact[] = [
     status: 'ready',
     readiness: { state: 'ready', detail: '' },
     createdAt: daysAgo(5),
-    payload: { kind: 'noteset', origin: 'chat', blockCount: 0, readBlockCount: 0 },
+    /** Declared finished by the student — the `completedAt` axis, on its own. */
+    payload: {
+      kind: 'noteset',
+      origin: 'chat',
+      topicCount: 0,
+      completedTopicCount: 0,
+      completedAt: daysAgo(4),
+    },
   },
   {
     id: 'art-exam-block',
@@ -346,9 +379,17 @@ export const artifacts: Artifact[] = [
     title: 'Block exam — mock paper 1',
     sourceIds: ['src-pharm-lecture', 'src-pharm-notes', 'src-pharm-review'],
     sourcesSnapshot: [
-      { sourceId: 'src-pharm-lecture', title: 'Beta-lactams — lecture handout.pdf', kind: 'document' },
+      {
+        sourceId: 'src-pharm-lecture',
+        title: 'Beta-lactams — lecture handout.pdf',
+        kind: 'document',
+      },
       { sourceId: 'src-pharm-notes', title: 'My notes on aminoglycosides', kind: 'text' },
-      { sourceId: 'src-pharm-review', title: 'Antifungal therapy — a review', kind: 'url' },
+      {
+        sourceId: 'src-pharm-review',
+        title: 'Antifungal therapy — a review',
+        kind: 'url',
+      },
     ],
     status: 'ready',
     readiness: { state: 'ready', detail: '' },
@@ -368,7 +409,11 @@ export const artifacts: Artifact[] = [
         basis: 'card-counts',
         weights: [
           { topicId: 'top-pharm-beta', topicName: 'Beta-lactams', questions: 2 },
-          { topicId: 'top-pharm-resist', topicName: 'Resistance mechanisms', questions: 1 },
+          {
+            topicId: 'top-pharm-resist',
+            topicName: 'Resistance mechanisms',
+            questions: 1,
+          },
           { topicId: null, topicName: 'Unfiled', questions: 1 },
         ],
       },
@@ -388,7 +433,11 @@ export const artifacts: Artifact[] = [
     title: 'Cranial nerves',
     sourceIds: ['src-neuro-atlas'],
     sourcesSnapshot: [
-      { sourceId: 'src-neuro-atlas', title: 'Brainstem atlas — chapter 4.pdf', kind: 'document' },
+      {
+        sourceId: 'src-neuro-atlas',
+        title: 'Brainstem atlas — chapter 4.pdf',
+        kind: 'document',
+      },
     ],
     status: 'failed',
     readiness: { state: 'none', detail: '' },
@@ -402,7 +451,11 @@ export const artifacts: Artifact[] = [
     title: 'Ascending and descending tracts',
     sourceIds: ['src-neuro-atlas'],
     sourcesSnapshot: [
-      { sourceId: 'src-neuro-atlas', title: 'Brainstem atlas — chapter 4.pdf', kind: 'document' },
+      {
+        sourceId: 'src-neuro-atlas',
+        title: 'Brainstem atlas — chapter 4.pdf',
+        kind: 'document',
+      },
     ],
     status: 'ready',
     readiness: { state: 'partial', detail: '' },
@@ -499,7 +552,8 @@ const cardSeeds: CardSeed[] = [
     topicId: 'top-pharm-resist',
     payload: {
       kind: 'basic',
-      front: 'Why does an extended-spectrum beta-lactamase (ESBL) organism resist ceftriaxone?',
+      front:
+        'Why does an extended-spectrum beta-lactamase (ESBL) organism resist ceftriaxone?',
       back: 'ESBLs hydrolyse third-generation cephalosporins as well as penicillins, so the beta-lactam ring is cleaved before it reaches its target.',
     },
     fsrsState: 'learning',
@@ -533,7 +587,8 @@ const cardSeeds: CardSeed[] = [
     topicId: null,
     payload: {
       kind: 'basic',
-      front: 'Which beta-lactam class is safest in a patient with a documented type I penicillin allergy?',
+      front:
+        'Which beta-lactam class is safest in a patient with a documented type I penicillin allergy?',
       back: 'Aztreonam, a monobactam — it shows minimal cross-reactivity with penicillins.',
     },
     fsrsState: 'new',
@@ -585,7 +640,8 @@ const cardSeeds: CardSeed[] = [
     topicId: 'top-pharm-pk',
     payload: {
       kind: 'basic',
-      front: 'Which antibiotic class shows concentration-dependent killing with a post-antibiotic effect?',
+      front:
+        'Which antibiotic class shows concentration-dependent killing with a post-antibiotic effect?',
       back: 'Aminoglycosides — which is the rationale for once-daily dosing.',
     },
     fsrsState: 'relearning',
@@ -670,7 +726,8 @@ const cardSeeds: CardSeed[] = [
     topicId: 'top-neuro-brainstem',
     payload: {
       kind: 'basic',
-      front: 'Which sensory modality travels in the dorsal column–medial lemniscus pathway?',
+      front:
+        'Which sensory modality travels in the dorsal column–medial lemniscus pathway?',
       back: 'Fine touch, vibration and proprioception.',
     },
     fsrsState: 'review',
@@ -750,7 +807,7 @@ function buildReviews(): Review[] {
      * Five days, not thirty: a current streak shorter than the longest one is
      * what makes "Best: N days" mean anything on screen.
      */
-    const recent = day <= 4 ? [6, 4, 9, 3, 7][day] ?? 5 : null;
+    const recent = day <= 4 ? ([6, 4, 9, 3, 7][day] ?? 5) : null;
     const count = onHoliday ? 0 : (recent ?? intensity);
 
     for (let i = 0; i < count; i++) {
@@ -829,6 +886,82 @@ export const questions: Record<string, Question[]> = {
         ],
       },
     },
+    /*
+     * One of each remaining kind, so the fake exercises every branch of the
+     * answer surface rather than five of six going unseen until a real
+     * generation produces one.
+     */
+    {
+      id: 'q-quiz-4',
+      topicId: 'top-pharm-beta',
+      topicName: 'Beta-lactams',
+      payload: {
+        kind: 'msq',
+        stem: 'Which of these are beta-lactam antibiotics? Select all that apply.',
+        options: [
+          { text: 'Amoxicillin', correct: true },
+          { text: 'Meropenem', correct: true },
+          { text: 'Ciprofloxacin', correct: false },
+          { text: 'Cefazolin', correct: true },
+          { text: 'Gentamicin', correct: false },
+        ],
+        explanation:
+          'Penicillins, cephalosporins and carbapenems all share the beta-lactam ring. Fluoroquinolones and aminoglycosides do not.',
+      },
+    },
+    {
+      id: 'q-quiz-5',
+      topicId: 'top-pharm-resist',
+      topicName: 'Resistance mechanisms',
+      payload: {
+        kind: 'true_false',
+        statement:
+          'Extended-spectrum beta-lactamases (ESBLs) are reliably inhibited by clavulanic acid.',
+        answer: true,
+        explanation:
+          'Clavulanate inhibits ESBLs in vitro, which is the basis of the confirmatory test. Carbapenemases are not inhibited.',
+      },
+    },
+    {
+      id: 'q-quiz-6',
+      topicId: null,
+      topicName: null,
+      payload: {
+        kind: 'numeric',
+        stem: 'A vancomycin trough of 15 mg/L is targeted. If the measured trough is 22 mg/L, by how much does it exceed target?',
+        answer: 7,
+        tolerance: 0.5,
+        unit: 'mg/L',
+        explanation: '22 − 15 = 7 mg/L above the target trough.',
+      },
+    },
+    {
+      id: 'q-quiz-7',
+      topicId: 'top-pharm-beta',
+      topicName: 'Beta-lactams',
+      payload: {
+        kind: 'matching',
+        stem: 'Match each antibiotic to its class.',
+        pairs: [
+          { left: 'Meropenem', right: 'Carbapenem' },
+          { left: 'Cefazolin', right: 'Cephalosporin' },
+          { left: 'Gentamicin', right: 'Aminoglycoside' },
+          { left: 'Ciprofloxacin', right: 'Fluoroquinolone' },
+        ],
+      },
+    },
+    {
+      id: 'q-quiz-8',
+      topicId: 'top-pharm-resist',
+      topicName: 'Resistance mechanisms',
+      payload: {
+        kind: 'ordering',
+        stem: 'Order these beta-lactams from narrowest to broadest Gram-negative coverage.',
+        items: ['Benzylpenicillin', 'Amoxicillin', 'Ceftriaxone', 'Meropenem'],
+        explanation:
+          'Coverage widens from the natural penicillins through the aminopenicillins and third-generation cephalosporins to the carbapenems.',
+      },
+    },
   ],
   'art-exam-block': [
     {
@@ -893,63 +1026,110 @@ export const questions: Record<string, Question[]> = {
 };
 
 // ---------------------------------------------------------------------------
-// Note blocks
+// Note topics
 // ---------------------------------------------------------------------------
 
-export const noteBlocks: Record<string, NoteBlock[]> = {
+/**
+ * Note sets, as topics that own their blocks.
+ *
+ * **Both fixtures are single-source**, because the contract now requires it:
+ * a note set is a reading of one resource. `art-notes-resistance` is an
+ * ordinary generation of two topics; `art-notes-from-chat` is the `origin:
+ * 'chat'` case, which is always exactly one topic however long the answer was.
+ *
+ * The dangling-source quote is kept, and kept inside a topic, so a reader that
+ * resolves citations still meets it on the path it will actually take.
+ */
+export const noteTopics: Record<string, NoteTopic[]> = {
   'art-notes-resistance': [
-    { type: 'heading', level: 1, text: 'Resistance mechanisms' },
     {
-      type: 'paragraph',
-      text: 'Bacteria defeat beta-lactams in four broad ways. Knowing which one an organism uses predicts which agent will still work.',
-    },
-    { type: 'heading', level: 2, text: 'Enzymatic hydrolysis' },
-    {
-      type: 'paragraph',
-      text: 'Beta-lactamases cleave the beta-lactam ring before it reaches its target. The spectrum of the enzyme decides the spectrum of the resistance.',
-    },
-    {
-      type: 'list',
-      ordered: false,
-      items: [
-        'Narrow-spectrum penicillinases — defeated by flucloxacillin.',
-        'ESBLs — hydrolyse third-generation cephalosporins.',
-        'Carbapenemases (KPC, NDM, OXA-48) — the broadest, and the hardest.',
+      id: 'nt-resistance-hydrolysis',
+      title: 'Enzymatic hydrolysis',
+      sourceTopicId: 'top-pharm-resist',
+      blocks: [
+        {
+          type: 'paragraph',
+          text: 'Bacteria defeat beta-lactams in four broad ways. Knowing which one an organism uses predicts which agent will still work.',
+        },
+        {
+          type: 'paragraph',
+          text: 'Beta-lactamases cleave the beta-lactam ring before it reaches its target. The spectrum of the enzyme decides the spectrum of the resistance.',
+        },
+        {
+          type: 'list',
+          ordered: false,
+          items: [
+            'Narrow-spectrum penicillinases — defeated by flucloxacillin.',
+            'ESBLs — hydrolyse third-generation cephalosporins.',
+            'Carbapenemases (KPC, NDM, OXA-48) — the broadest, and the hardest.',
+          ],
+        },
+        {
+          type: 'quote',
+          text: 'The presence of an ESBL should be treated as resistance to all penicillins and cephalosporins, whatever the reported MIC.',
+          sourceId: 'src-pharm-lecture',
+        },
       ],
     },
     {
-      type: 'quote',
-      text: 'The presence of an ESBL should be treated as resistance to all penicillins and cephalosporins, whatever the reported MIC.',
-      sourceId: 'src-pharm-lecture',
-    },
-    { type: 'heading', level: 2, text: 'Target modification' },
-    {
-      type: 'paragraph',
-      text: 'MRSA carries mecA, which encodes PBP2a — a penicillin-binding protein with low affinity for beta-lactams, so cross-linking continues.',
-    },
-    {
       /**
-       * A quote whose source has been deleted. **The dangling case again**, in
-       * the one other place a source id is stored, so a notes reader that
-       * resolves citations hits it too.
+       * **A topic whose `sourceTopicId` dangles.** It names a notebook topic
+       * that no longer exists, which the contract calls out as possible — so
+       * anything lining note sets up against the mastery report meets the case
+       * in the fixtures rather than in production.
        */
-      type: 'quote',
-      text: 'Cephalosporin generations broadly trade Gram-positive cover for Gram-negative as the number rises.',
-      sourceId: IDS.deletedSource,
+      id: 'nt-resistance-target',
+      title: 'Target modification',
+      sourceTopicId: 'top-pharm-deleted',
+      blocks: [
+        {
+          type: 'paragraph',
+          text: 'MRSA carries mecA, which encodes PBP2a — a penicillin-binding protein with low affinity for beta-lactams, so cross-linking continues.',
+        },
+        {
+          /**
+           * A quote whose source has been deleted. **The dangling case again**,
+           * in the one other place a source id is stored, so a notes reader
+           * that resolves citations hits it too.
+           */
+          type: 'quote',
+          text: 'Cephalosporin generations broadly trade Gram-positive cover for Gram-negative as the number rises.',
+          sourceId: IDS.deletedSource,
+        },
+      ],
     },
   ],
   'art-notes-from-chat': [
-    { type: 'heading', level: 2, text: 'Vancomycin trough monitoring' },
     {
-      type: 'paragraph',
-      text: 'Vancomycin has a narrow therapeutic window: too little fails against MRSA, too much is nephrotoxic. Clearance is renal and varies with the patient, so a fixed dose does not give a predictable concentration.',
-    },
-    {
-      type: 'quote',
-      text: 'Monitoring targets an AUC/MIC ratio; trough concentration is the practical surrogate most units still use.',
-      sourceId: 'src-pharm-notes',
+      id: 'nt-chat-vancomycin',
+      title: 'Vancomycin trough monitoring',
+      sourceTopicId: null,
+      blocks: [
+        {
+          type: 'paragraph',
+          text: 'Vancomycin has a narrow therapeutic window: too little fails against MRSA, too much is nephrotoxic. Clearance is renal and varies with the patient, so a fixed dose does not give a predictable concentration.',
+        },
+        {
+          type: 'quote',
+          text: 'Monitoring targets an AUC/MIC ratio; trough concentration is the practical surrogate most units still use.',
+          sourceId: 'src-pharm-notes',
+        },
+      ],
     },
   ],
+};
+
+/**
+ * Which topics have been ticked off, by artifact id.
+ *
+ * `art-notes-resistance` has one of its two ticked and **no `completedAt`** —
+ * the half-read state, which is what the reader's resume path and the Studio's
+ * "1 of 2 topics to read" both need to exist in the fixtures. `art-notes-from-chat`
+ * has nothing ticked; its payload carries the completed stamp instead, so the
+ * two independent axes of §4.2 are both exercised, in opposite corners.
+ */
+export const completedTopics: Record<string, string[]> = {
+  'art-notes-resistance': ['nt-resistance-hydrolysis'],
 };
 
 // ---------------------------------------------------------------------------
@@ -972,6 +1152,7 @@ export const attempts: Attempt[] = [
         questionText: 'Which organism is NOT reliably covered by ceftriaxone?',
         topicId: 'top-pharm-beta',
         topicName: 'Beta-lactams',
+        response: { kind: 'mcq', option: 0 },
         selectedOption: 0,
         correct: true,
         flagged: false,
@@ -979,9 +1160,11 @@ export const attempts: Attempt[] = [
       },
       {
         questionId: 'q-quiz-2',
-        questionText: 'A carbapenem-resistant Enterobacterales isolate most likely carries which enzyme?',
+        questionText:
+          'A carbapenem-resistant Enterobacterales isolate most likely carries which enzyme?',
         topicId: 'top-pharm-resist',
         topicName: 'Resistance mechanisms',
+        response: { kind: 'mcq', option: 1 },
         selectedOption: 1,
         correct: false,
         flagged: true,
@@ -989,9 +1172,11 @@ export const attempts: Attempt[] = [
       },
       {
         questionId: 'q-quiz-3',
-        questionText: 'Which of these requires therapeutic drug monitoring in routine practice?',
+        questionText:
+          'Which of these requires therapeutic drug monitoring in routine practice?',
         topicId: null,
         topicName: null,
+        response: { kind: 'mcq', option: 0 },
         selectedOption: 0,
         correct: true,
         flagged: false,
@@ -1019,6 +1204,7 @@ export const attempts: Attempt[] = [
         questionText: 'Which organism is NOT reliably covered by ceftriaxone?',
         topicId: 'top-pharm-beta',
         topicName: 'Beta-lactams',
+        response: { kind: 'mcq', option: 0 },
         selectedOption: 0,
         correct: true,
         flagged: false,
@@ -1042,6 +1228,7 @@ export const attempts: Attempt[] = [
         questionText: 'Which beta-lactam has the broadest Gram-negative coverage?',
         topicId: 'top-pharm-beta',
         topicName: 'Beta-lactams',
+        response: { kind: 'mcq', option: 0 },
         selectedOption: 0,
         correct: true,
         flagged: false,
@@ -1049,9 +1236,11 @@ export const attempts: Attempt[] = [
       },
       {
         questionId: 'q-exam-2',
-        questionText: 'Flucloxacillin is preferred over benzylpenicillin for staphylococcal infection because it:',
+        questionText:
+          'Flucloxacillin is preferred over benzylpenicillin for staphylococcal infection because it:',
         topicId: 'top-pharm-beta',
         topicName: 'Beta-lactams',
+        response: { kind: 'mcq', option: 0 },
         selectedOption: 0,
         correct: true,
         flagged: false,
@@ -1062,6 +1251,7 @@ export const attempts: Attempt[] = [
         questionText: 'Porin loss in Gram-negative bacteria confers resistance by:',
         topicId: 'top-pharm-resist',
         topicName: 'Resistance mechanisms',
+        response: { kind: 'mcq', option: 2 },
         selectedOption: 2,
         correct: false,
         flagged: true,
@@ -1074,6 +1264,7 @@ export const attempts: Attempt[] = [
         questionText: 'Which adverse effect is most characteristic of aminoglycosides?',
         topicId: null,
         topicName: null,
+        response: null,
         selectedOption: null,
         correct: false,
         flagged: false,

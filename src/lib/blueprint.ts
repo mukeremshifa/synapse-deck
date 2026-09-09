@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { QUESTION_KINDS, QUESTION_KIND_LABELS } from './schemas';
+
 /**
  * The exam blueprint: what an exam over this material should weigh, and why.
  *
@@ -116,25 +118,75 @@ export type BlueprintTopic = z.infer<typeof BlueprintTopic>;
 /**
  * The mix of question formats.
  *
- * Only `mcq` is generatable today — `schemas.ts` says free-text "needs a model
- * and a rubric" and leaves it out of `QuestionPayload` on purpose. The other
- * three are carried here because a blueprint that cannot express "this exam is
- * 30% short answer" is not describing a real exam, and Phase C needs the shape
- * to aim at. The UI must mark the ungeneratable ones rather than silently
- * producing MCQs for them; see `GENERATABLE_FORMATS`.
+ * ── Six generatable, two not, and the split is about grading ──────────────
+ *
+ * The six in `QUESTION_KINDS` all grade deterministically in the browser from
+ * the payload alone. `problem` and `essay` do not: grading free text needs a
+ * model and a rubric, which buys a per-attempt cost, a latency, and a score
+ * that cannot be reproduced from the stored record. `schemas.ts` leaves them
+ * out of `QuestionPayload` for exactly that reason.
+ *
+ * They are still named here, because a blueprint that cannot express "this exam
+ * is 30% essay" is not describing a real exam. **The UI must mark the
+ * ungeneratable ones rather than silently producing MCQs for them** — that was
+ * true when five of the six did not exist and is still true for these two.
+ *
+ * `short` was in the ungeneratable group and is *not* promoted out of it. A
+ * short answer graded against an accepted-answer key is a deterministic
+ * question and could join the six; graded against a rubric it could not. That
+ * is a product decision nobody has made, and inventing one here would put a
+ * kind in the generator that the runner cannot render.
  */
-export const QuestionFormat = z.enum(['mcq', 'short', 'problem', 'essay']);
+export const QuestionFormat = z.enum([
+  'mcq',
+  'msq',
+  'true_false',
+  'numeric',
+  'matching',
+  'ordering',
+  'short',
+  'problem',
+  'essay',
+]);
 export type QuestionFormat = z.infer<typeof QuestionFormat>;
 
-/** What the generator can actually produce today. The UI reads this, not a literal. */
-export const GENERATABLE_FORMATS: readonly QuestionFormat[] = ['mcq'] as const;
+/**
+ * What the generator can actually produce today. The UI reads this, not a literal.
+ *
+ * Derived from `QUESTION_KINDS` rather than restated, so a kind added to the
+ * schema cannot be left out of the blueprint by omission — the two lists would
+ * disagree silently, and the symptom would be a format the exam can ask but the
+ * blueprint cannot allocate to.
+ */
+export const GENERATABLE_FORMATS: readonly QuestionFormat[] = QUESTION_KINDS;
 
 export const FORMAT_LABELS: Record<QuestionFormat, string> = {
-  mcq: 'Multiple choice',
+  ...QUESTION_KIND_LABELS,
   short: 'Short answer',
   problem: 'Problem solving',
   essay: 'Essay',
 };
+
+/**
+ * An even split across the generatable formats, summing to exactly 100.
+ *
+ * Largest-remainder, matching `rebalance` below: six kinds into 100 is 16.67
+ * each, and rounding each independently sums to 100 only by luck. The first
+ * `100 - 6*16 = 4` kinds take the extra point.
+ */
+function evenFormatMix(): Record<QuestionFormat, number> {
+  const mix = Object.fromEntries(
+    QuestionFormat.options.map(format => [format, 0]),
+  ) as Record<QuestionFormat, number>;
+
+  const share = Math.floor(100 / GENERATABLE_FORMATS.length);
+  let remainder = 100 - share * GENERATABLE_FORMATS.length;
+  for (const format of GENERATABLE_FORMATS) {
+    mix[format] = share + (remainder > 0 ? 1 : 0);
+    if (remainder > 0) remainder -= 1;
+  }
+  return mix;
+}
 
 export const Blueprint = z.object({
   id: z.string().min(1),
@@ -483,11 +535,17 @@ export function blueprintFromTopics(
     topics,
     /*
      * The format mix is not derived, because nothing measures it. It is the
-     * blueprint's one remaining authored value, set to what the generator can
-     * actually produce today (`GENERATABLE_FORMATS` is `['mcq']`) rather than
-     * to a plausible spread across formats no generator will honour.
+     * blueprint's one remaining authored value.
+     *
+     * **An even spread across the generatable kinds, not 100% MCQ.** It was
+     * the latter when MCQ was the only thing the generator could produce; now
+     * that six kinds exist, a default of all-multiple-choice would describe an
+     * exam nobody asked for and quietly undo the point of having six. The
+     * ungeneratable formats stay at zero — a default that allocated to a format
+     * no generator will honour is the exact dishonesty `GENERATABLE_FORMATS`
+     * exists to prevent.
      */
-    formatMix: { mcq: 100, short: 0, problem: 0, essay: 0 },
+    formatMix: evenFormatMix(),
     updatedAt: input.updatedAt ?? new Date().toISOString(),
     edited: false,
   };

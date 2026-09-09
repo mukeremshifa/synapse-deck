@@ -19,6 +19,7 @@ import type {
   AttemptAnswerRow,
   AttemptRow,
   NoteBlockRow,
+  NoteTopicRow,
   QuestionRow,
   SourceRow,
 } from '../lib/rows.ts';
@@ -147,8 +148,8 @@ export function artifactPayload(
     newCount: number;
     questionCount: number;
     answeredCount: number;
-    blockCount: number;
-    readBlockCount: number;
+    topicCount: number;
+    completedTopicCount: number;
     attemptCount: number;
   },
 ) {
@@ -172,8 +173,11 @@ export function artifactPayload(
         kind: 'noteset' as const,
         // Only what cannot be derived is stored; the counts are computed.
         origin: (stored['origin'] as 'generated' | 'chat') ?? 'generated',
-        blockCount: counts.blockCount,
-        readBlockCount: counts.readBlockCount,
+        topicCount: counts.topicCount,
+        completedTopicCount: counts.completedTopicCount,
+        // A column rather than a payload key — it cannot be derived from
+        // anything, which is exactly what ADR 0017 says belongs on the row.
+        completedAt: row.completed_at ? toIso(row.completed_at) : null,
       };
     case 'exam':
       return {
@@ -191,7 +195,7 @@ export function artifactPayload(
  *
  * Each kind measures readiness differently, which is why this is a switch
  * rather than a shared count: a deck is ready when it has cards, a note set
- * when its blocks have been read, an exam when it has been sat.
+ * when the student says it is, an exam when it has been sat.
  */
 export function artifactReadiness(
   row: ArtifactRow,
@@ -200,8 +204,8 @@ export function artifactReadiness(
     dueCount: number;
     questionCount: number;
     answeredCount: number;
-    blockCount: number;
-    readBlockCount: number;
+    topicCount: number;
+    completedTopicCount: number;
     attemptCount: number;
   },
 ): { state: 'ready' | 'partial' | 'none'; detail: string } {
@@ -220,10 +224,20 @@ export function artifactReadiness(
         ? { state: 'ready', detail: 'Answered' }
         : { state: 'partial', detail: `${counts.answeredCount}/${counts.questionCount}` };
     case 'noteset':
-      if (counts.blockCount === 0) return { state: 'none', detail: 'Empty' };
-      return counts.readBlockCount >= counts.blockCount
-        ? { state: 'ready', detail: 'Read' }
-        : { state: 'partial', detail: `${counts.readBlockCount}/${counts.blockCount} read` };
+      if (counts.topicCount === 0) return { state: 'none', detail: 'Empty' };
+      /*
+       * **Readiness follows the button, not the ticks.** A note set the student
+       * declared finished reads `ready` even with topics outstanding — that is
+       * what the declaration is for, and a row that contradicted it would be
+       * arguing with the person who made it.
+       */
+      if (row.completed_at !== null) return { state: 'ready', detail: 'Completed' };
+      return counts.completedTopicCount > 0
+        ? {
+            state: 'partial',
+            detail: `${counts.completedTopicCount}/${counts.topicCount} topics`,
+          }
+        : { state: 'none', detail: `${counts.topicCount} topics` };
     case 'exam':
       if (counts.questionCount === 0) return { state: 'none', detail: 'No questions' };
       return counts.attemptCount > 0
@@ -240,8 +254,8 @@ export function toArtifact(
     newCount: number;
     questionCount: number;
     answeredCount: number;
-    blockCount: number;
-    readBlockCount: number;
+    topicCount: number;
+    completedTopicCount: number;
     attemptCount: number;
   },
 ) {
@@ -273,10 +287,26 @@ export function toQuestion(row: QuestionRow & { topic_name?: string | null }) {
   };
 }
 
-/** The contract's `NoteBlock`, with its id carried alongside for `markBlocksRead`. */
-export function toNoteBlock(row: NoteBlockRow) {
-  const block = (row.block ?? {}) as Record<string, unknown>;
-  return { id: row.id, ...block, readAt: row.read_at ? toIso(row.read_at) : null };
+
+/**
+ * The contract's `NoteTopic` — a topic and the blocks it owns.
+ *
+ * **The blocks are passed in rather than fetched here**: the handler reads every
+ * block of the note set in one query and groups them, which is what keeps a
+ * dozen topics from becoming a dozen queries.
+ *
+ * A block is emitted as **exactly the contract's union and nothing more** — no
+ * row id, no timestamps. `NoteBlock` has no id field by design (the contract
+ * says so), and shipping internal columns to the client is how a field nobody
+ * declared ends up depended on.
+ */
+export function toNoteTopic(row: NoteTopicRow, blocks: NoteBlockRow[]) {
+  return {
+    id: row.id,
+    title: row.title,
+    sourceTopicId: row.source_topic_id,
+    blocks: blocks.map(block => ({ ...((block.block ?? {}) as Record<string, unknown>) })),
+  };
 }
 
 /** The contract's `AttemptAnswer`. */
@@ -286,6 +316,9 @@ export function toAttemptAnswer(row: AttemptAnswerRow) {
     questionText: row.question_text,
     topicId: row.topic_id,
     topicName: row.topic_name,
+    // Parsed by the contract's `QuestionResponse` at the client boundary, not
+    // here: this maps a row, and a malformed response is the parse's to report.
+    response: (row.response ?? null) as never,
     selectedOption: row.selected_option,
     correct: row.correct,
     flagged: row.flagged,

@@ -281,6 +281,19 @@ export const GENERATION_LIMITS = {
   maxCards: 50,
 } as const;
 
+/**
+ * How many topics a note set may cover.
+ *
+ * **Lower than the card and question ceilings on purpose.** A deck of 50 is
+ * fifty seconds each; a note set of 50 topics is a textbook chapter nobody
+ * finishes, and every unread topic is a permanently incomplete artifact staring
+ * back from the Studio. Twelve is about as much as one sitting survives.
+ */
+export const NOTESET_LIMITS = {
+  minTopics: 1,
+  maxTopics: 12,
+} as const;
+
 export const GenerateRequest = z.object({
   text: z.string().trim().min(GENERATION_LIMITS.minChars).max(GENERATION_LIMITS.maxChars),
   cardCount: z
@@ -343,10 +356,9 @@ export const StartJobRequest = z
   // means the caller has an opinion the server would have to arbitrate, and
   // silently preferring one is how a paste gets ignored in favour of a stale
   // upload.
-  .refine(
-    (value) => (value.objectKey === undefined) !== (value.text === undefined),
-    { message: 'Provide either an uploaded document or some text, not both.' },
-  );
+  .refine(value => (value.objectKey === undefined) !== (value.text === undefined), {
+    message: 'Provide either an uploaded document or some text, not both.',
+  });
 export type StartJobRequest = z.infer<typeof StartJobRequest>;
 export type StartJobRequestInput = z.input<typeof StartJobRequest>;
 
@@ -464,10 +476,343 @@ export const GradeSchema = z.union([
  * schema, this is the definition it extends — not a second one it competes with.
  */
 
-/** Free-text is deliberately absent: it needs a model and a rubric (§7 q8). */
-export const QuestionPayload = z.discriminatedUnion('kind', [McqPayload]);
+/* ── The question types beyond MCQ ────────────────────────────────────────
+ *
+ * **Every type here grades deterministically, and that is the selection
+ * criterion rather than a coincidence.** Free-text — short answer, problem,
+ * essay — stays out: grading it needs a model and a rubric, which makes a
+ * per-attempt cost, a latency, and a score that is not reproducible from the
+ * record. `blueprint.ts` still names those formats because a blueprint that
+ * cannot say "30% essay" is not describing a real exam; what it must not do is
+ * claim we can generate them. `GENERATABLE_FORMATS` is the field that answers
+ * that, and it now names what is genuinely generatable.
+ *
+ * The shared rule across all six: **the payload carries the answer key.** A
+ * question the runner cannot grade without asking the server is a question the
+ * quiz cannot reveal on demand, and reveal-on-demand is the quiz's whole
+ * character (FR5 §3). The key being client-visible is the same trade the MCQ
+ * payload already made — see `AnswerSubmission`'s comment on why a falsified
+ * score degrades nothing but the falsifier's own study plan.
+ */
+
+/**
+ * Multi-select: choose *all* that apply.
+ *
+ * **Not an MCQ with more than one `correct: true`.** That was the tempting
+ * shape and it is wrong, because `McqPayload` refines to exactly one correct
+ * option and a reader of either payload must be able to trust its arity. A
+ * separate kind means the runner knows from the discriminant whether to render
+ * radios or checkboxes, rather than counting the key to find out.
+ *
+ * At least two correct: one correct answer among the rest is an MCQ wearing
+ * checkboxes, and it teaches the wrong lesson about the format. Not all of
+ * them: "select all" where all is the answer is a trick rather than a test.
+ */
+export const MsqPayload = z.object({
+  kind: z.literal('msq'),
+  stem: z.string().trim().min(1, 'Question is required').max(1000),
+  options: z
+    .array(
+      z.object({
+        text: z.string().trim().min(1, 'Option cannot be empty').max(500),
+        correct: z.boolean(),
+      }),
+    )
+    .min(3, 'At least 3 options')
+    .max(6, 'At most 6 options')
+    .refine(options => options.filter(option => option.correct).length >= 2, {
+      message: 'At least 2 options must be correct — one correct answer is an MCQ',
+    })
+    .refine(options => options.some(option => !option.correct), {
+      message: 'At least one option must be wrong',
+    })
+    .refine(
+      options =>
+        new Set(options.map(option => option.text.toLowerCase())).size === options.length,
+      { message: 'Options must be distinct' },
+    ),
+  explanation: z.string().trim().max(1000).optional(),
+});
+
+/**
+ * True / false.
+ *
+ * Modelled as its own kind rather than a two-option MCQ, for the same reason
+ * `msq` is not an MCQ: the runner should not have to inspect the options to
+ * discover it is rendering a binary choice, and `McqPayload` requires three
+ * options anyway. Storing `answer` as a boolean also means the key cannot drift
+ * out of sync with the labels, which a `[{text:'True',correct:…}]` array can.
+ */
+export const TrueFalsePayload = z.object({
+  kind: z.literal('true_false'),
+  statement: z.string().trim().min(1, 'Statement is required').max(1000),
+  answer: z.boolean(),
+  explanation: z.string().trim().max(1000).optional(),
+});
+
+/**
+ * A numeric answer, graded within a tolerance.
+ *
+ * **The tolerance is required, and defaulting it to zero would be the bug.**
+ * Any question whose answer comes from a calculation has a last significant
+ * figure, and exact float equality against a value the learner typed is a
+ * question almost nobody passes for reasons that have nothing to do with
+ * knowing the material. `0` is still expressible — a count is exact — but it
+ * has to be said rather than fallen into.
+ *
+ * `unit` is display-only and never graded. Grading units means parsing them,
+ * and a learner who writes "m/s" where the key says "ms^-1" is right.
+ */
+export const NumericPayload = z.object({
+  kind: z.literal('numeric'),
+  stem: z.string().trim().min(1, 'Question is required').max(1000),
+  answer: z.number().finite(),
+  /** Absolute tolerance. `|given - answer| <= tolerance` is correct. */
+  tolerance: z.number().min(0),
+  /** Shown beside the input, never parsed and never graded. */
+  unit: z.string().trim().max(40).optional(),
+  explanation: z.string().trim().max(1000).optional(),
+});
+
+/**
+ * Matching: pair each left-hand prompt with its right-hand match.
+ *
+ * **The key is the index alignment, and the right side is shuffled for
+ * presentation only.** `pairs[i].right` is the correct match for
+ * `pairs[i].left`, which means the payload cannot express a wrong key — there
+ * is no separate answer array to drift. The runner shuffles the right column
+ * when it renders and maps back through that permutation to grade.
+ *
+ * Distinctness is enforced on both columns. Two identical right-hand values
+ * make a question with two correct answers to one prompt, which grades a
+ * learner wrong for being right.
+ */
+export const MatchingPayload = z.object({
+  kind: z.literal('matching'),
+  stem: z.string().trim().min(1, 'Instruction is required').max(1000),
+  pairs: z
+    .array(
+      z.object({
+        left: z.string().trim().min(1, 'Cannot be empty').max(300),
+        right: z.string().trim().min(1, 'Cannot be empty').max(300),
+      }),
+    )
+    .min(3, 'At least 3 pairs')
+    .max(6, 'At most 6 pairs')
+    .refine(
+      pairs => new Set(pairs.map(pair => pair.left.toLowerCase())).size === pairs.length,
+      { message: 'Left-hand items must be distinct' },
+    )
+    .refine(
+      pairs => new Set(pairs.map(pair => pair.right.toLowerCase())).size === pairs.length,
+      {
+        message:
+          'Right-hand items must be distinct — two would grade a right answer wrong',
+      },
+    ),
+  explanation: z.string().trim().max(1000).optional(),
+});
+
+/**
+ * Ordering: arrange the items into the correct sequence.
+ *
+ * **`items` is stored in the correct order**, on the same principle as
+ * `matching` — the payload is the key, so there is nothing to keep in sync. The
+ * runner shuffles for presentation and grades against the stored order.
+ *
+ * The shuffle must be guaranteed not to present the answer already solved,
+ * which is `shuffledOrder`'s job below rather than this schema's.
+ */
+export const OrderingPayload = z.object({
+  kind: z.literal('ordering'),
+  stem: z.string().trim().min(1, 'Instruction is required').max(1000),
+  /** In the correct order. Presentation shuffles; the key never moves. */
+  items: z
+    .array(z.string().trim().min(1, 'Item cannot be empty').max(300))
+    .min(3, 'At least 3 items')
+    .max(7, 'At most 7 items')
+    .refine(
+      items => new Set(items.map(item => item.toLowerCase())).size === items.length,
+      {
+        message:
+          'Items must be distinct — two identical items have no single right order',
+      },
+    ),
+  explanation: z.string().trim().max(1000).optional(),
+});
+
+export type MsqPayload = z.infer<typeof MsqPayload>;
+export type TrueFalsePayload = z.infer<typeof TrueFalsePayload>;
+export type NumericPayload = z.infer<typeof NumericPayload>;
+export type MatchingPayload = z.infer<typeof MatchingPayload>;
+export type OrderingPayload = z.infer<typeof OrderingPayload>;
+
+/**
+ * Every kind a quiz or an exam can ask.
+ *
+ * Free-text is still deliberately absent: grading it needs a model and a
+ * rubric (§7 q8), and every kind in this union grades in the browser from the
+ * payload alone.
+ */
+export const QuestionPayload = z.discriminatedUnion('kind', [
+  McqPayload,
+  MsqPayload,
+  TrueFalsePayload,
+  NumericPayload,
+  MatchingPayload,
+  OrderingPayload,
+]);
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
 export type QuestionKind = QuestionPayload['kind'];
+
+export const QUESTION_KINDS = [
+  'mcq',
+  'msq',
+  'true_false',
+  'numeric',
+  'matching',
+  'ordering',
+] as const satisfies readonly QuestionKind[];
+
+export const QUESTION_KIND_LABELS: Record<QuestionKind, string> = {
+  mcq: 'Multiple choice',
+  msq: 'Select all that apply',
+  true_false: 'True or false',
+  numeric: 'Numeric',
+  matching: 'Matching',
+  ordering: 'Ordering',
+};
+
+/** The prompt shown at the top of a question, whatever its kind. */
+export function questionStem(payload: QuestionPayload): string {
+  return payload.kind === 'true_false' ? payload.statement : payload.stem;
+}
+
+/* ── Responses ────────────────────────────────────────────────────────────
+ *
+ * **What the candidate did, kept separately from whether it was right.**
+ *
+ * The old record could only say `selectedOption: number | null`, which says
+ * everything there is to say about an MCQ and nothing at all about the other
+ * five. A matching response is a map, an ordering response is a permutation,
+ * and a multi-select is a set — none of them survive being flattened to one
+ * integer.
+ *
+ * `selectedOption` is **kept** rather than replaced, and that is deliberate:
+ * it stays the projection for the two single-choice kinds, so the score SQL,
+ * the "answered" filters and every existing consumer keep working untouched
+ * against a column they already understand. The union below is the full record,
+ * and `responseSelectedOption` is the one place the projection is derived.
+ */
+
+export const QuestionResponse = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('mcq'), option: z.number().int().nonnegative() }),
+  z.object({
+    kind: z.literal('msq'),
+    /** Indices into the presented option order. Order within is not meaningful. */
+    options: z.array(z.number().int().nonnegative()).max(6),
+  }),
+  z.object({ kind: z.literal('true_false'), value: z.boolean() }),
+  z.object({
+    kind: z.literal('numeric'),
+    /** What the learner typed, parsed. Null when it was not a number. */
+    value: z.number().finite().nullable(),
+    /** Kept verbatim so the review can show what they actually wrote. */
+    raw: z.string().max(100),
+  }),
+  z.object({
+    kind: z.literal('matching'),
+    /**
+     * `pairs[i]` is the index of the right-hand item the learner matched to
+     * left-hand item `i`. Null where they left it unpaired.
+     */
+    pairs: z.array(z.number().int().nonnegative().nullable()).max(6),
+  }),
+  z.object({
+    kind: z.literal('ordering'),
+    /** `order[i]` is the index in `payload.items` placed at position `i`. */
+    order: z.array(z.number().int().nonnegative()).max(7),
+  }),
+]);
+export type QuestionResponse = z.infer<typeof QuestionResponse>;
+
+/**
+ * The legacy `selectedOption` projection for a response.
+ *
+ * Only the two single-choice kinds have one; everything else is null, which
+ * reads in the database exactly as it should — *this answer is not one option*.
+ * Null does **not** mean unanswered here, which is why `AttemptAnswer.response`
+ * being present is what the runner tests for instead. See the contract.
+ */
+export function responseSelectedOption(response: QuestionResponse): number | null {
+  switch (response.kind) {
+    case 'mcq':
+      return response.option;
+    case 'true_false':
+      return response.value ? 0 : 1;
+    default:
+      return null;
+  }
+}
+
+/* ── Grading ──────────────────────────────────────────────────────────────
+ *
+ * **One function, shared by both runners and by the review screen.** Grading
+ * that lives in a component gets reimplemented by the next component, and two
+ * implementations of "was this right" disagree eventually. This is the only
+ * place any of it is decided.
+ *
+ * All-or-nothing across every kind, including the three that could support
+ * partial credit. Partial credit needs a scoring policy the product has not
+ * chosen — is a 3-of-4 multi-select 0.75, or is it wrong? — and inventing one
+ * here would put a number in the mastery map that nothing else agrees with.
+ * The score is `correct / answered` everywhere in this codebase and it stays a
+ * count of booleans.
+ */
+export function gradeResponse(
+  payload: QuestionPayload,
+  response: QuestionResponse,
+): boolean {
+  // A response of a different kind than the question is a bug, not a wrong
+  // answer — but it must not throw inside a runner, so it grades false.
+  if (payload.kind !== response.kind) return false;
+
+  switch (payload.kind) {
+    case 'mcq':
+      return payload.options[(response as { option: number }).option]?.correct === true;
+
+    case 'msq': {
+      const chosen = new Set((response as { options: number[] }).options);
+      // Set equality against the key: every correct option chosen, and nothing
+      // else. `every` alone would pass a response that chose all six.
+      return payload.options.every(
+        (option, index) => option.correct === chosen.has(index),
+      );
+    }
+
+    case 'true_false':
+      return payload.answer === (response as { value: boolean }).value;
+
+    case 'numeric': {
+      const value = (response as { value: number | null }).value;
+      if (value === null) return false;
+      return Math.abs(value - payload.answer) <= payload.tolerance;
+    }
+
+    case 'matching': {
+      const pairs = (response as { pairs: (number | null)[] }).pairs;
+      // The key is the identity permutation: `pairs[i].right` matches
+      // `pairs[i].left`, so a correct response maps every i to itself.
+      return payload.pairs.every((_, index) => pairs[index] === index);
+    }
+
+    case 'ordering': {
+      const order = (response as { order: number[] }).order;
+      if (order.length !== payload.items.length) return false;
+      return order.every((item, index) => item === index);
+    }
+  }
+}
 
 export const ExamQuestion = z.object({
   id: z.string().min(1),
@@ -628,3 +973,50 @@ export const AttemptSubmission = z.object({
   answers: z.array(AnswerSubmission).min(1).max(EXAM_LIMITS.maxQuestions),
 });
 export type AttemptSubmission = z.infer<typeof AttemptSubmission>;
+
+/**
+ * A presentation order for `matching`'s right column and `ordering`'s items.
+ *
+ * **Guaranteed not to be the identity** for anything longer than one item,
+ * which is the whole reason this is not an inline `sort(() => Math.random())`.
+ * An ordering question presented already-solved is not a question, and a
+ * matching question whose columns line up gives the answer away — both happen
+ * roughly once in n! shuffles, which for three items is one time in six.
+ *
+ * Returns indices into the original array. The caller renders through them and
+ * grades back through them; see `QuestionResponse`, whose indices are always
+ * into the *presented* order for exactly this reason.
+ */
+export function shuffledOrder(
+  length: number,
+  random: () => number = Math.random,
+): number[] {
+  const order = Array.from({ length }, (_, index) => index);
+  if (length < 2) return order;
+
+  // Fisher-Yates, then reject the identity and try again. Bounded in practice:
+  // the probability of n! consecutive identity shuffles is nil, and the loop
+  // cannot spin for length >= 2 because a single swap escapes it.
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    for (let i = order.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(random() * (i + 1));
+      const a = order[i];
+      const b = order[j];
+      if (a !== undefined && b !== undefined) {
+        order[i] = b;
+        order[j] = a;
+      }
+    }
+    if (order.some((value, index) => value !== index)) return order;
+  }
+
+  // Ten identity shuffles means `random` is not random. Swap the first two so
+  // the caller never renders a solved question.
+  const first = order[0];
+  const second = order[1];
+  if (first !== undefined && second !== undefined) {
+    order[0] = second;
+    order[1] = first;
+  }
+  return order;
+}

@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Meter } from '@/components/Meter';
 import { notebookPath } from '@/lib/notebooks';
 import type { Attempt, AttemptAnswer, Question } from '@/lib/api';
+import { questionStem, type QuestionPayload, type QuestionResponse } from '@/lib/schemas';
 import { cn } from '@/lib/utils';
 
 /**
@@ -52,7 +53,16 @@ export function AttemptReview({
   onRetake: () => void;
   retakeLabel: string;
 }) {
-  const answered = attempt.answers.filter(answer => answer.selectedOption !== null);
+  /*
+   * Answered means it has a response.
+   *
+   * It used to mean `selectedOption !== null`, and the two agreed while MCQ was
+   * the only kind. They no longer do: a matching or ordering answer has no
+   * single option index, so counting the old way would report a fully answered
+   * paper as mostly unanswered and divide the score by the handful of
+   * multiple-choice questions in it.
+   */
+  const answered = attempt.answers.filter(answer => answer.response !== null);
   const correct = answered.filter(answer => answer.correct).length;
   const unanswered = questions.length - answered.length;
 
@@ -175,9 +185,9 @@ function QuestionRow({
   question: Question;
   answer: AttemptAnswer | null;
 }) {
-  const chosen = answer?.selectedOption ?? null;
+  const response = answer?.response ?? null;
   const state: 'correct' | 'wrong' | 'unanswered' =
-    chosen === null ? 'unanswered' : answer?.correct ? 'correct' : 'wrong';
+    response === null ? 'unanswered' : answer?.correct ? 'correct' : 'wrong';
 
   return (
     <li className="space-y-2 rounded-lg border p-4">
@@ -204,30 +214,10 @@ function QuestionRow({
             <span className="text-muted-foreground font-mono tabular-nums">
               {position}.
             </span>{' '}
-            {question.payload.stem}
+            {questionStem(question.payload)}
           </p>
 
-          <ul className="space-y-1 text-sm">
-            {question.payload.options.map((option, index) => {
-              const isChosen = chosen === index;
-              if (!option.correct && !isChosen) return null;
-              return (
-                <li
-                  key={index}
-                  className={cn(
-                    'flex items-start gap-2 rounded-md px-2 py-1',
-                    option.correct && 'bg-primary/15',
-                    isChosen && !option.correct && 'bg-destructive/10',
-                  )}
-                >
-                  <span className="text-muted-foreground shrink-0 text-xs">
-                    {option.correct ? 'Answer' : 'You chose'}
-                  </span>
-                  <span className="flex-1 whitespace-pre-wrap">{option.text}</span>
-                </li>
-              );
-            })}
-          </ul>
+          <ReviewAnswer payload={question.payload} response={response} />
 
           {question.payload.explanation && (
             <p className="text-muted-foreground text-sm leading-relaxed">
@@ -248,6 +238,186 @@ function QuestionRow({
       </div>
     </li>
   );
+}
+
+/**
+ * What was answered and what was right, for one question of any kind.
+ *
+ * **The correct answer is shown even where the answer was correct**, which is
+ * the rule `QuestionRow` above already stated and this inherits: someone who
+ * guessed right learns nothing from being told only that they were right.
+ *
+ * The shape is the same throughout — a row per relevant item, labelled
+ * "Answer" or "You chose" — rather than six bespoke layouts. A review is
+ * skimmed down the page, and six visual grammars is five more than it can be
+ * read in.
+ */
+function ReviewAnswer({
+  payload,
+  response,
+}: {
+  payload: QuestionPayload;
+  response: QuestionResponse | null;
+}) {
+  switch (payload.kind) {
+    case 'mcq':
+    case 'msq': {
+      const chosen = new Set<number>(
+        response?.kind === 'mcq'
+          ? [response.option]
+          : response?.kind === 'msq'
+            ? response.options
+            : [],
+      );
+      return (
+        <ul className="space-y-1 text-sm">
+          {payload.options.map((option, index) => {
+            const isChosen = chosen.has(index);
+            // Only the answer and what they picked. Listing every distractor
+            // again turns a review into a re-read of the question.
+            if (!option.correct && !isChosen) return null;
+            return (
+              <li
+                key={index}
+                className={cn(
+                  'flex items-start gap-2 rounded-md px-2 py-1',
+                  option.correct && 'bg-primary/15',
+                  isChosen && !option.correct && 'bg-destructive/10',
+                )}
+              >
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  {option.correct
+                    ? isChosen
+                      ? 'Answer'
+                      : 'Missed'
+                    : 'You chose'}
+                </span>
+                <span className="flex-1 whitespace-pre-wrap">{option.text}</span>
+              </li>
+            );
+          })}
+        </ul>
+      );
+    }
+
+    case 'true_false': {
+      const chosen = response?.kind === 'true_false' ? response.value : null;
+      return (
+        <ul className="space-y-1 text-sm">
+          <li className="bg-primary/15 flex items-start gap-2 rounded-md px-2 py-1">
+            <span className="text-muted-foreground shrink-0 text-xs">Answer</span>
+            <span className="flex-1">{payload.answer ? 'True' : 'False'}</span>
+          </li>
+          {chosen !== null && chosen !== payload.answer && (
+            <li className="bg-destructive/10 flex items-start gap-2 rounded-md px-2 py-1">
+              <span className="text-muted-foreground shrink-0 text-xs">You chose</span>
+              <span className="flex-1">{chosen ? 'True' : 'False'}</span>
+            </li>
+          )}
+        </ul>
+      );
+    }
+
+    case 'numeric': {
+      const given = response?.kind === 'numeric' ? response : null;
+      const right =
+        given?.value !== null &&
+        given !== null &&
+        Math.abs(given.value - payload.answer) <= payload.tolerance;
+      return (
+        <ul className="space-y-1 text-sm">
+          <li className="bg-primary/15 flex items-start gap-2 rounded-md px-2 py-1">
+            <span className="text-muted-foreground shrink-0 text-xs">Answer</span>
+            <span className="flex-1 font-mono tabular-nums">
+              {payload.answer}
+              {payload.unit ? ` ${payload.unit}` : ''}
+              {payload.tolerance > 0 && (
+                <span className="text-muted-foreground"> (±{payload.tolerance})</span>
+              )}
+            </span>
+          </li>
+          {given && !right && (
+            <li className="bg-destructive/10 flex items-start gap-2 rounded-md px-2 py-1">
+              <span className="text-muted-foreground shrink-0 text-xs">You wrote</span>
+              {/*
+                The raw text, not the parsed number. Someone who typed "12,5"
+                needs to see that, not a blank where a `null` value would be.
+              */}
+              <span className="flex-1 font-mono">{given.raw || '—'}</span>
+            </li>
+          )}
+        </ul>
+      );
+    }
+
+    case 'matching': {
+      const pairs = response?.kind === 'matching' ? response.pairs : [];
+      return (
+        <ul className="space-y-1 text-sm">
+          {payload.pairs.map((pair, index) => {
+            const stored = pairs[index] ?? null;
+            const right = stored === index;
+            return (
+              <li
+                key={index}
+                className={cn(
+                  'flex flex-wrap items-baseline gap-x-2 rounded-md px-2 py-1',
+                  right ? 'bg-primary/15' : 'bg-destructive/10',
+                )}
+              >
+                <span className="font-medium">{pair.left}</span>
+                <span className="text-muted-foreground text-xs">→</span>
+                <span>{pair.right}</span>
+                {!right && (
+                  <span className="text-muted-foreground w-full text-xs">
+                    {stored === null
+                      ? 'Left unmatched'
+                      : `You chose: ${payload.pairs[stored]?.right ?? '—'}`}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      );
+    }
+
+    case 'ordering': {
+      const order = response?.kind === 'ordering' ? response.order : [];
+      return (
+        <ol className="space-y-1 text-sm">
+          {payload.items.map((item, position) => {
+            // What they put here, against what belongs here.
+            const placed = order[position] ?? null;
+            const right = placed === position;
+            return (
+              <li
+                key={position}
+                className={cn(
+                  'flex items-baseline gap-2 rounded-md px-2 py-1',
+                  order.length === 0
+                    ? undefined
+                    : right
+                      ? 'bg-primary/15'
+                      : 'bg-destructive/10',
+                )}
+              >
+                <span className="text-muted-foreground shrink-0 font-mono text-xs tabular-nums">
+                  {position + 1}.
+                </span>
+                <span className="flex-1 whitespace-pre-wrap">{item}</span>
+                {order.length > 0 && !right && placed !== null && (
+                  <span className="text-muted-foreground shrink-0 text-xs">
+                    you put: {payload.items[placed] ?? '—'}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      );
+    }
+  }
 }
 
 type TopicTally = {

@@ -24,7 +24,7 @@ import {
   getArtifactById,
 } from '../data/artifacts.ts';
 import { createArtifactCards, type FreshScheduling } from '../data/cards.ts';
-import { createNoteBlocks } from '../data/note-blocks.ts';
+import { createNoteBlocks, createNoteTopics } from '../data/note-topics.ts';
 import {
   createNotebookJob,
   getNotebookJob,
@@ -52,6 +52,11 @@ import {
   type ApiResponse,
 } from '../lib/http.ts';
 import { resolveProvider } from '../lib/providers/index.ts';
+import {
+  QUESTION_KINDS,
+  QuestionPayload,
+  type QuestionKind,
+} from '../lib/schemas.ts';
 import { ApiError, notFound } from '../lib/rows.ts';
 import { toIso } from './mappers.ts';
 
@@ -280,6 +285,7 @@ async function startCreateArtifact(
     cardCount?: unknown;
     cardKinds?: unknown;
     questionCount?: unknown;
+    topicCount?: unknown;
     depth?: unknown;
     config?: unknown;
     blueprint?: unknown;
@@ -354,6 +360,11 @@ async function startCreateArtifact(
         ) ?? ['basic'])
       : ['basic'],
     questionCount: clamp(input.questionCount, 1, 50, 10),
+    // Every kind. Narrowing this is a request the contract does not yet carry;
+    // when it does, filter `input` here rather than inside the generation loop.
+    questionKinds: [...QUESTION_KINDS],
+    // `NOTESET_LIMITS` in the frontend schema: 1..12, defaulting to 5.
+    topicCount: clamp(input.topicCount, 1, 12, 5),
     texts: texts.map(source => ({
       id: source.id,
       title: source.title,
@@ -370,6 +381,17 @@ interface GenerationPlan {
   cardCount: number;
   cardKinds: ('basic' | 'cloze' | 'mcq')[];
   questionCount: number;
+  /**
+   * Which question kinds a quiz or an exam may ask.
+   *
+   * Every kind by default — the point of asking six is asking six, and a
+   * default that quietly narrowed to multiple choice would make the other five
+   * unreachable without a UI that does not exist yet. The field is here rather
+   * than assumed inside the loop so the request can narrow it later.
+   */
+  questionKinds: QuestionKind[];
+  /** How many of the one source's topics a note set covers. */
+  topicCount: number;
   texts: { id: string; title: string; content: string }[];
 }
 
@@ -426,15 +448,38 @@ async function runCreateArtifact(
 
     for (const source of usable) {
       try {
-        // Every kind is generated from the same card call. Quiz and exam
-        // questions are MCQs, and a note set is prose — see `blocksFrom`.
-        const result = await provider.generateChunk({
-          text: source.content.slice(0, 20000),
-          cardCount: plan.kind === 'deck' ? plan.cardCount : plan.questionCount,
-          kinds: plan.kind === 'deck' ? plan.cardKinds : ['mcq'],
-          depth: plan.depth,
-        });
-        for (const payload of result.cards) {
+        /*
+         * **A quiz and an exam call the question writer; a deck and a note set
+         * call the card writer.**
+         *
+         * They used to share one call: quiz generation ran the card prompt and
+         * `writeContents` kept whatever came back with `kind === 'mcq'`. That
+         * cost twice over — most of the token budget went on basic and cloze
+         * cards that were then discarded, and the only kind that survived the
+         * filter was the only kind a quiz could ask. Six kinds exist now, and
+         * none of the other five is expressible as a flashcard.
+         *
+         * A note set still goes through the card writer: it is the same
+         * material read rather than drilled, and `writeNoteSet` turns card faces
+         * into prose blocks.
+         */
+        const result =
+          plan.kind === 'quiz' || plan.kind === 'exam'
+            ? await provider.generateQuestions({
+                text: source.content.slice(0, 20000),
+                questionCount: plan.questionCount,
+                kinds: plan.questionKinds,
+                depth: plan.depth,
+              })
+            : await provider.generateChunk({
+                text: source.content.slice(0, 20000),
+                cardCount: plan.cardCount,
+                kinds: plan.cardKinds,
+                depth: plan.depth,
+              });
+
+        const payloads = 'questions' in result ? result.questions : result.cards;
+        for (const payload of payloads) {
           cards.push({
             payload,
             sourceExcerpt: source.content.slice(0, 500),
@@ -526,16 +571,32 @@ async function writeContents(
   }
 
   if (plan.kind === 'quiz' || plan.kind === 'exam') {
-    // Only MCQs can be asked: grading free text needs a model and a rubric,
-    // which the contract leaves out deliberately.
-    const mcqs = cards.filter(
-      card => (card.payload as { kind?: string } | null)?.kind === 'mcq',
-    );
+    /*
+     * **Validated before it is stored, and this is the only gate.**
+     *
+     * The filter used to be `kind === 'mcq'`, which was a kind check standing
+     * in for a validity check — it kept anything calling itself an MCQ,
+     * including one with two correct options or a single option. Six kinds
+     * makes that untenable: a `matching` payload with a duplicated right-hand
+     * item grades a right answer wrong, and nothing downstream would catch it.
+     *
+     * `QuestionPayload` is the definition the runner and the grader share, so
+     * parsing against it here means a question that reaches the database is one
+     * both can handle. A question that fails is dropped rather than failing the
+     * artifact — a partial success is still a success, and the review gate is
+     * where the user sees what did not make it in.
+     */
+    const valid: unknown[] = [];
+    for (const card of cards) {
+      const parsed = QuestionPayload.safeParse(card.payload);
+      if (parsed.success) valid.push(parsed.data);
+    }
+
     await createQuestions(
       userId,
-      mcqs.slice(0, plan.questionCount).map((card, index) => ({
+      valid.slice(0, plan.questionCount).map((payload, index) => ({
         artifactId,
-        payload: card.payload,
+        payload,
         topicId,
         position: index,
       })),
@@ -543,38 +604,49 @@ async function writeContents(
     return;
   }
 
-  // A note set: prose blocks, never one text blob (brief §1.2(2)).
-  await createNoteBlocks(userId, blocksFrom(artifactId, plan, cards));
+  // A note set: topics that own prose blocks, never one text blob.
+  await writeNoteSet(userId, artifactId, plan, cards);
 }
 
 /**
- * Turn generated cards into note blocks.
+ * Write a note set as topics that own their blocks.
  *
- * A note set is the same material read rather than drilled, so its blocks are
- * built from the same generation: a heading per source, and a paragraph per
- * card face. The discriminated union is what makes the later editor a feature
- * rather than a migration, so this writes real block types rather than dumping
- * text into one paragraph.
+ * ── Why the topics are built here rather than asked for ──────────────────
+ *
+ * A note set is the same generation as a deck, read rather than drilled, so its
+ * material arrives as cards. **Each `basic` card becomes a topic**: its front is
+ * a question about one idea, which is the closest thing the current pipeline
+ * produces to a named topic, and its back is that topic's prose. Everything
+ * else — cloze, mcq — is prose *within* the topic it follows.
+ *
+ * **`topicCount` is honoured by truncation, not approximation.** The number the
+ * student picked is the number of things they will be asked to tick off, so a
+ * generation that produced more topics than asked keeps the first `topicCount`
+ * of them, and one that produced fewer writes what it has rather than padding
+ * with empty sections.
+ *
+ * **The known weakness, stated rather than hidden:** these topics are derived
+ * from card faces, so they are as good as the card generation is. Asking the
+ * model for topics directly — a `generateNotes` provider call that returns
+ * titled sections — is the real fix, and it is a provider change rather than a
+ * change here.
  */
-function blocksFrom(
+async function writeNoteSet(
+  userId: string,
   artifactId: string,
   plan: GenerationPlan,
   cards: { payload: unknown; sourceExcerpt: string | null }[],
-): { artifactId: string; block: unknown; position: number; sourceId: string | null }[] {
-  const blocks: {
-    artifactId: string;
-    block: unknown;
-    position: number;
-    sourceId: string | null;
-  }[] = [];
-  let position = 0;
-  const push = (block: unknown, sourceId: string | null) => {
-    blocks.push({ artifactId, block, position, sourceId });
-    position += 1;
-  };
+): Promise<void> {
+  interface Draft {
+    title: string;
+    blocks: unknown[];
+  }
 
-  const first = plan.texts[0];
-  push({ type: 'heading', level: 1, text: first?.title ?? 'Notes' }, null);
+  const drafts: Draft[] = [];
+  // Prose that arrives before any topic heading still belongs somewhere, so it
+  // opens a topic named after the source rather than being dropped.
+  const opening: Draft = { title: plan.texts[0]?.title ?? 'Notes', blocks: [] };
+  let current: Draft | null = null;
 
   for (const card of cards) {
     const payload = card.payload as {
@@ -587,20 +659,51 @@ function blocksFrom(
     if (!payload) continue;
 
     if (payload.kind === 'basic' && payload.front && payload.back) {
-      push({ type: 'heading', level: 2, text: payload.front }, null);
-      push({ type: 'paragraph', text: payload.back }, null);
+      current = { title: payload.front, blocks: [{ type: 'paragraph', text: payload.back }] };
+      drafts.push(current);
     } else if (payload.kind === 'cloze' && payload.text) {
       // The cloze markers are stripped: a note is read, not answered.
-      push(
-        { type: 'paragraph', text: payload.text.replace(/\{\{c\d+::(.*?)\}\}/g, '$1') },
-        null,
-      );
+      const text = payload.text.replace(/\{\{c\d+::(.*?)\}\}/g, '$1');
+      (current ?? opening).blocks.push({ type: 'paragraph', text });
     } else if (payload.kind === 'mcq' && payload.stem) {
-      push({ type: 'paragraph', text: payload.stem }, null);
+      (current ?? opening).blocks.push({ type: 'paragraph', text: payload.stem });
     }
   }
 
-  return blocks;
+  const all = opening.blocks.length > 0 ? [opening, ...drafts] : drafts;
+  const chosen = all.slice(0, plan.topicCount).filter(draft => draft.blocks.length > 0);
+  if (chosen.length === 0) return;
+
+  const topics = await createNoteTopics(
+    userId,
+    chosen.map((draft, index) => ({
+      artifactId,
+      // The column's check constraint is 1..200 trimmed characters, so the
+      // title is clamped here rather than trusted to a model's output length.
+      title: draft.title.trim().slice(0, 200) || `Topic ${String(index + 1)}`,
+      position: index,
+    })),
+  );
+
+  /*
+   * `createNoteTopics` returns the inserted rows, and the blocks need their
+   * ids. The insert selects from `unnest` in order, so row *i* is draft *i* —
+   * but that is an assumption about the driver rather than a guarantee, so a
+   * short return truncates the blocks written instead of misattributing them.
+   */
+  const blocks = topics.flatMap((topic, index) => {
+    const draft = chosen[index];
+    if (!draft) return [];
+    return draft.blocks.map((block, position) => ({
+      artifactId,
+      topicId: topic.id,
+      block,
+      position,
+      sourceId: null,
+    }));
+  });
+
+  await createNoteBlocks(userId, blocks);
 }
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {

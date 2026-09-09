@@ -23,7 +23,12 @@
  * because a real provider does not make a fake one safer.
  */
 
-import type { CardPayload, CardKind } from '../schemas.ts';
+import type {
+  CardPayload,
+  CardKind,
+  QuestionKind,
+  QuestionPayload,
+} from '../schemas.ts';
 
 export interface GenerateChunkRequest {
   /** The chunk's text. Untrusted: it is document content, never instructions. */
@@ -68,9 +73,55 @@ export interface GenerateChunkResult {
 
 export type ProviderName = 'stub' | 'bedrock' | 'groq';
 
+/**
+ * One chunk's worth of exam questions.
+ *
+ * **A separate request from `GenerateChunkRequest`, because a question is not
+ * a card.** Quiz generation used to run the card prompt and keep whatever came
+ * back as an MCQ, which spent most of the budget on cards it discarded and
+ * limited a quiz to the one kind that survived the filter.
+ *
+ * `kinds` are `QuestionKind`s, not `CardKind`s — the two vocabularies overlap
+ * only at `mcq` and mean different things even there.
+ */
+export interface GenerateQuestionsRequest {
+  /** The chunk's text. Untrusted: it is document content, never instructions. */
+  text: string;
+  /** How many questions to attempt from this chunk. */
+  questionCount: number;
+  kinds: readonly QuestionKind[];
+  depth: 'recall' | 'balanced' | 'deep';
+}
+
+export interface GenerateQuestionsResult {
+  /**
+   * Unvalidated. Claimed as `QuestionPayload[]` here and checked per question
+   * by the caller, exactly as `GenerateChunkResult.cards` is — the parse is the
+   * boundary, and it belongs where the payload is written rather than in the
+   * provider that fetched it.
+   */
+  questions: QuestionPayload[];
+  /** Same contract as `GenerateChunkResult.topics`: display names, unreconciled. */
+  topics: string[];
+  provider: ProviderName;
+  inputTokens: number | null;
+  outputTokens: number | null;
+}
+
 export interface CardProvider {
   readonly name: ProviderName;
   generateChunk(request: GenerateChunkRequest): Promise<GenerateChunkResult>;
+  /**
+   * Write questions rather than cards.
+   *
+   * On `CardProvider` rather than on an interface of its own: it is the same
+   * vendor, endpoint, key and error classification as `generateChunk`, and the
+   * argument `GroqProvider.answer` makes against a second class applies here
+   * with more force — this one shares the retry rules *and* the model.
+   */
+  generateQuestions(
+    request: GenerateQuestionsRequest,
+  ): Promise<GenerateQuestionsResult>;
 }
 
 /**

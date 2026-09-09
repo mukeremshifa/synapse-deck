@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CheckCircle2Icon, EyeIcon, FlagIcon, RotateCcwIcon } from 'lucide-react';
 
+
 import { FocusFrame } from '@/app/FocusFrame';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,8 +13,15 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState, ErrorState } from '@/components/states';
 import { notebookPath } from '@/lib/notebooks';
 import type { Attempt, AttemptAnswer, Question } from '@/lib/api';
+import {
+  gradeResponse,
+  questionStem,
+  responseSelectedOption,
+  type QuestionResponse,
+} from '@/lib/schemas';
 import { cn } from '@/lib/utils';
-import { QuizOptions } from './QuizOptions';
+import { QuizAnswer, commitsImmediately, isComplete } from './QuizAnswer';
+import { QuestionPrompt } from './QuestionPrompt';
 import { AttemptReview } from './AttemptReview';
 import { NotReady, WrongKind } from './WrongKind';
 import {
@@ -244,6 +252,21 @@ function QuizRunner({
   const [revealed, setRevealed] = useState(false);
   const [finished, setFinished] = useState<Attempt | null>(null);
 
+  /*
+   * The response being built for the question on screen, before it is committed.
+   *
+   * **Only the composite kinds need this, and they genuinely need it.** An MCQ
+   * commits on the click — there is nothing to assemble. A multi-select, a
+   * matching grid and an ordering do not exist as an answer until the candidate
+   * says they are done: recording the first ticked checkbox as the answer would
+   * grade a three-part question wrong on its first keystroke and then refuse to
+   * let them finish it, because an answered question is locked.
+   *
+   * Cleared whenever the question changes, which is what stops one question's
+   * half-built answer appearing under the next.
+   */
+  const [draft, setDraft] = useState<QuestionResponse | null>(null);
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const shownAt = useRef<number>(Date.now());
 
@@ -258,7 +281,11 @@ function QuizRunner({
     shownAt.current = Date.now();
     // An already-answered question opens revealed: it has been seen, and
     // hiding what was already shown would be a worse kind of surprise.
-    setRevealed(question ? answers.has(question.id) : false);
+    const existing = question ? answers.get(question.id) : undefined;
+    setRevealed(existing !== undefined);
+    // Seeded from the recorded answer so a revisited question shows what was
+    // chosen, and reset to null otherwise so no draft leaks across questions.
+    setDraft(existing?.response ?? null);
     containerRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- on the question, not on the answers map it reads
   }, [question?.id]);
@@ -266,21 +293,28 @@ function QuizRunner({
   const answeredCount = answers.size;
   const allAnswered = answeredCount === questions.length;
 
-  /** Record one answer, reveal it, and persist the sitting. */
-  const choose = useCallback(
-    (option: number) => {
-      if (!question || answers.has(question.id)) return;
+  /**
+   * Commit a response as the answer, reveal it, and persist the sitting.
+   *
+   * **Grading is `gradeResponse`, not a comparison written here.** Six kinds
+   * grade six ways and the server grades the same submission independently —
+   * a second implementation in this component is the one that would disagree
+   * with the score the candidate is finally shown.
+   */
+  const commit = useCallback(
+    (response: QuestionResponse) => {
+      if (!question || answers.has(question.id) || !isComplete(response)) return;
 
-      const correct = question.payload.options[option]?.correct === true;
       const recorded: AttemptAnswer = {
         questionId: question.id,
         // Copied, not joined: the authority for what this answer meant once the
         // question behind it is gone (ADR 0013, and the contract's comment).
-        questionText: question.payload.stem,
+        questionText: questionStem(question.payload),
         topicId: question.topicId,
         topicName: question.topicName,
-        selectedOption: option,
-        correct,
+        response,
+        selectedOption: responseSelectedOption(response),
+        correct: gradeResponse(question.payload, response),
         flagged: answers.get(question.id)?.flagged ?? false,
         elapsedMs: Math.max(0, Date.now() - shownAt.current),
       };
@@ -288,6 +322,7 @@ function QuizRunner({
       const next = new Map(answers);
       next.set(question.id, recorded);
       setAnswers(next);
+      setDraft(response);
       setRevealed(true);
 
       // Save after every answer. The whole map, not a delta — the contract
@@ -304,6 +339,22 @@ function QuizRunner({
       );
     },
     [answers, attempt.id, question, saveProgress],
+  );
+
+  /**
+   * A response arrived from the answer surface.
+   *
+   * The two single-choice kinds commit on the spot — clicking a radio *is* the
+   * answer, and making someone confirm it would be a click with nothing behind
+   * it. The other four accumulate into the draft and wait for the button.
+   */
+  const respond = useCallback(
+    (response: QuestionResponse) => {
+      if (!question || answers.has(question.id)) return;
+      setDraft(response);
+      if (commitsImmediately(question.payload.kind)) commit(response);
+    },
+    [answers, commit, question],
   );
 
   /** Flagging survives a save, so it is part of the answer record. */
@@ -377,15 +428,38 @@ function QuizRunner({
         toggleFlag();
         return;
       }
-      if (key >= '1' && key <= '5' && question && !revealed) {
-        const option = Number(key) - 1;
-        if (option < question.payload.options.length) {
+      // Enter confirms a composite answer — the keyboard equivalent of the
+      // button, so a multi-select can be answered without reaching for a mouse.
+      if (key === 'enter' && !revealed && draft && isComplete(draft)) {
+        event.preventDefault();
+        commit(draft);
+        return;
+      }
+      /*
+       * Number keys pick an option, and only where numbering an option means
+       * something. On `matching` and `ordering` the digits are positions
+       * rather than choices, and binding them to a choice would answer a
+       * different question than the one the candidate is looking at.
+       */
+      if (key >= '1' && key <= '6' && question && !revealed) {
+        const index = Number(key) - 1;
+        const payload = question.payload;
+        if (payload.kind === 'mcq' && index < payload.options.length) {
           event.preventDefault();
-          choose(option);
+          respond({ kind: 'mcq', option: index });
+        } else if (payload.kind === 'msq' && index < payload.options.length) {
+          event.preventDefault();
+          const chosen = new Set(draft?.kind === 'msq' ? draft.options : []);
+          if (chosen.has(index)) chosen.delete(index);
+          else chosen.add(index);
+          respond({ kind: 'msq', options: [...chosen].sort((a, b) => a - b) });
+        } else if (payload.kind === 'true_false' && index < 2) {
+          event.preventDefault();
+          respond({ kind: 'true_false', value: index === 0 });
         }
       }
     },
-    [choose, go, index, question, revealed, toggleFlag],
+    [commit, draft, go, index, question, respond, revealed, toggleFlag],
   );
 
   if (finished) {
@@ -467,17 +541,32 @@ function QuizRunner({
 
         <Card className="py-8">
           <CardContent className="space-y-6 px-8">
-            <p className="font-serif text-xl leading-snug whitespace-pre-wrap">
-              {question.payload.stem}
-            </p>
+            <QuestionPrompt payload={question.payload} />
 
-            <QuizOptions
+            <QuizAnswer
               questionId={question.id}
               payload={question.payload}
-              selected={answer?.selectedOption ?? null}
-              onSelect={choose}
+              response={draft}
+              onRespond={respond}
               revealed={revealed}
             />
+
+            {/*
+              The confirm step, for the four kinds that need one. It appears
+              only while there is something to confirm — an unanswered
+              composite question — so the two single-choice kinds never show a
+              button that would do nothing.
+            */}
+            {!revealed && !commitsImmediately(question.payload.kind) && (
+              <Button
+                type="button"
+                className="w-full"
+                disabled={!isComplete(draft)}
+                onClick={() => draft && commit(draft)}
+              >
+                <CheckCircle2Icon /> Check my answer
+              </Button>
+            )}
 
             {/*
               Reveal on demand — the half of §3's "on answer or on demand" that
@@ -563,8 +652,8 @@ function QuizRunner({
 
         <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-2 text-xs">
           <span className="hidden items-center gap-1.5 sm:inline-flex">
-            <Kbd>1</Kbd>–<Kbd>5</Kbd> answer · <Kbd>←</Kbd> <Kbd>→</Kbd> move ·{' '}
-            <Kbd>R</Kbd> reveal
+            <Kbd>1</Kbd>–<Kbd>6</Kbd> choose · <Kbd>⏎</Kbd> confirm · <Kbd>←</Kbd>{' '}
+            <Kbd>→</Kbd> move · <Kbd>R</Kbd> reveal
           </span>
           {/*
             Finishing early is allowed and unanswered questions are simply

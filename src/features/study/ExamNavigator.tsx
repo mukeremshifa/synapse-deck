@@ -42,10 +42,14 @@ export function ExamNavigator({
     >
       {questions.map((question, index) => {
         const answer = answers.get(question.id);
-        // `answer?.selectedOption !== null` alone would be true for a question
-        // never visited, where the optional chain yields undefined rather than
-        // null — marking every untouched question as answered.
-        const answered = answer !== undefined && answer.selectedOption !== null;
+        // `answer?.response !== null` alone would be true for a question never
+        // visited, where the optional chain yields undefined rather than null —
+        // marking every untouched question as answered.
+        //
+        // `response`, not `selectedOption`: the latter is null for the four
+        // kinds with no single option index, so a paper of matching questions
+        // would show every square unanswered while being fully answered.
+        const answered = answer !== undefined && answer.response !== null;
         const flagged = answer?.flagged ?? false;
         const isCurrent = index === currentIndex;
 

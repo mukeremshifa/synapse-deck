@@ -17,6 +17,7 @@ import type {
   Job,
   JobStage,
   NoteBlock,
+  NoteTopic,
   Notebook,
   Page,
   PageRequest,
@@ -206,7 +207,16 @@ interface Store {
   reviews: Review[];
   attempts: Attempt[];
   questions: Record<string, Question[]>;
-  noteBlocks: Record<string, NoteBlock[]>;
+  noteTopics: Record<string, NoteTopic[]>;
+  /**
+   * Which topics of a note set the reader has ticked, by artifact id.
+   *
+   * Kept beside the topics rather than on the payload because the payload
+   * carries a *count* — the contract's reason is that a list endpoint must not
+   * ship every id — so the ids have to live somewhere the reader can ask for
+   * them. A real backend has the same split: a join table, and a count.
+   */
+  completedTopics: Record<string, Set<string>>;
   jobs: Job[];
   /** Units of generation spent this month — what quota counts. */
   unitsUsed: number;
@@ -222,7 +232,13 @@ function seed(): Store {
     reviews: fixtures.reviews.map(review => ({ ...review })),
     attempts: fixtures.attempts.map(attempt => ({ ...attempt })),
     questions: structuredClone(fixtures.questions),
-    noteBlocks: structuredClone(fixtures.noteBlocks),
+    noteTopics: structuredClone(fixtures.noteTopics),
+    completedTopics: Object.fromEntries(
+      Object.entries(fixtures.completedTopics).map(([artifactId, ids]) => [
+        artifactId,
+        new Set(ids),
+      ]),
+    ),
     jobs: [],
     unitsUsed: 47,
   };
@@ -301,7 +317,9 @@ function paginate<T>(items: T[], page?: PageRequest): Page<T> {
 // ---------------------------------------------------------------------------
 
 function isDue(card: Card, at: number): boolean {
-  return card.status === 'active' && card.fsrsState !== 'new' && Date.parse(card.due) <= at;
+  return (
+    card.status === 'active' && card.fsrsState !== 'new' && Date.parse(card.due) <= at
+  );
 }
 
 /** Recompute an artifact's payload counts and its readiness from live state. */
@@ -351,7 +369,9 @@ function projectArtifact(artifact: Artifact): Artifact {
           .filter(attempt => attempt.artifactId === artifact.id)
           .flatMap(attempt =>
             attempt.answers
-              .filter(answer => answer.selectedOption !== null)
+              // Answered means it has a response: `selectedOption` is null for
+              // matching, ordering, numeric and multi-select.
+              .filter(answer => answer.response !== null)
               .map(answer => answer.questionId),
           ),
       ).size;
@@ -370,31 +390,46 @@ function projectArtifact(artifact: Artifact): Artifact {
       };
     }
     case 'noteset': {
-      const blocks = store.noteBlocks[artifact.id]?.length ?? 0;
-      const read = Math.min(artifact.payload.readBlockCount, blocks);
-      const unread = blocks - read;
+      const topics = store.noteTopics[artifact.id] ?? [];
+      const total = topics.length;
+      const ticked = store.completedTopics[artifact.id] ?? new Set<string>();
+      // Count against the topics that exist, so a tick left behind by a
+      // regenerated note set cannot push the count past the total.
+      const done = topics.filter(topic => ticked.has(topic.id)).length;
+      const outstanding = total - done;
+      const { completedAt } = artifact.payload;
       return {
         ...artifact,
+        /*
+         * **Readiness follows the button, not the ticks.** A note set the
+         * student has declared finished reads `ready` even with topics
+         * outstanding — that is what the declaration is for, and a Studio row
+         * that contradicted it would be arguing with the person who made it.
+         */
         readiness: readinessFor(
-          unread === blocks && blocks > 0 ? 'ready' : unread > 0 ? 'partial' : 'none',
-          blocks === 0
+          completedAt !== null ? 'ready' : done > 0 ? 'partial' : 'none',
+          total === 0
             ? 'Empty'
-            : unread > 0
-              ? `${unread} of ${blocks} section${blocks === 1 ? '' : 's'} unread`
-              : 'Read',
+            : completedAt !== null
+              ? 'Completed'
+              : outstanding > 0
+                ? `${outstanding} of ${total} topic${total === 1 ? '' : 's'} to read`
+                : 'All topics read',
         ),
         payload: {
           kind: 'noteset',
           origin: artifact.payload.origin,
-          blockCount: blocks,
-          readBlockCount: read,
+          topicCount: total,
+          completedTopicCount: done,
+          completedAt,
         },
       };
     }
     case 'exam': {
       const total = store.questions[artifact.id]?.length ?? 0;
       const sittings = store.attempts.filter(
-        attempt => attempt.artifactId === artifact.id && attempt.outcome !== 'in-progress',
+        attempt =>
+          attempt.artifactId === artifact.id && attempt.outcome !== 'in-progress',
       ).length;
       return {
         ...artifact,
@@ -698,40 +733,117 @@ function generatedCards(artifact: Artifact, count: number): Card[] {
   }));
 }
 
+/**
+ * A generated quiz, cycling through every question kind.
+ *
+ * **It rotates rather than emitting six MCQs**, for the same reason the stub
+ * provider does: a fake that only produced the one kind would let the other
+ * five reach a real generation having never been rendered, and the fake is what
+ * the frontend develops against. Every branch of the answer surface is
+ * exercised by a quiz of six questions or more.
+ */
 function generatedQuestions(artifact: Artifact, count: number): Question[] {
   return Array.from({ length: count }, (_, index) => ({
     id: id('q'),
     topicId: null,
     topicName: null,
-    payload: {
-      kind: 'mcq' as const,
-      stem: `[fake] Question ${index + 1} for “${artifact.title}”`,
-      options: [
-        { text: '[fake] The correct option', correct: true },
-        { text: '[fake] A distractor', correct: false },
-        { text: '[fake] Another distractor', correct: false },
-      ],
-      explanation: '[fake] Generated by the in-memory fake.',
-    },
+    payload: fakePayload(artifact.title, index),
   }));
 }
 
-function generatedBlocks(artifact: Artifact): NoteBlock[] {
-  return [
-    { type: 'heading', level: 1, text: artifact.title },
-    {
-      type: 'paragraph',
-      text: '[fake] These notes came from the in-memory fake, not from a model.',
-    },
-    {
-      type: 'list',
-      ordered: false,
-      items: ['[fake] First point', '[fake] Second point', '[fake] Third point'],
-    },
-  ];
+function fakePayload(title: string, index: number): Question['payload'] {
+  const label = `[fake] Question ${index + 1} for “${title}”`;
+  switch (index % 6) {
+    case 1:
+      return {
+        kind: 'msq',
+        stem: `${label} — select all that apply.`,
+        options: [
+          { text: '[fake] A correct option', correct: true },
+          { text: '[fake] Another correct option', correct: true },
+          { text: '[fake] A distractor', correct: false },
+        ],
+        explanation: '[fake] Generated by the in-memory fake.',
+      };
+    case 2:
+      return {
+        kind: 'true_false',
+        statement: `${label} — this statement is false.`,
+        answer: false,
+        explanation: '[fake] Generated by the in-memory fake.',
+      };
+    case 3:
+      return {
+        kind: 'numeric',
+        stem: `${label} — what is 6 × 7?`,
+        answer: 42,
+        tolerance: 0,
+        explanation: '[fake] Generated by the in-memory fake.',
+      };
+    case 4:
+      return {
+        kind: 'matching',
+        stem: `${label} — match each item to its pair.`,
+        pairs: [
+          { left: '[fake] First', right: '[fake] Its match' },
+          { left: '[fake] Second', right: '[fake] Its other match' },
+          { left: '[fake] Third', right: '[fake] A third match' },
+        ],
+        explanation: '[fake] Generated by the in-memory fake.',
+      };
+    case 5:
+      return {
+        kind: 'ordering',
+        stem: `${label} — put these in order.`,
+        items: ['[fake] First', '[fake] Second', '[fake] Third'],
+        explanation: '[fake] Generated by the in-memory fake.',
+      };
+    default:
+      return {
+        kind: 'mcq',
+        stem: label,
+        options: [
+          { text: '[fake] The correct option', correct: true },
+          { text: '[fake] A distractor', correct: false },
+          { text: '[fake] Another distractor', correct: false },
+        ],
+        explanation: '[fake] Generated by the in-memory fake.',
+      };
+  }
 }
 
-function snapshotOf(notebookId: string, sourceIds: string[]): Artifact['sourcesSnapshot'] {
+/**
+ * Exactly `topicCount` topics, each with blocks of its own.
+ *
+ * The count is honoured rather than approximated, because the number the
+ * student picked is the number of things they are about to be asked to tick
+ * off — a generator that returned "about that many" would make the progress
+ * indicator lie about work nobody asked for.
+ */
+function generatedTopics(artifact: Artifact, topicCount: number): NoteTopic[] {
+  return Array.from({ length: topicCount }, (_unused, index) => ({
+    id: `${artifact.id}-topic-${index + 1}`,
+    title: `[fake] Topic ${index + 1}`,
+    sourceTopicId: null,
+    blocks: [
+      { type: 'heading', level: 2, text: `[fake] Topic ${index + 1}` },
+      {
+        type: 'paragraph',
+        text: '[fake] These notes came from the in-memory fake, not from a model.',
+      },
+      {
+        type: 'list',
+        ordered: false,
+        items: ['[fake] First point', '[fake] Second point', '[fake] Third point'],
+      },
+    ] satisfies NoteBlock[],
+  }));
+}
+
+function snapshotOf(
+  notebookId: string,
+  sourceIds: string[],
+): Artifact['sourcesSnapshot'] {
   return sourceIds.flatMap(sourceId => {
     const source = store.sources.find(
       candidate => candidate.id === sourceId && candidate.notebookId === notebookId,
@@ -906,7 +1018,8 @@ export const fakeClient: ApiClient = {
       );
       for (const artifactId of artifactIds) {
         delete store.questions[artifactId];
-        delete store.noteBlocks[artifactId];
+        delete store.noteTopics[artifactId];
+        delete store.completedTopics[artifactId];
       }
       store.notebooks = store.notebooks.filter(notebook => notebook.id !== notebookId);
       store.sources = store.sources.filter(source => source.notebookId !== notebookId);
@@ -963,8 +1076,7 @@ export const fakeClient: ApiClient = {
     gate(() => {
       notebookOr404(notebookId);
       const parsed: AddSourceInput = input;
-      const title =
-        parsed.kind === 'url' ? (parsed.title ?? parsed.url) : parsed.title;
+      const title = parsed.kind === 'url' ? (parsed.title ?? parsed.url) : parsed.title;
 
       const source: Source = {
         id: id('src'),
@@ -980,7 +1092,8 @@ export const fakeClient: ApiClient = {
       store.sources.push(source);
 
       // Chunk count scales with the input, the way the real splitter's does.
-      const units = parsed.kind === 'text' ? Math.max(1, Math.ceil(parsed.text.length / 4000)) : 6;
+      const units =
+        parsed.kind === 'text' ? Math.max(1, Math.ceil(parsed.text.length / 4000)) : 6;
 
       return startJob(
         notebookId,
@@ -1121,8 +1234,9 @@ export const fakeClient: ApiClient = {
                   payload: {
                     kind: 'noteset',
                     origin: parsed.fromResponseId === undefined ? 'generated' : 'chat',
-                    blockCount: 0,
-                    readBlockCount: 0,
+                    topicCount: 0,
+                    completedTopicCount: 0,
+                    completedAt: null,
                   },
                 }
               : {
@@ -1171,7 +1285,16 @@ export const fakeClient: ApiClient = {
               );
               break;
             case 'noteset':
-              store.noteBlocks[artifact.id] = generatedBlocks(artifact);
+              /*
+               * A chat-saved note set is one topic whatever the number said —
+               * the contract documents `topicCount` as ignored when
+               * `fromResponseId` is present, because the answer is however long
+               * the answer was.
+               */
+              store.noteTopics[artifact.id] = generatedTopics(
+                artifact,
+                parsed.fromResponseId === undefined ? parsed.topicCount : 1,
+              );
               break;
           }
           return { artifactId: artifact.id, sourceId: null };
@@ -1240,7 +1363,8 @@ export const fakeClient: ApiClient = {
         attempt => attempt.artifactId !== artifactId,
       );
       delete store.questions[artifactId];
-      delete store.noteBlocks[artifactId];
+      delete store.noteTopics[artifactId];
+      delete store.completedTopics[artifactId];
     }),
 
   // ── Cards ────────────────────────────────────────────────────────────────
@@ -1476,7 +1600,10 @@ export const fakeClient: ApiClient = {
       attempt.answers = parsed.answers.map(answer => ({ ...answer }));
       attempt.outcome = parsed.outcome;
       attempt.submittedAt = nowIso();
-      const answered = attempt.answers.filter(answer => answer.selectedOption !== null);
+      // Answered means it has a response, matching the server's score query
+      // (migration 0014) — `selectedOption` is null for the four kinds that
+      // have no single option index.
+      const answered = attempt.answers.filter(answer => answer.response !== null);
       attempt.score =
         answered.length === 0
           ? // Not zero: a sitting where nothing was answered has no score, and a
@@ -1515,22 +1642,40 @@ export const fakeClient: ApiClient = {
 
   // ── Notes ────────────────────────────────────────────────────────────────
 
-  listNoteBlocks: (notebookId, artifactId) =>
+  listNoteTopics: (notebookId, artifactId) =>
     gate(() => {
       artifactOr404(notebookId, artifactId);
-      return (store.noteBlocks[artifactId] ?? []).map(block => ({ ...block }));
+      return (store.noteTopics[artifactId] ?? []).map(topic => ({
+        ...topic,
+        blocks: topic.blocks.map(block => ({ ...block })),
+      }));
     }),
 
-  markBlocksRead: (notebookId, artifactId, blockIndexes) =>
+  setTopicCompleted: (notebookId, artifactId, topicId, completed) =>
     gate(() => {
       const artifact = artifactOr404(notebookId, artifactId);
       if (artifact.payload.kind !== 'noteset') fail('invalid_input');
-      const total = store.noteBlocks[artifactId]?.length ?? 0;
-      const read = Math.min(
-        total,
-        Math.max(artifact.payload.readBlockCount, blockIndexes.length),
-      );
-      artifact.payload = { ...artifact.payload, readBlockCount: read };
+      const topics = store.noteTopics[artifactId] ?? [];
+      // A tick names a topic. An id this note set does not have is a bad
+      // request, not a silent no-op that leaves the caller believing it worked.
+      if (!topics.some(topic => topic.id === topicId)) fail('not_found');
+      const ticked = (store.completedTopics[artifactId] ??= new Set<string>());
+      if (completed) ticked.add(topicId);
+      else ticked.delete(topicId);
+      return projectArtifact(artifact);
+    }),
+
+  setNoteSetCompleted: (notebookId, artifactId, completed) =>
+    gate(() => {
+      const artifact = artifactOr404(notebookId, artifactId);
+      if (artifact.payload.kind !== 'noteset') fail('invalid_input');
+      artifact.payload = {
+        ...artifact.payload,
+        // Re-pressing keeps the original stamp: the moment the student said
+        // they were done is a fact about when, and re-affirming it is not a
+        // second completion.
+        completedAt: completed ? (artifact.payload.completedAt ?? nowIso()) : null,
+      };
       return projectArtifact(artifact);
     }),
 
@@ -1700,12 +1845,13 @@ export const fakeClient: ApiClient = {
       // A review of a new card is the card being introduced, not recalled —
       // counting it would inflate retention with every first sighting.
       const window = countableReviews(notebookId).filter(
-        review =>
-          Date.parse(review.reviewedAt) >= from && review.stateBefore !== 'new',
+        review => Date.parse(review.reviewedAt) >= from && review.stateBefore !== 'new',
       );
 
       const rate = (rows: Review[]): number | null =>
-        rows.length === 0 ? null : rows.filter(row => row.rating >= 2).length / rows.length;
+        rows.length === 0
+          ? null
+          : rows.filter(row => row.rating >= 2).length / rows.length;
 
       const byState: RetentionSummary['byState'] = {
         new: null,
@@ -1778,7 +1924,7 @@ export const fakeClient: ApiClient = {
         // A question the candidate skipped is not evidence either way. Scoring
         // it as incorrect would make "ran out of time" indistinguishable from
         // "got it wrong", which is the distinction a diagnostic exists to draw.
-        .filter(answer => answer.selectedOption !== null);
+        .filter(answer => answer.response !== null);
 
       /*
        * An answer with no topic cannot name a weakness, so it is filtered out

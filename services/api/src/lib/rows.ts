@@ -310,6 +310,8 @@ export interface ArtifactRow {
   payload: unknown;
   created_at: string;
   updated_at: string;
+  /** The button at the end, for a note set. Null for every other kind. */
+  completed_at: string | null;
 }
 
 export interface QuestionRow {
@@ -322,14 +324,26 @@ export interface QuestionRow {
   created_at: string;
 }
 
+export interface NoteTopicRow {
+  id: string;
+  user_id: string;
+  artifact_id: string;
+  title: string;
+  position: number;
+  source_topic_id: string | null;
+  /** The tick. Null means not ticked, and **clearing it is expected**. */
+  completed_at: string | null;
+  created_at: string;
+}
+
 export interface NoteBlockRow {
   id: string;
   user_id: string;
   artifact_id: string;
+  topic_id: string;
   block: unknown;
   position: number;
   source_id: string | null;
-  read_at: string | null;
   created_at: string;
 }
 
@@ -352,6 +366,8 @@ export interface AttemptAnswerRow {
   question_text: string;
   topic_id: string | null;
   topic_name: string | null;
+  /** The contract's `QuestionResponse`. Null means unanswered (migration 0014). */
+  response: unknown;
   selected_option: number | null;
   correct: boolean;
   flagged: boolean;

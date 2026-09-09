@@ -31,6 +31,16 @@ export {
   UPLOAD_LIMITS,
   UploadRequest,
   UploadTicket,
+  // Grading. **The server grades with the same function the runner does** —
+  // `correct` is decided here and never taken from the request, so the one
+  // thing that must not be reimplemented is the rule itself.
+  QUESTION_KINDS,
+  QuestionPayload,
+  QuestionResponse,
+  gradeResponse,
+  questionStem,
+  responseSelectedOption,
   type CardKind,
   type ProfileSettingsInput,
+  type QuestionKind,
 } from '../../../../src/lib/schemas.ts';

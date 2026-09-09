@@ -32,10 +32,12 @@
  * that produces different output on every run cannot tell a bug from noise.
  */
 
-import type { CardPayload } from '../schemas.ts';
+import type { CardPayload, QuestionPayload } from '../schemas.ts';
 import type {
   CardProvider,
   GenerateChunkRequest,
+  GenerateQuestionsRequest,
+  GenerateQuestionsResult,
   GenerateChunkResult,
 } from './types.ts';
 
@@ -112,6 +114,99 @@ export class StubProvider implements CardProvider {
       // Null rather than a fabricated number: a made-up token count would flow
       // into cost accounting (task 10) and quietly corrupt the one figure the
       // phase is supposed to measure honestly.
+      inputTokens: null,
+      outputTokens: null,
+    });
+  }
+
+  /**
+   * Placeholder questions — one of every kind that was asked for.
+   *
+   * **It rotates through `request.kinds` for the same reason `generateChunk`
+   * does**: a stub that only ever produced MCQs would let a bug in the
+   * matching or ordering path reach a real generation unexercised, which is
+   * precisely what the stub exists to prevent.
+   *
+   * Every one is labelled, and the label is not decoration: stub content that
+   * cannot be told apart from generated content is worse than no stub at all.
+   */
+  generateQuestions(
+    request: GenerateQuestionsRequest,
+  ): Promise<GenerateQuestionsResult> {
+    const seed = hash(request.text);
+    const snippet = excerpt(request.text);
+    const questions: QuestionPayload[] = [];
+
+    const count = Math.max(1, Math.min(request.questionCount, 6));
+    const label = '[STUB QUESTION — not real content]';
+
+    for (let i = 0; i < count; i += 1) {
+      const kind = request.kinds[(seed + i) % request.kinds.length] ?? 'mcq';
+
+      switch (kind) {
+        case 'msq':
+          questions.push({
+            kind: 'msq',
+            stem: `${label} Which of these are placeholders? Select all that apply. (source: "${snippet}")`,
+            options: [
+              { text: 'This question', correct: true },
+              { text: 'These options', correct: true },
+              { text: 'A real language model', correct: false },
+              { text: 'An extracted fact', correct: false },
+            ],
+          });
+          break;
+        case 'true_false':
+          questions.push({
+            kind: 'true_false',
+            statement: `${label} This question was written by a language model.`,
+            answer: false,
+          });
+          break;
+        case 'numeric':
+          questions.push({
+            kind: 'numeric',
+            stem: `${label} How many language models were called to produce this question?`,
+            answer: 0,
+            tolerance: 0,
+          });
+          break;
+        case 'matching':
+          questions.push({
+            kind: 'matching',
+            stem: `${label} Match each term to its meaning.`,
+            pairs: [
+              { left: 'Stub', right: 'A placeholder that calls no model' },
+              { left: 'Groq', right: 'A real inference provider' },
+              { left: 'Chunk', right: 'A section of the source document' },
+            ],
+          });
+          break;
+        case 'ordering':
+          questions.push({
+            kind: 'ordering',
+            stem: `${label} Put the pipeline stages in order.`,
+            items: ['Upload', 'Split', 'Generate', 'Finalise'],
+          });
+          break;
+        default:
+          questions.push({
+            kind: 'mcq',
+            stem: `${label} Which provider generated this question? (source: "${snippet}")`,
+            options: [
+              { text: 'A placeholder provider that calls no model', correct: true },
+              { text: 'Amazon Bedrock', correct: false },
+              { text: 'Groq', correct: false },
+            ],
+          });
+      }
+    }
+
+    return Promise.resolve({
+      questions,
+      topics: [`[STUB TOPIC — not real content] Placeholder topic ${seed % 5}`],
+      provider: this.name,
+      // Null rather than a fabricated number, as above.
       inputTokens: null,
       outputTokens: null,
     });

@@ -11,7 +11,8 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Kbd } from '@/components/ui/kbd';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState, ErrorState } from '@/components/states';
-import { ExamOptions } from '@/features/exam/ExamOptions';
+import { QuizAnswer, isComplete } from './QuizAnswer';
+import { QuestionPrompt } from './QuestionPrompt';
 import { useExamTimer } from '@/features/exam/useExamTimer';
 import { useFocusMode } from '@/features/exam/useFocusMode';
 import { formatDuration, shuffled, TIMER_WARNING_MS } from '@/lib/exam';
@@ -26,7 +27,13 @@ import type {
 } from '@/lib/api';
 // The contract imports `ExamConfig` from `schemas.ts` rather than redefining it
 // — one Zod definition per concept (CLAUDE.md) — so it is imported from there.
-import type { ExamConfig } from '@/lib/schemas';
+import {
+  gradeResponse,
+  questionStem,
+  responseSelectedOption,
+  type ExamConfig,
+  type QuestionResponse,
+} from '@/lib/schemas';
 import { cn } from '@/lib/utils';
 import { AttemptReview } from './AttemptReview';
 import { ExamNavigator } from './ExamNavigator';
@@ -59,11 +66,16 @@ import { useArtifact, useQuestions, useStartAttempt, useSubmitAttempt } from './
  *
  * ── What is kept ─────────────────────────────────────────────────────────
  *
- * `useExamTimer`, `useFocusMode` and `ExamOptions` are good components that were
- * wired to the wrong parents (§1.4, and FR5 §3's "good components wired to the
- * wrong parents"). They are model-independent and are reused unchanged — the
- * timer in particular counts down to an absolute deadline rather than
- * decrementing, which is the only version that survives a backgrounded tab.
+ * `useExamTimer` and `useFocusMode` are good components that were wired to the
+ * wrong parents (§1.4, and FR5 §3's "good components wired to the wrong
+ * parents"). They are model-independent and are reused unchanged — the timer in
+ * particular counts down to an absolute deadline rather than decrementing,
+ * which is the only version that survives a backgrounded tab.
+ *
+ * `ExamOptions` was in that list until the quiz learned to ask six kinds of
+ * question. It rendered one kind and would have needed five siblings; the
+ * answer surface is now shared with the quiz and pinned to `revealed={false}`.
+ * See the call site.
  *
  * ── Honesty, restated ────────────────────────────────────────────────────
  *
@@ -201,17 +213,32 @@ function ExamSitting({
          * appear every time — the property the config claims to prevent.
          */
         const ordered = payload.config.shuffleQuestions ? shuffled(questions) : questions;
-        const presented = ordered.slice(0, payload.config.questionCount).map(question =>
-          payload.config.shuffleOptions
-            ? {
-                ...question,
-                payload: {
-                  ...question.payload,
-                  options: shuffled(question.payload.options),
-                },
-              }
-            : question,
-        );
+        /*
+         * `shuffleOptions` applies to the kinds that *have* options — `mcq` and
+         * `msq`. The other four are not exempt by oversight:
+         *
+         * - `true_false` has two, and reordering them puts False above True for
+         *   no gain and some confusion.
+         * - `numeric` has none.
+         * - `matching` and `ordering` **carry their answer in their order**, so
+         *   they are shuffled unconditionally by the answer surface rather than
+         *   here. Presenting either as stored would hand over the key, which is
+         *   not something a config flag should be able to turn off.
+         */
+        const presented = ordered.slice(0, payload.config.questionCount).map(question => {
+          if (!payload.config.shuffleOptions) return question;
+          const questionPayload = question.payload;
+          if (questionPayload.kind !== 'mcq' && questionPayload.kind !== 'msq') {
+            return question;
+          }
+          return {
+            ...question,
+            payload: {
+              ...questionPayload,
+              options: shuffled(questionPayload.options),
+            },
+          };
+        });
 
         setPhase({
           status: 'sitting',
@@ -519,10 +546,10 @@ function ExamRunner({
    *   distinction can actually be made. **FR7 owns that**; the contract already
    *   carries the value.
    *
-   * Unanswered questions are submitted as `selectedOption: null`, never as a
-   * wrong answer: `null` is a real value and the results screen reports it
-   * apart, because telling someone they got a question wrong that they never
-   * saw is a different claim.
+   * Unanswered questions are submitted as `response: null`, never as a wrong
+   * answer: `null` is a real value and the results screen reports it apart,
+   * because telling someone they got a question wrong that they never saw is a
+   * different claim.
    */
   const finish = useCallback(
     (outcome: Extract<AttemptOutcome, 'submitted' | 'expired'>) => {
@@ -585,18 +612,32 @@ function ExamRunner({
     [commitElapsed, index, questions.length],
   );
 
+  /**
+   * Record a response.
+   *
+   * **No confirm step, unlike the quiz.** An exam does not reveal, so there is
+   * nothing to lock: an answer can be changed until the paper is submitted, and
+   * a "check my answer" button on a surface that shows nothing back would be a
+   * button that appears to do nothing. Every response is recorded as it is
+   * built, and `isComplete` decides only whether it counts as answered.
+   *
+   * Graded from the presented order, which is the order these indices refer to
+   * — resolved once when the sitting started.
+   */
   const select = useCallback(
-    (option: number) => {
+    (response: QuestionResponse) => {
       if (!question) return;
       setAnswers(previous => {
         const next = new Map(previous);
         const existing = next.get(question.id) ?? blankAnswer(question);
+        const complete = isComplete(response);
         next.set(question.id, {
           ...existing,
-          selectedOption: option,
-          // Graded from the presented order, which is the order this index
-          // refers to — resolved once when the sitting started.
-          correct: question.payload.options[option]?.correct === true,
+          // A half-built response is not an answer. Storing it as one would
+          // count a partly-filled matching grid toward the score's denominator.
+          response: complete ? response : null,
+          selectedOption: complete ? responseSelectedOption(response) : null,
+          correct: complete && gradeResponse(question.payload, response),
         });
         return next;
       });
@@ -619,7 +660,10 @@ function ExamRunner({
   }, []);
 
   const answeredCount = useMemo(
-    () => [...answers.values()].filter(answer => answer.selectedOption !== null).length,
+    // Answered means it has a response — `selectedOption` is null for the four
+    // kinds that have no single option index, and counting that way would
+    // report a finished paper as barely started.
+    () => [...answers.values()].filter(answer => answer.response !== null).length,
     [answers],
   );
 
@@ -643,15 +687,31 @@ function ExamRunner({
         toggleFlag();
         return;
       }
-      if (key >= '1' && key <= '5' && question) {
-        const option = Number(key) - 1;
-        if (option < question.payload.options.length) {
+      // Digits choose, and only where a numbered option is a choice. On
+      // `matching` and `ordering` a digit is a position, not an answer.
+      if (key >= '1' && key <= '6' && question) {
+        const optionIndex = Number(key) - 1;
+        const questionPayload = question.payload;
+        const current = answers.get(question.id)?.response ?? null;
+        if (questionPayload.kind === 'mcq' && optionIndex < questionPayload.options.length) {
           event.preventDefault();
-          select(option);
+          select({ kind: 'mcq', option: optionIndex });
+        } else if (
+          questionPayload.kind === 'msq' &&
+          optionIndex < questionPayload.options.length
+        ) {
+          event.preventDefault();
+          const chosen = new Set(current?.kind === 'msq' ? current.options : []);
+          if (chosen.has(optionIndex)) chosen.delete(optionIndex);
+          else chosen.add(optionIndex);
+          select({ kind: 'msq', options: [...chosen].sort((a, b) => a - b) });
+        } else if (questionPayload.kind === 'true_false' && optionIndex < 2) {
+          event.preventDefault();
+          select({ kind: 'true_false', value: optionIndex === 0 });
         }
       }
     },
-    [goTo, index, question, select, toggleFlag],
+    [answers, goTo, index, question, select, toggleFlag],
   );
 
   if (!question) return null;
@@ -738,19 +798,24 @@ function ExamRunner({
 
       <Card className="py-8">
         <CardContent className="space-y-6 px-8">
-          <p className="font-serif text-xl leading-snug whitespace-pre-wrap">
-            {question.payload.stem}
-          </p>
+          <QuestionPrompt payload={question.payload} />
           {/*
-            `ExamOptions`, not the quiz's: nothing is revealed during an exam,
-            and a component with a `revealed` branch would put that behind dead
-            code in the place correctness matters most.
+            The same six input shapes as the quiz, with `revealed` pinned false.
+
+            `ExamOptions` used to render this, on the principle that a component
+            branching on `revealed` puts the exam's correctness behind dead
+            code. That principle held for one kind and stops scaling at six:
+            keeping it would mean a second matching grid, a second ordering
+            list and a second numeric field, each free to drift from the
+            quiz's. The constant here is what makes the reveal branch dead —
+            visibly, at the call site, rather than by there being two files.
           */}
-          <ExamOptions
+          <QuizAnswer
             questionId={question.id}
             payload={question.payload}
-            selected={answer.selectedOption}
-            onSelect={select}
+            response={answer.response}
+            onRespond={select}
+            revealed={false}
           />
         </CardContent>
       </Card>
@@ -773,7 +838,7 @@ function ExamRunner({
         </Button>
 
         <span className="text-muted-foreground hidden text-xs sm:inline">
-          <Kbd>1</Kbd>–<Kbd>5</Kbd> answer · <Kbd>←</Kbd> <Kbd>→</Kbd> navigate
+          <Kbd>1</Kbd>–<Kbd>6</Kbd> answer · <Kbd>←</Kbd> <Kbd>→</Kbd> navigate
         </span>
 
         {isLast ? (
@@ -815,18 +880,23 @@ function ExamRunner({
 /**
  * An untouched question, as the record will carry it.
  *
- * `selectedOption: null` and `correct: false` together mean "not answered" —
- * the contract's own combination, and the reason the results screen counts
- * unanswered from `selectedOption` rather than from `correct`.
+ * `response: null` and `correct: false` together mean "not answered" — the
+ * contract's own combination, and the reason the results screen counts
+ * unanswered from `response` rather than from `correct`.
+ *
+ * **`response`, not `selectedOption`.** The two agreed while MCQ was the only
+ * kind; a matching answer has no single option index, so counting the old way
+ * would call a finished paper unanswered.
  */
 function blankAnswer(question: Question): AttemptAnswer {
   return {
     questionId: question.id,
     // Copied rather than joined: the authority for what the answer meant once
     // the question behind it is gone (ADR 0013).
-    questionText: question.payload.stem,
+    questionText: questionStem(question.payload),
     topicId: question.topicId,
     topicName: question.topicName,
+    response: null,
     selectedOption: null,
     correct: false,
     flagged: false,
