@@ -4,7 +4,7 @@
    only third-party request, and SPEC §10 says card content is untrusted LLM output —
    a page rendering that should not also be reaching out to a CDN on every load. */
 @import '@fontsource/dm-serif-display/400.css';
-@import '@fontsource-variable/plus-jakarta-sans';
+@import '@fontsource-variable/mona-sans';
 @import '@fontsource-variable/jetbrains-mono';
 
 /* Tailwind v4: design tokens live in CSS, exposed to utilities via @theme.
@@ -252,11 +252,12 @@
      Three faces, one job each. The full rule is in docs/DESIGN-SYSTEM.md; the
      one-line version, because this is where someone will look:
 
-       sans   (Plus Jakarta Sans) — everything. The default, and the answer
-              unless one of the two below applies.
+       sans   (Mona Sans) — everything. The default, and the answer unless one
+              of the two below applies.
        serif  (DM Serif Display) — the name of the thing you are looking at,
-              once per screen. A page title, a session-summary headline. Never
-              body text, never a label, never twice on one screen.
+              once per screen, and the front of a card. A page title, a
+              session-summary headline, a question. Never a label, never twice
+              on one screen outside card content.
        mono   (JetBrains Mono) — a value the user might compare, count or type:
               a number, an interval, an id, an email, a keyboard hint. Tabular
               numerals are the point; decoration is not.
@@ -264,7 +265,7 @@
      Without these @theme entries Tailwind's font-sans / font-mono utilities
      resolve to its own stacks and silently ignore the brand faces — which is
      what happened to Poppins for all of P0–P4. */
-  --font-sans: 'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Mona Sans Variable', ui-sans-serif, system-ui, sans-serif;
   --font-serif: 'DM Serif Display', ui-serif, Georgia, serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
 
@@ -341,6 +342,36 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+  }
+
+  /*
+    ── One scrollbar, and it belongs to whoever is scrolling ─────────────
+
+    Two route families share this root. `AppShell` pages (home, settings) are
+    ordinary documents that scroll in `body`. Full-screen routes (the
+    notebook's three panes, every runner) set `h-dvh` on their own shell and
+    scroll *inside* it.
+
+    The second kind is where the double scrollbar came from. `h-dvh` is exactly
+    the viewport, so the shell fills the root with nothing to spare — and any
+    pixel contributed above it puts a second bar down the right edge beside the
+    pane's own, a bar that scrolls the document by a few pixels and moves
+    nothing worth seeing.
+
+    So the root is given a definite height instead of an implicit one. `body`
+    keeps `overflow: auto` and stays scrollable for the pages that need it,
+    while a child that asks for exactly `100%`/`100dvh` now measures against a
+    real box and cannot exceed it. No `overflow: hidden` here: that would clip
+    home rather than fix the notebook.
+  */
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    overflow: auto;
   }
 
   /* The accent doing the one job it is good at. */

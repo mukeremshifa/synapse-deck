@@ -1406,7 +1406,7 @@ exams both.
 | SRS            | `ts-fsrs`                                             |                                                     |
 | Backend client | `@supabase/supabase-js`                               | replaces `axios` + `json-server`                    |
 | Tests          | _none — suite deleted 2026-09-05_                     | ADR 0005; rebuild at a checkpoint                   |
-| Type           | DM Serif Display · Plus Jakarta Sans · JetBrains Mono | self-hosted via `@fontsource`; no CDN (P5)          |
+| Type           | DM Serif Display · Mona Sans · JetBrains Mono          | self-hosted via `@fontsource`; no CDN (P5)          |
 | Brand assets   | `@resvg/resvg-js` + `png-to-ico` + `wawoff2`          | dev-only; `npm run brand:assets` (P5)               |
 
 ### 8.2 Routes
@@ -1811,7 +1811,7 @@ edited into those sections, so the reasoning that was replaced is still readable
   the exact axis deuteranopia flattens, so value carries the information and hue is the
   reward. Before P5 the rating buttons ignored these tokens entirely while the charts used
   them, so one rating was two colours depending on the screen.
-- **Type is DM Serif Display / Plus Jakarta Sans / JetBrains Mono, self-hosted.** The Google
+- **Type is DM Serif Display / Mona Sans / JetBrains Mono, self-hosted.** The Google
   Fonts link was the app's only third-party request, on a page that renders untrusted model
   output. Adding `--font-sans` / `--font-serif` / `--font-mono` to `@theme` also fixed a bug
   that had been live since P0: Tailwind's `font-sans` utility never resolved to Poppins.

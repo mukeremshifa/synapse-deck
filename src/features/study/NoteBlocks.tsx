@@ -185,7 +185,7 @@ function Block({
  *
  * The fixtures ship a quote whose source has been deleted, deliberately, so
  * that any reader built against the fake hits this path. The drift log's rule,
- * which `StudioPane`'s `Provenance` is the worked example of:
+ * which the overview's `Provenance` is the worked example of:
  *
  * > **Use `sourceIds` to *link* to a source; use `sourcesSnapshot` to *name*
  * > one.**

@@ -19,9 +19,9 @@
  *     a link, so `wawoff2` unpacks them to TTF in a temp directory first.
  *
  *  2. **Family names differ between CSS and the font binary.** `globals.css`
- *     asks for `Plus Jakarta Sans Variable`, which is the name fontsource gives
+ *     asks for `Mona Sans Variable`, which is the name fontsource gives
  *     its `@font-face`. The name inside the file — the only one resvg can match —
- *     is `Plus Jakarta Sans`. Use FAMILY below, not the CSS names.
+ *     is `Mona Sans`. Use FAMILY below, not the CSS names.
  *
  *  3. **The colours are parsed out of `globals.css`, never typed here.** The OG
  *     card's grade ramp is the same four tokens the rating buttons use. Copying
@@ -44,13 +44,13 @@ const out = join(root, 'public');
 
 const FAMILY = {
   serif: 'DM Serif Display',
-  sans: 'Plus Jakarta Sans',
+  sans: 'Mona Sans',
   mono: 'JetBrains Mono',
 };
 
 const WOFF2 = [
   '@fontsource/dm-serif-display/files/dm-serif-display-latin-400-normal.woff2',
-  '@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2',
+  '@fontsource-variable/mona-sans/files/mona-sans-latin-wght-normal.woff2',
   '@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2',
 ];
 

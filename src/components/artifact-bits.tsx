@@ -9,6 +9,14 @@
  * `Provenance` — with the dangling-source rule that is easy to get subtly
  * wrong — would have been copied with it.
  *
+ * **The Studio no longer uses either.** Its rows render `readiness.detail` as
+ * plain text rather than a badge, and dropped provenance entirely — a narrow
+ * rail could not carry a third line of grey text without burying the title.
+ * That is a density decision local to that pane, not a change to these rules:
+ * home still badges notebooks, the overview still renders both, and this file
+ * stays the single definition so the two surfaces that do use them cannot
+ * drift. See the header of `StudioPane.tsx` for the reasoning there.
+ *
  * In `src/components/` rather than in a feature, because no feature owns it.
  */
 

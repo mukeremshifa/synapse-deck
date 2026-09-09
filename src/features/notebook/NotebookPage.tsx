@@ -144,7 +144,7 @@ function NotebookShell({ notebookId }: { notebookId: string }) {
         readySourceCount={readySourceCount}
       />
     ),
-    studio: <StudioPane notebookId={notebookId} sources={sources.data} />,
+    studio: <StudioPane notebookId={notebookId} />,
   };
 
   return (

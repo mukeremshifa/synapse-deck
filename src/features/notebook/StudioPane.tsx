@@ -6,66 +6,69 @@ import {
   ClipboardListIcon,
   FileQuestionIcon,
   LayersIcon,
+  PlayIcon,
   SparklesIcon,
   StethoscopeIcon,
   type LucideIcon,
 } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
 import { Toolbar, ToolbarSpacer } from '@/components/layout';
-import { ErrorState, LoadingState } from '@/components/states';
-import { Provenance, ReadinessBadge } from '@/components/artifact-bits';
-import type { Artifact, ArtifactKind, Source } from '@/lib/api';
+import { EmptyState, ErrorState, LoadingState } from '@/components/states';
+import type { Artifact, ArtifactKind } from '@/lib/api';
 import { notebookPath } from '@/lib/notebooks';
 import { useModal } from '@/app/modals';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { GenerationPanel } from './GenerationPanel';
 import { useNotebookJobs } from './jobs';
-import { groupByKind, useArtifacts, useDeleteArtifact } from './queries';
+import { useArtifacts, useDeleteArtifact } from './queries';
 
 /**
- * The right pane: everything this notebook has generated, by kind.
+ * The right pane: what you can make, and what you have made.
  *
- * ═══ What this fixes ═════════════════════════════════════════════════════
+ * ═══ Two regions, not five sections ══════════════════════════════════════
  *
- * > "The exam button opens an exam and nobody knows where it came from."
+ * FR3 built this as one section per kind — a heading, then that kind's
+ * artifacts, then "+ New quiz". It kept the promise that many exams show as
+ * many exams, but it interleaved two different questions on one surface:
+ * *what can I generate?* and *what do I have?* With five headings the answer
+ * to the first was spread down the pane, each occurrence a different width,
+ * and the answer to the second was cut into five lists that never sorted
+ * against each other.
  *
- * That was the audit's line, and it had two causes. The route named no artifact
- * — `/notebooks/:id/exam` could only ever mean *the* exam — and the rail listed
- * *kinds* rather than *things*, so a notebook with three exams showed one
- * button. FR2 fixed the route (every runner names its artifact); this pane
- * fixes the rail. **Each entry lists that notebook's artifacts of that kind**,
- * so many decks show as many decks and many exams as many exams, each with a
- * name, a readiness and the sources it came from.
+ * So the pane now separates them:
  *
- * ── Five entries, and they are data-driven ───────────────────────────────
+ * - **A grid of generators**, one tile per thing that can be made. Every tile
+ *   opens the generate modal. This is the whole "what can I make" answer, in
+ *   one glance, at one size.
+ * - **A flat list of artifacts** below it, newest first, every kind together.
+ *   Each row carries its own kind label, so nothing is lost by dropping the
+ *   per-kind headings — and a notebook's work now reads in the order it was
+ *   made rather than in the order the kinds happen to be declared.
  *
- * Four come straight from `ARTIFACT_KINDS` in the contract, in a table below.
- * Brief §1.1's rule is that a new feature is a new `kind`, and this pane keeps
- * that promise for four of the five: adding a kind to the contract adds a row
- * here, because the entries are derived from the union rather than typed out.
+ * The grid is still derived from `ARTIFACT_KINDS` in the contract, which is
+ * brief §1.1's rule: a new kind is a new tile without editing a layout.
  *
- * **Diagnostics is the fifth and it is not an artifact kind** — it is a *view*
- * over attempts and card states, and FR6 builds it. So it is a hardcoded entry
- * that links to the overview, and it is marked as such in the table rather than
- * being quietly folded in as if it were a kind. Recorded in the plan's §6.4.
+ * ── Readiness is a sentence, not a tag ───────────────────────────────────
  *
- * ── Empty entries open a modal FR4 fills ─────────────────────────────────
+ * Rows no longer render a `ReadinessBadge`. A "Ready" chip on every finished
+ * artifact is a column of identical green — it distinguishes nothing, because
+ * *finished* is the normal state of a list of finished things. What a user
+ * actually wants off a glance is the state they are in: "never sat", "3 of 8
+ * questions unsat", "12 cards due". That is `readiness.detail`, already
+ * computed and counted server-side, and it now carries the row on its own.
  *
- * The plan names this as the trap: an artifact list makes you want to build the
- * generate modal, and that is FR4's. So an empty entry opens `?modal=generate`
- * with its kind, and `GenerateModalPlaceholder` says plainly that FR4 builds
- * it. A documented handoff is complete work for FR3.
+ * The badge component still exists for home and the overview, which list
+ * *notebooks* — a roll-up across artifacts, where a state chip does earn its
+ * place. See `artifact-bits.tsx`.
+ *
+ * **Loading gets its own format when the time comes.** A `generating` row is
+ * currently a plain dimmed row saying so; the progress surface is
+ * `GenerationPanel` above. Deliberately not a spinner-per-row — the contract
+ * cannot say which artifact a running job is building (`Job.result` is
+ * populated only on success), which is written up in `GenerationPanel`.
  */
-export function StudioPane({
-  notebookId,
-  sources,
-}: {
-  notebookId: string;
-  sources: Source[] | undefined;
-}) {
+export function StudioPane({ notebookId }: { notebookId: string }) {
   const artifacts = useArtifacts(notebookId);
-  const grouped = groupByKind(artifacts.data);
   const { openModal } = useModal();
 
   /*
@@ -79,11 +82,13 @@ export function StudioPane({
   const [pendingDelete, setPendingDelete] = useState<Artifact | null>(null);
 
   /*
-   * Which source ids still resolve. Passed down so every row can answer "is
-   * this provenance link still live?" without each of them rebuilding the set —
-   * and, more importantly, so the dangling case is handled in exactly one place.
+   * Newest first. The list is flat across kinds now, so it needs an order of
+   * its own: creation time is the one every kind shares and the one that
+   * matches what a user is looking for after a generation lands.
    */
-  const liveSourceIds = new Set((sources ?? []).map(source => source.id));
+  const ordered = [...(artifacts.data ?? [])].sort(
+    (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -106,10 +111,12 @@ export function StudioPane({
 
         {artifacts.data && (
           <div className="flex flex-col gap-gutter">
+            <GeneratorGrid notebookId={notebookId} />
+
             {/*
               What is running, what failed, and what finished with gaps — above
-              the entries, because it is the thing that changed since the user
-              last looked. FR4 task 2.
+              the list and below the grid, because it is the bridge between
+              them: it reports on what the grid just started. FR4 task 2.
             */}
             <GenerationPanel
               notebookId={notebookId}
@@ -132,15 +139,40 @@ export function StudioPane({
               }}
             />
 
-            {STUDIO_ENTRIES.map(entry => (
-              <StudioSection
-                key={entry.id}
-                entry={entry}
-                notebookId={notebookId}
-                artifacts={entry.kind ? grouped[entry.kind] : []}
-                liveSourceIds={liveSourceIds}
-              />
-            ))}
+            {/*
+              `mt-base` on top of the container's `gap-gutter`. The grid and
+              the list answer two different questions — what can I make, what
+              have I made — and at one uniform gap they read as one continuous
+              stack of tiles. The extra step is what separates them.
+            */}
+            <section className="mt-base flex flex-col gap-tight">
+              <div className="flex items-center gap-tight px-tight">
+                <h3 className="text-sm font-medium">Artifacts</h3>
+                {ordered.length > 0 && (
+                  <span className="text-muted-foreground ml-auto text-xs tabular-nums">
+                    {ordered.length}
+                  </span>
+                )}
+              </div>
+
+              {ordered.length === 0 ? (
+                <EmptyState
+                  title="Nothing generated yet"
+                  description="Pick something above and it will appear here."
+                />
+              ) : (
+                <ul className="flex flex-col gap-hairline">
+                  {ordered.map(artifact => (
+                    <li key={artifact.id}>
+                      <ArtifactRow
+                        artifact={artifact}
+                        notebookId={notebookId}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           </div>
         )}
       </div>
@@ -184,197 +216,236 @@ export function StudioPane({
 }
 
 /**
- * The five entries.
+ * What this notebook can make.
  *
  * `kind` is the contract's `ArtifactKind` for the four that are one, and `null`
- * for Diagnostics, which is a view rather than a thing you generate. The null
+ * for Diagnostics, which is a *view* over attempts and card states rather than
+ * a thing you generate — FR6 builds it, and it links to the overview. The null
  * is what stops a later session wiring a "generate a diagnostic" modal to a
- * kind that does not exist in the contract.
+ * kind that does not exist in the contract. Recorded in the plan's §6.4.
  */
-type StudioEntry = {
+type Generator = {
   id: string;
   label: string;
-  /**
-   * The label in "+ New …". Separate from `label` because the entry's heading
-   * and the verb phrase want different words: the heading is "Exam simulator",
-   * which names the surface, and "+ New exam simulator" is not what a user
-   * would call the thing they are about to make.
-   */
-  newLabel: string;
   icon: LucideIcon;
   kind: ArtifactKind | null;
-  /** What the entry says when the notebook has none of these yet. */
-  empty: string;
+  /** One line under the label, saying what the thing is for. */
+  blurb: string;
 };
 
-const STUDIO_ENTRIES: readonly StudioEntry[] = [
+const GENERATORS: readonly Generator[] = [
   {
     id: 'quiz',
-    newLabel: 'quiz',
     label: 'Quiz',
     icon: FileQuestionIcon,
     kind: 'quiz',
-    empty: 'Check yourself on a few questions.',
+    blurb: 'A few questions to check yourself',
   },
   {
     id: 'deck',
-    newLabel: 'cards',
     label: 'Cards',
     icon: LayersIcon,
     kind: 'deck',
-    empty: 'Spaced repetition over your sources.',
+    blurb: 'Spaced repetition over your sources',
   },
   {
     id: 'noteset',
-    newLabel: 'note set',
     label: 'Notes',
     icon: BookOpenIcon,
     kind: 'noteset',
-    empty: 'A structured summary you can read and mark off.',
+    blurb: 'A structured summary to read and mark off',
   },
   {
     id: 'exam',
-    newLabel: 'exam',
-    label: 'Exam simulator',
+    label: 'Exam',
     icon: ClipboardListIcon,
     kind: 'exam',
-    empty: 'A timed paper, built to a blueprint.',
+    blurb: 'A timed paper, built to a blueprint',
   },
   {
     id: 'diagnostics',
-    newLabel: 'diagnostics',
     label: 'Diagnostics',
     icon: StethoscopeIcon,
     kind: null,
-    empty: 'Where you are strong and where you are not.',
+    blurb: 'Where you are strong and where you are not',
   },
 ];
 
-function StudioSection({
-  entry,
-  notebookId,
-  artifacts,
-  liveSourceIds,
-}: {
-  entry: StudioEntry;
-  notebookId: string;
-  artifacts: Artifact[];
-  liveSourceIds: ReadonlySet<string>;
-}) {
-  const { openModal } = useModal();
-  const Icon = entry.icon;
-
+/**
+ * The grid. Two columns, because the Studio is a 26%-wide pane that resizes
+ * down to 18% — three would put four words on four lines.
+ */
+function GeneratorGrid({ notebookId }: { notebookId: string }) {
   return (
     <section className="flex flex-col gap-tight">
-      <div className="flex items-center gap-tight px-tight">
-        <Icon className="text-muted-foreground size-4 shrink-0" aria-hidden />
-        <h3 className="text-sm font-medium">{entry.label}</h3>
-        {artifacts.length > 0 && (
-          <span className="text-muted-foreground ml-auto text-xs tabular-nums">
-            {artifacts.length}
-          </span>
-        )}
-      </div>
-
-      {/*
-        Diagnostics is a view over what the other four produced, so it links to
-        FR6's overview rather than offering to generate anything.
-      */}
-      {entry.kind === null ? (
-        <Button variant="outline" size="sm" className="justify-start" asChild>
-          <Link to={notebookPath.overview(notebookId)}>{entry.empty}</Link>
-        </Button>
-      ) : artifacts.length === 0 ? (
-        <Button
-          variant="outline"
-          size="sm"
-          className="text-muted-foreground justify-start font-normal"
-          onClick={() => {
-            openModal('generate', { kind: entry.kind ?? '' });
-          }}
-        >
-          {entry.empty}
-        </Button>
-      ) : (
-        <ul className="flex flex-col gap-hairline">
-          {artifacts.map(artifact => (
-            <li key={artifact.id}>
-              <ArtifactRow
-                artifact={artifact}
-                notebookId={notebookId}
-                liveSourceIds={liveSourceIds}
-              />
-            </li>
-          ))}
-          <li>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground w-full justify-start font-normal"
-              onClick={() => {
-                openModal('generate', { kind: entry.kind ?? '' });
-              }}
-            >
-              + New {entry.newLabel}
-            </Button>
+      <h3 className="px-tight text-sm font-medium">Create</h3>
+      <ul className="grid grid-cols-2 gap-hairline">
+        {GENERATORS.map(generator => (
+          <li key={generator.id} className="min-w-0">
+            <GeneratorTile generator={generator} notebookId={notebookId} />
           </li>
-        </ul>
-      )}
+        ))}
+      </ul>
     </section>
   );
 }
 
+function GeneratorTile({
+  generator,
+  notebookId,
+}: {
+  generator: Generator;
+  notebookId: string;
+}) {
+  const { openModal } = useModal();
+  const Icon = generator.icon;
+
+  const body = (
+    <>
+      <Icon className="text-muted-foreground size-4 shrink-0" aria-hidden />
+      <span className="mt-hairline block truncate text-sm font-medium">
+        {generator.label}
+      </span>
+      <span className="text-muted-foreground mt-hairline block text-xs leading-snug">
+        {generator.blurb}
+      </span>
+    </>
+  );
+
+  const className =
+    'hover:bg-accent flex h-full w-full flex-col rounded-md border p-tight text-left transition-colors';
+
+  /*
+   * Diagnostics is a view over what the other four produced, so it navigates
+   * rather than offering to generate anything.
+   */
+  if (generator.kind === null) {
+    return (
+      <Link to={notebookPath.overview(notebookId)} className={className}>
+        {body}
+      </Link>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={className}
+      onClick={() => {
+        openModal('generate', { kind: generator.kind ?? '' });
+      }}
+    >
+      {body}
+    </button>
+  );
+}
+
 /**
- * One artifact: its title, its readiness, and where it came from.
+ * One artifact: what kind it is, what state you are in with it, and its title.
  *
  * A `generating` or `failed` artifact is a real, listable row that is **not a
  * link** — the contract says `generating` is "greyed, unopenable", and a failed
  * one has nothing to open. Both keep their row so the user can see what
  * happened, which is the alternative to a generate button that appears to do
  * nothing.
+ *
+ * ── No provenance here, and where it went instead ────────────────────────
+ *
+ * These rows used to carry a `Provenance` line naming the sources each
+ * artifact was built from. In a rail this narrow it was a third line of small
+ * grey text under every row, and it pushed the thing you came for — the title
+ * and its state — into a denser column.
+ *
+ * **The dangling-source rule it implemented has not been dropped**, it has
+ * moved: `Provenance` still lives in `artifact-bits.tsx` and still renders on
+ * FR6's overview, where a row is wide enough to carry it and where "where did
+ * this exam come from?" is the question actually being asked. The Studio
+ * answers "what have I got, and what do I do next?"
  */
 function ArtifactRow({
   artifact,
   notebookId,
-  liveSourceIds,
 }: {
   artifact: Artifact;
   notebookId: string;
-  liveSourceIds: ReadonlySet<string>;
 }) {
+  /*
+   * ── Two lines, and the button only sits beside the second ──────────────
+   *
+   * Kind and state get a full-width line to themselves; the title and the
+   * play button share the line below it.
+   *
+   * The alternative — one text column with the button beside all of it — makes
+   * the button's height the row's height, and the state tag ends up indented
+   * out of the space the button reserves. The state is the thing the eye runs
+   * down a mixed list looking for, so it gets the clean right edge, and the
+   * button reserves vertical space only on the line it actually occupies.
+   */
   const body = (
     <>
-      <div className="flex items-start gap-tight">
+      {/*
+        `readiness.detail` is server-computed and rendered as received: "Not
+        sat", "3 of 8 questions unsat", "12 cards due".
+      */}
+      <div className="text-muted-foreground flex items-baseline gap-tight text-xs">
+        <span className="shrink-0 font-medium tracking-wide uppercase">
+          {KIND_LABELS[artifact.kind]}
+        </span>
+        <span className="ml-auto min-w-0 truncate text-right">
+          {artifact.readiness.detail}
+        </span>
+      </div>
+
+      <div className="mt-hairline flex items-center gap-tight">
         <p className="min-w-0 flex-1 truncate text-sm font-medium" title={artifact.title}>
           {artifact.title}
         </p>
-        <ReadinessBadge readiness={artifact.readiness} status={artifact.status} />
+        {artifact.status === 'ready' && (
+          /*
+           * Deliberately not a nested interactive element — a `<button>` inside
+           * an `<a>` is invalid HTML and gives one destination two tab stops.
+           * It is a styled `<span>`, so the row stays one link and one tab
+           * stop while the glyph says where that link goes: away from the
+           * notebook, into a full-screen runner.
+           */
+          <PlayIcon
+            className="text-muted-foreground group-hover:text-foreground size-4 shrink-0 transition-colors"
+            aria-hidden
+          />
+        )}
       </div>
-
-      {/* Server-computed and rendered as received — "12 cards due". */}
-      <p className="text-muted-foreground mt-hairline text-xs">
-        {artifact.readiness.detail}
-      </p>
-
-      <Provenance artifact={artifact} liveSourceIds={liveSourceIds} />
     </>
   );
 
-  const className =
-    'block w-full rounded-md border p-tight text-left transition-colors';
+  const className = 'block w-full rounded-md border p-tight text-left transition-colors';
 
   if (artifact.status !== 'ready') {
-    return (
-      <div className={`${className} bg-muted/30 text-muted-foreground`}>{body}</div>
-    );
+    return <div className={`${className} bg-muted/30 text-muted-foreground`}>{body}</div>;
   }
 
   return (
-    <Link to={runnerPath(notebookId, artifact)} className={`${className} hover:bg-accent`}>
+    <Link
+      to={runnerPath(notebookId, artifact)}
+      className={`${className} hover:bg-accent group`}
+    >
       {body}
     </Link>
   );
 }
+
+/**
+ * What a kind is called in a row.
+ *
+ * Keyed by `ArtifactKind` rather than derived from `GENERATORS`, so it is a
+ * total map the compiler checks: a fifth kind added to the contract fails to
+ * typecheck here until it is named, which is the failure you want.
+ */
+const KIND_LABELS: Record<ArtifactKind, string> = {
+  deck: 'Cards',
+  quiz: 'Quiz',
+  noteset: 'Notes',
+  exam: 'Exam',
+};
 
 /**
  * Where an artifact opens. **Every runner names its artifact** — that is FR2's
@@ -393,4 +464,3 @@ function runnerPath(notebookId: string, artifact: Artifact): string {
       return notebookPath.notes(notebookId, artifact.id);
   }
 }
-

@@ -20,8 +20,8 @@
  *     overwrite each other and produce files of the right length holding the
  *     wrong glyphs.
  *  2. **Family names come from the font binary, not from the CSS.** `globals.css`
- *     says `Plus Jakarta Sans Variable`; the name resvg can match is
- *     `Plus Jakarta Sans`.
+ *     says `Mona Sans Variable`; the name resvg can match is
+ *     `Mona Sans`.
  *  3. **No `font-weight`, anywhere.** These are variable faces, and resvg matches
  *     the default instance. Asking for 600 risks the silent family fallback in
  *     (1), so hierarchy here is carried by size, colour and case instead. This is
@@ -48,13 +48,13 @@ const out = join(root, 'assets', 'hero');
 
 const FAMILY = {
   serif: 'DM Serif Display',
-  sans: 'Plus Jakarta Sans',
+  sans: 'Mona Sans',
   mono: 'JetBrains Mono',
 };
 
 const WOFF2 = [
   '@fontsource/dm-serif-display/files/dm-serif-display-latin-400-normal.woff2',
-  '@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2',
+  '@fontsource-variable/mona-sans/files/mona-sans-latin-wght-normal.woff2',
   '@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2',
 ];
 

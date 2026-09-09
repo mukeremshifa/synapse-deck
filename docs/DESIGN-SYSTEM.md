@@ -161,8 +161,8 @@ which is how `font-serif` ended up on some headings and not others.
 
 | Face | Job | The test |
 | --- | --- | --- |
-| **sans** — Plus Jakarta Sans | Everything. | The default, and the answer unless one of the two below applies. |
-| **serif** — DM Serif Display | The name of the thing you are looking at, **once per screen**. | A page title. Never body text, never a label, never twice on one screen. |
+| **sans** — Mona Sans | Everything. | The default, and the answer unless one of the two below applies. |
+| **serif** — DM Serif Display | The name of the thing you are looking at, **once per screen** — and the front of a card. | A page title, a question. Never a label, never twice on one screen outside card content. |
 | **mono** — JetBrains Mono | A value you might compare, count or type. | A number, an interval, an id, an email, a keyboard hint. Tabular numerals are the point; decoration is not. |
 
 **Enforced, not just written down.** `PageHeader` owns the serif face — a screen gets it by
