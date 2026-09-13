@@ -25,7 +25,7 @@ Commit the work in progress. This is the everyday path — fast gate, then commi
 
 3. **Commit to `dev`** (or the current topic branch). Write a concise imperative subject
    saying what changed, and a body only where the *why* is not obvious. Match the
-   existing history; see `docs/adr/0003-branching-model.md`.
+   existing history.
 
 4. **Push it.**
 

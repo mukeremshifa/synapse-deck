@@ -17,10 +17,10 @@ so no number on the page is an estimate of something the app did not record.
 `/progress`, error boundaries, a real 404, `/auth/callback`, split route bundles, a closed
 design system, and — since P7 — a public landing page at `/` that reaches no data layer and
 fires no requests. That page had a revision pass on 2026-08-14 and is the one screen that
-works on a phone; everything behind the login is still desktop web (SPEC §12 (6), and
-POST-V1 item 10). See [docs/SPEC.md](docs/SPEC.md) for the specification and
-[docs/plans/](docs/plans/) for the per-phase execution plans; the board there is closed, and
-what remains is in [docs/plans/POST-V1.md](docs/plans/POST-V1.md).
+works on a phone; everything behind the login is still desktop web. See
+[docs/SPEC.md](docs/SPEC.md) for what the product is, [docs/ROADMAP.md](docs/ROADMAP.md)
+for what comes next, and [docs/HISTORY.md](docs/HISTORY.md) for the decisions that still
+bind.
 
 Two steps are the owner's and are **not done**, and the app is not yet deployed because of
 them: the Edge Function has no `GROQ_API_KEY` and has never been deployed, and no Vercel
@@ -50,7 +50,7 @@ npm run verify    # ~35s — whole-repo lint, typecheck, build, Edge Function. C
 ```
 
 **There are no tests.** The suite was deleted on 2026-09-05 to keep iteration fast through
-the AWS-native rebuild — see [ADR 0005](docs/adr/0005-no-test-suite.md). Both commands
+the AWS-native rebuild — see [docs/HISTORY.md](docs/HISTORY.md). Both commands
 prove the code compiles, lints and builds; neither proves it works.
 
 ## Scripts
@@ -239,7 +239,7 @@ This project used to run the real files in `supabase/migrations` against
 [PGlite](https://github.com/electric-sql/pglite) — Postgres compiled to WASM, in process —
 so schema constraints and every RLS policy were checked on every test run, with no
 container and no cloud project. **That harness was deleted on 2026-09-05**
-([ADR 0005](docs/adr/0005-no-test-suite.md)).
+(see [docs/HISTORY.md](docs/HISTORY.md)).
 
 Nothing now checks a migration before `npm run db:push` applies it to the live database.
 Until a suite is rebuilt:

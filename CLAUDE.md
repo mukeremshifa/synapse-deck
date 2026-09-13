@@ -3,8 +3,8 @@
 Read this before doing anything in this repo.
 
 Then read [docs/AGENTS.md](docs/AGENTS.md) — this file is the hard constraints, that one
-is how to work here efficiently. Architectural decisions and their reasoning are in
-[docs/adr/](docs/adr/).
+is how to work here efficiently. The decisions that still bind are in
+[docs/HISTORY.md](docs/HISTORY.md); what comes next is [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Git — hard constraints
 
@@ -44,8 +44,7 @@ its own PR is ceremony that reviews nothing. Merge into `dev` directly.
 
 Topic branches off `dev` are yours whenever the work warrants one — speculative work
 (`spike/`), work spanning several sessions, or when another agent is on `dev`. Anything
-smaller goes straight to `dev`. See [ADR 0003](docs/adr/0003-branching-model.md), and
-[ADR 0004](docs/adr/0004-dev-autonomy-main-frozen.md) for why this changed.
+smaller goes straight to `dev`.
 
 **`supabase db push` is not a git push and is not covered by any of the above.** See below.
 
@@ -53,12 +52,16 @@ smaller goes straight to `dev`. See [ADR 0003](docs/adr/0003-branching-model.md)
 
 - `docs/SPEC.md` — what the product is, and why each decision was made. The source of
   truth for scope. Update it when a decision changes; do not let code and spec drift.
-- `docs/plans/` — one execution plan per phase. `docs/plans/README.md` holds the board and
-  the convention. Only the next phase gets a detailed plan; the last task of every plan is
-  to write the next one.
+- `docs/ROADMAP.md` — the three priorities, in order, and what is decided within each.
+- `docs/HISTORY.md` — the decisions that still bind, and the SHA holding everything that
+  was deleted.
 
-Respect the phase boundaries. If something belongs to a later phase, it goes in that
-phase's plan, not into the current commit — even when it would take five minutes now.
+**The phase plans and ADRs are gone** — 40 plans and 17 ADRs, deleted 2026-09-13, archived
+at `fc4cdfc`. Do not write new ones. Do not recreate `docs/plans/`. Four files is the
+whole of `docs/`, and it stays that way.
+
+Respect the roadmap order. If something belongs to priority 2 or 3, it does not go into a
+priority 1 commit — even when it would take five minutes now.
 
 ## Database
 
@@ -78,7 +81,7 @@ phase's plan, not into the current commit — even when it would take five minut
   repository; the database is this project's own schema.
 
   **The safety net that used to precede this is gone.** PGlite ran every migration before
-  it reached the live database; the suite was deleted on 2026-09-05 (ADR 0005), so nothing
+  it reached the live database; the suite was deleted on 2026-09-05, so nothing
   now checks a migration except you reading it. Treat `db:push` as the sharp tool it has
   become:
 
@@ -91,7 +94,7 @@ phase's plan, not into the current commit — even when it would take five minut
 - Destructive database operations are **not** covered by that. `supabase db reset`, dropping
   a table, deleting rows in the live project: ask first, every time.
 - Migrations are **no longer verified anywhere before they reach the live database.** The
-  PGlite harness that did that was deleted with the suite (ADR 0005). `supabase/pg-version.json`
+  PGlite harness that did that was deleted with the suite. `supabase/pg-version.json`
   still records the expected Postgres major and `npm run db:pg-version` still compares it
   against the live project, but the test that enforced it is gone — run it by hand when
   anything about the environment changes.
@@ -102,7 +105,7 @@ phase's plan, not into the current commit — even when it would take five minut
 
 ### Tenancy on RDS — weaker than what it replaced, and say so
 
-**RLS is retired on the AWS side** (P9, [ADR 0008](docs/adr/0008-application-level-tenancy.md)).
+**RLS is retired on the AWS side** (see [HISTORY.md](docs/HISTORY.md)).
 `services/api/migrations/` has no policies, because RDS has no `auth.uid()` and no
 `authenticated` role to write them against.
 
@@ -134,8 +137,7 @@ module that follows all four rules is a cross-tenant leak, not a TODO.**
 
 ## AWS — `infra/`
 
-Added at P8, the first phase of the AWS-native build
-([the brief](docs/plans/AWS-NATIVE-BRIEF.md)). `infra/` is CDK in TypeScript, two stacks,
+`infra/` is CDK in TypeScript, two stacks,
 region `us-east-1`.
 
 | Action                                          | Who               |
@@ -166,7 +168,7 @@ Nothing in `infra/` may declare a TypeScript `enum` — CDK runs under
   The legacy `anon` / `service_role` JWTs are not used.
 - The secret key maps to `service_role` (`BYPASSRLS`) and must never appear in client env,
   the repo, or a build. `src/lib/env-schema.ts` refuses to boot if it finds one; that
-  refusal was tested until the suite was deleted (ADR 0005), so that file is now the only
+  refusal was tested until the suite was deleted, so that file is now the only
   thing enforcing it. Do not weaken it.
 - Provider API keys (e.g. Groq) live only as Edge Function secrets.
 
@@ -192,7 +194,7 @@ uncommitted and say so.
 
 **The suite — 31 suites, 359 tests — was deleted on 2026-09-05** at the owner's
 instruction, to prioritise fast, token-cheap development through the AWS-native build.
-See [ADR 0005](docs/adr/0005-no-test-suite.md).
+See [HISTORY.md](docs/HISTORY.md).
 
 Do not write tests. Do not add a test runner, and do not reintroduce one incidentally by
 reaching for `vitest` out of habit — `vitest`, `jsdom`, `@testing-library/*` and

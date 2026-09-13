@@ -13,12 +13,12 @@ The AWS side of the project. TypeScript CDK, **three stacks per environment** (`
 lifecycles from observability: a mistake in a user pool should not force a redeploy of the
 alarms that would tell you about it, and an RDS change should not risk the budgets.
 
-Executed against [docs/plans/P8-aws-foundation.md](../docs/plans/P8-aws-foundation.md) and
-[P9-aws-slice.md](../docs/plans/P9-aws-slice.md). The decisions behind it are in
-[AWS-NATIVE-BRIEF.md](../docs/plans/AWS-NATIVE-BRIEF.md) — D7 (CDK from the first
-resource), D8 (Actions + OIDC), D9 (observability ships first) — plus
-[ADR 0006](../docs/adr/0006-rds-dynamodb-split.md) and
-[ADR 0007](../docs/adr/0007-cognito-for-identity.md).
+Three decisions shaped it: CDK from the first resource, GitHub Actions + OIDC (no
+long-lived keys), and observability before features.
+
+> **This stack is frozen.** [ROADMAP.md](../docs/ROADMAP.md) priority 2 moves off AWS;
+> priority 3 keeps re-adopting it a config change rather than a rebuild. Nothing here gets
+> deleted, and nothing here gets extended until priority 2 has chosen its vendors.
 
 ---
 
@@ -40,7 +40,7 @@ every other destroy. On `dev` that is safe by construction (`deletionProtection:
 
 ## ⚠ Nothing here is tested, and CDK typechecking proves less than it looks like
 
-There is no test suite ([ADR 0005](../docs/adr/0005-no-test-suite.md)), and CDK is not an
+There is no test suite, and CDK is not an
 exception. `npm run check` proves this code **compiles**. It does not prove the
 synthesised CloudFormation template is correct, that an IAM policy is scoped the way the
 comment above it claims, or that an alarm will ever fire.
@@ -118,7 +118,7 @@ One trivial deployed thing, wrapped in the governance every later phase inherits
 | SRP + refresh auth flows | `USER_PASSWORD_AUTH` is deliberately absent |
 | `preventUserExistenceErrors` | Otherwise a public signup is a user-enumeration oracle |
 
-**No hosted UI and no Cognito domain** ([ADR 0007](../docs/adr/0007-cognito-for-identity.md)).
+**No hosted UI and no Cognito domain.**
 The app's own screens in `src/features/auth/` stay; Cognito sits behind them as a plain
 OIDC provider. **No pre-token-generation Lambda** either — `sub` is already the claim we
 want, and a Lambda there would be a cold start on the login path to add nothing.

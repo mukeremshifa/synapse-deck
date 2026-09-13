@@ -331,7 +331,7 @@ Two dependencies added, exactly the two the brief named as genuine gaps:
 
 ## 8. What is not verified
 
-There are no tests ([ADR 0005](adr/0005-no-test-suite.md)). `check` and `verify` prove this
+There are no tests ([HISTORY.md](HISTORY.md)). `check` and `verify` prove this
 **typechecks and builds** — not that it works, and not that it looks good.
 
 Specifically:

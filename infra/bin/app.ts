@@ -64,7 +64,7 @@ for (const envName of ['dev', 'prod'] as const satisfies readonly EnvName[]) {
     config,
     gitSha,
     env,
-    description: `SynapseDeck AWS foundation (${envName}) - see docs/plans/P8-aws-foundation.md`,
+    description: `SynapseDeck AWS foundation (${envName})`,
   });
 
   // P9. Separate stacks rather than additions to the foundation, because
@@ -73,13 +73,13 @@ for (const envName of ['dev', 'prod'] as const satisfies readonly EnvName[]) {
   const auth = new AuthStack(app, `SynapseDeck-Auth-${envName}`, {
     config,
     env,
-    description: `SynapseDeck Cognito identity (${envName}) - see docs/plans/P9-aws-slice.md`,
+    description: `SynapseDeck Cognito identity (${envName})`,
   });
 
   const data = new DataStack(app, `SynapseDeck-Data-${envName}`, {
     config,
     env,
-    description: `SynapseDeck RDS Postgres and VPC (${envName}) - see docs/plans/P9-aws-slice.md`,
+    description: `SynapseDeck RDS Postgres and VPC (${envName})`,
   });
 
   /**
@@ -122,7 +122,7 @@ for (const envName of ['dev', 'prod'] as const satisfies readonly EnvName[]) {
     corsOrigin,
     cardProvider,
     env,
-    description: `SynapseDeck ingestion job state (${envName}) - see docs/plans/P10-ingestion.md`,
+    description: `SynapseDeck ingestion job state (${envName})`,
   });
 
   /**
@@ -144,7 +144,7 @@ for (const envName of ['dev', 'prod'] as const satisfies readonly EnvName[]) {
     stateMachine: pipeline.stateMachine,
     corsOrigin,
     env,
-    description: `SynapseDeck API Gateway and Lambdas (${envName}) - see docs/plans/P9-aws-slice.md`,
+    description: `SynapseDeck API Gateway and Lambdas (${envName})`,
   });
 
   for (const stack of [foundation, auth, data, api, pipeline]) {

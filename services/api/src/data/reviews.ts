@@ -85,7 +85,7 @@ export async function undoLastReview(userId: string, cardId: string): Promise<Ca
 // Progress reads
 //
 // **Nothing calls these during P9.** /progress stays on Supabase for this phase
-// (the split table in docs/plans/P9-aws-slice.md), because porting the whole
+// (the split table), because porting the whole
 // aggregate is work Phase F has to do anyway and doing it now would mean
 // building the page twice.
 //

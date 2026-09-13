@@ -6,7 +6,7 @@
  * `supabase/functions/_shared/prompts/cards.ts` holds v1's prompt. This is not
  * that file imported, and the reason is a hard constraint rather than a
  * preference: that tree is compiled by Deno and excluded from `tsc` and ESLint
- * (see docs/plans/README.md), and it is the Supabase path that Phase F retires.
+ * and it is the legacy Supabase path, which is being retired.
  * Importing across that boundary would put the API's generation quality behind
  * a compiler this project does not run over the API.
  *

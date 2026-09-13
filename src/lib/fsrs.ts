@@ -22,7 +22,7 @@ import { Grade } from './schemas.ts';
  * Everything here is pure. No Supabase import, no React, no clock read that is
  * not passed in as `now`. That is what makes a simulated week testable.
  *
- * Configuration (recorded in docs/plans/P1-core-loop.md):
+ * Configuration:
  *   ts-fsrs 5.4.1, default weights `w`, default request_retention (0.90),
  *   default learning/relearning steps, fuzz ENABLED.
  */

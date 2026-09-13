@@ -26,10 +26,12 @@ owner knows what to look at.
 
 ### 3. Update the docs
 
-- `docs/SPEC.md` — if a product decision changed. Code and spec must not drift.
-- `docs/plans/README.md` — the board.
-- `docs/adr/` — an ADR for any architectural decision made since the last checkpoint that
-  is expensive to reverse.
+- `docs/SPEC.md` — if a product decision changed. Edit in place; git holds the old version.
+- `docs/ROADMAP.md` — tick off what is done, or record a decision taken within a priority.
+- `docs/HISTORY.md` — only for a decision that is expensive to reverse and now binds.
+
+**Do not create a new document.** Four files is the whole of `docs/`; there is no
+`plans/` and no `adr/`.
 
 ### 4. Commit and push
 

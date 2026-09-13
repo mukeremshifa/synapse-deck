@@ -26,7 +26,7 @@ Function — the one part of the codebase tsc and eslint both skip.
 
 The suite (31 suites, 359 tests) was **deleted on 2026-09-05** at the owner's instruction,
 to keep development fast and token-cheap through the AWS-native build. See
-[ADR 0005](adr/0005-no-test-suite.md).
+[HISTORY.md](HISTORY.md).
 
 **Do not write tests, and do not add a runner.** `vitest`, `jsdom`, `@testing-library/*`
 and `@electric-sql/pglite` were removed from `package.json` on purpose; reaching for one
@@ -104,11 +104,18 @@ src/lib/          pure logic — fsrs, schemas, queue, quota
 src/features/     one directory per product area; screens live with their logic
 src/app/          shell — routing, providers, theme, error boundary
 src/components/   shadcn primitives in ui/, shared bits above it
-supabase/         migrations (plain SQL, filename order) + Deno edge functions
-docs/SPEC.md      what and why. The source of truth for scope.
-docs/plans/       one plan per phase; README.md is the board
-docs/adr/         one file per architectural decision (see §6)
+services/api/     the backend — data/ holds ALL SQL and the tenancy boundary
+infra/            CDK, two stacks. Frozen; do not delete (see ROADMAP priority 3)
+supabase/         legacy migrations + Deno edge functions, being retired
+
+docs/SPEC.md      what the product is, as it exists today
+docs/ROADMAP.md   the three priorities, in order
+docs/HISTORY.md   decisions that still bind + the archive SHA
+docs/DESIGN-SYSTEM.md  palette, tokens, states
 ```
+
+**Four files is the whole of `docs/`.** There is no `plans/` and no `adr/` — they were
+deleted 2026-09-13 and archived at `fc4cdfc`. Do not recreate either.
 
 **One Zod definition per concept**, in `src/lib/schemas.ts`, shared by client and Edge
 Function. Do not redefine a card shape anywhere else — this is in `CLAUDE.md` and it is
@@ -118,15 +125,15 @@ the rule most often broken by a session that did not look first.
 
 ## 6. Recording decisions
 
-Phase plans in `docs/plans/` are execution: ordered tasks, acceptance criteria.
+**Do not create a new document.** That habit produced 18,000 lines of plans and ADRs that
+stopped being read, and they are gone.
 
-ADRs in `docs/adr/` are architecture: one file per decision that is expensive to
-reverse. Write one when choosing between two viable designs, when the reason for a
-choice will not be obvious in six months, or when reversing it would mean a migration.
-Do not write one for a decision that documents itself in code.
+A decision that is expensive to reverse goes in `docs/HISTORY.md` under "Decisions that
+still bind" — a heading and a short section, no ceremony. A decision about what to build
+next goes in `docs/ROADMAP.md`. A change to what the product *is* edits `docs/SPEC.md` in
+place; do not append "superseded" notes, because git already holds the old version.
 
-Format is `NNNN-short-title.md`; see `docs/adr/0001-record-architecture-decisions.md`.
-The AWS work ahead is exactly the kind of thing this exists for.
+A decision that documents itself in code gets a code comment, not a document.
 
 ---
 
@@ -166,4 +173,4 @@ Rewriting history on `dev` (force-push, rebase) is owner-only — it can destroy
 session's work and is not recoverable from the remote. A topic branch you created
 yourself is exempt.
 
-See [ADR 0004](adr/0004-dev-autonomy-main-frozen.md) for why this changed.
+See [CLAUDE.md](../CLAUDE.md) for the rule.

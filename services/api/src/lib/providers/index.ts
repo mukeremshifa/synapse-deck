@@ -75,7 +75,7 @@ export function resolveProvider(): CardProvider {
       // harness needs. See DEMO-SPRINT-BRIEF D1.
       throw new Error(
         'CARD_PROVIDER="bedrock" is not implemented: model access has not been ' +
-          'granted on this account (docs/plans/DEMO-SPRINT-BRIEF.md §1). ' +
+          'granted on this account. ' +
           'Use CARD_PROVIDER=groq, which calls a real model today.',
       );
   }
