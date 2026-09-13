@@ -111,10 +111,11 @@ supabase/         legacy migrations + Deno edge functions, being retired
 docs/SPEC.md      what the product is, as it exists today
 docs/ROADMAP.md   the three priorities, in order
 docs/HISTORY.md   decisions that still bind + the archive SHA
+docs/BRIEF.md     the current session's marching orders; rewritten, never appended
 docs/DESIGN-SYSTEM.md  palette, tokens, states
 ```
 
-**Four files is the whole of `docs/`.** There is no `plans/` and no `adr/` — they were
+**Six files is the whole of `docs/`.** There is no `plans/` and no `adr/` — they were
 deleted 2026-09-13 and archived at `fc4cdfc`. Do not recreate either.
 
 **One Zod definition per concept**, in `src/lib/schemas.ts`, shared by client and Edge
