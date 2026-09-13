@@ -295,6 +295,7 @@ const ROUTES = [
   { method: 'POST', pattern: /^\/notebooks\/([^/]+)\/artifacts\/([^/]+)\/blocks$/, fn: 'artifacts', params: ['notebookId', 'artifactId'] },
   { method: 'POST', pattern: /^\/notebooks\/([^/]+)\/artifacts\/([^/]+)\/attempts$/, fn: 'artifacts', params: ['notebookId', 'artifactId'] },
   { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/artifacts\/([^/]+)\/cards$/, fn: 'artifacts', params: ['notebookId', 'artifactId'] },
+  { method: 'POST', pattern: /^\/notebooks\/([^/]+)\/artifacts\/([^/]+)\/cards$/, fn: 'artifacts', params: ['notebookId', 'artifactId'] },
   { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/artifacts$/, fn: 'artifacts', params: ['notebookId'] },
   { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/artifacts\/([^/]+)$/, fn: 'artifacts', params: ['notebookId', 'artifactId'] },
   { method: 'PATCH', pattern: /^\/notebooks\/([^/]+)\/artifacts\/([^/]+)$/, fn: 'artifacts', params: ['notebookId', 'artifactId'] },

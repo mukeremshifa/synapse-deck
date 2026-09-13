@@ -537,7 +537,7 @@ export class ApiStack extends Stack {
       'ArtifactInt',
     );
     route('/notebooks/{notebookId}/artifacts/{artifactId}/questions', [HttpMethod.GET], artifactsFn, 'ArtifactQuestionsInt');
-    route('/notebooks/{notebookId}/artifacts/{artifactId}/cards', [HttpMethod.GET], artifactsFn, 'ArtifactCardsInt');
+    route('/notebooks/{notebookId}/artifacts/{artifactId}/cards', [HttpMethod.GET, HttpMethod.POST], artifactsFn, 'ArtifactCardsInt');
     route(
       '/notebooks/{notebookId}/artifacts/{artifactId}/blocks',
       [HttpMethod.GET, HttpMethod.POST],

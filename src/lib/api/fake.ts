@@ -11,6 +11,7 @@ import type {
   Card,
   CardStates,
   CreateArtifactInput,
+  CreateCardInput,
   CreateNotebookInput,
   DueForecast,
   GlobalSummary,
@@ -1388,6 +1389,51 @@ export const fakeClient: ApiClient = {
     }),
 
   // ── Cards ────────────────────────────────────────────────────────────────
+
+  /**
+   * Cards written by hand. **The fresh FSRS state is the point of this method**
+   * — a created card has never been reviewed, so every counter is zero, there
+   * is no stability or difficulty yet, and it is due now. The same zero state
+   * `generatedCards` uses, because a card's origin does not change its
+   * schedule.
+   *
+   * A `quiz`, `noteset` or `exam` artifact is a 404 rather than an insert:
+   * cards belong to decks, and the server checks the kind in the same statement
+   * that checks ownership (`createArtifactCards`). A fake that accepted one
+   * would hide that.
+   *
+   * **Returns copies.** Handing out live store objects was a real bug once — a
+   * caller mutating what it got back changed the store behind every other
+   * query's back, and it made a staleness check impossible to fire.
+   */
+  createCards: (notebookId, input) =>
+    gate(() => {
+      const artifact = artifactOr404(notebookId, input.artifactId);
+      if (artifact.kind !== 'deck') fail('not_found');
+
+      const parsed: CreateCardInput = input;
+      const created: Card[] = parsed.payloads.map(payload => ({
+        id: id('card'),
+        artifactId: artifact.id,
+        notebookId: artifact.notebookId,
+        topicId: null,
+        payload,
+        sourceExcerpt: parsed.sourceExcerpt ?? null,
+        status: 'active' as const,
+        fsrsState: 'new' as const,
+        due: nowIso(),
+        stability: null,
+        difficulty: null,
+        reps: 0,
+        lapses: 0,
+        lastReviewedAt: null,
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+      }));
+
+      store.cards.push(...created);
+      return created.map(card => ({ ...card }));
+    }),
 
   listCards: (notebookId, artifactId, page) =>
     gate(() => {

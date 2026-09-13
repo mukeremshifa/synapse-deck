@@ -27,9 +27,11 @@ import {
   type AnswerInput,
 } from '../data/attempts.ts';
 import {
+  createArtifactCards,
   introducedToday,
   listArtifactCards,
   notebookQueue,
+  type FreshScheduling,
 } from '../data/cards.ts';
 import {
   listNoteBlocks,
@@ -40,6 +42,7 @@ import { getProfile } from '../data/profiles.ts';
 import { notebookExists } from '../data/notebooks.ts';
 import { listQuestions } from '../data/questions.ts';
 import {
+  CardPayload,
   QuestionPayload,
   QuestionResponse,
   gradeResponse,
@@ -69,6 +72,34 @@ import {
   toNoteTopic,
   toQuestion,
 } from './mappers.ts';
+
+/**
+ * The zero FSRS state, for a card that has never been reviewed.
+ *
+ * **The third copy of this in `handlers/`, and deliberately still a copy.**
+ * `cards.ts` and `generation.ts` each carry one, both for the same stated
+ * reason: importing ts-fsrs would pull the whole scheduling library into a
+ * Lambda bundle to compute one timestamp, and `createEmptyCard(now).due` is
+ * `now`. Every other field is the literal zero below.
+ *
+ * The real scheduler is not duplicated anywhere — every interval a review
+ * produces is computed by `applyGrade` on the client and validated by
+ * `review_card` in the database. This is the one case where FSRS has nothing to
+ * say. If a fresh card ever gains a non-trivial schedule, all three copies
+ * become wrong together, and the dependency gets re-decided rather than these
+ * constants edited.
+ */
+function freshScheduling(now: Date): FreshScheduling {
+  return {
+    fsrs_state: 'new',
+    due: now.toISOString(),
+    reps: 0,
+    lapses: 0,
+    scheduled_days: 0,
+    elapsed_days: 0,
+    learning_steps: 0,
+  };
+}
 
 export async function handler(event: ApiEvent): Promise<ApiResponse> {
   const { method, path } = event.requestContext.http;
@@ -257,9 +288,73 @@ export async function handler(event: ApiEvent): Promise<ApiResponse> {
     }
 
     if (path.endsWith('/cards')) {
-      if (method !== 'GET') throw new ApiError(405, `${method} is not allowed here.`);
+      if (method !== 'GET' && method !== 'POST') {
+        throw new ApiError(405, `${method} is not allowed here.`);
+      }
       const artifact = await getArtifact(userId, notebookId, artifactId, new Date());
       if (!artifact) throw notFound('Artifact');
+
+      /*
+       * A card written by hand, into a deck that already exists.
+       *
+       * **The kind is checked twice, and both checks are load-bearing.** Here,
+       * so a POST at a quiz says plainly that cards belong to decks; and again
+       * inside `createArtifactCards`, whose `owned_artifact` CTE matches only
+       * `kind = 'deck'` and inserts nothing otherwise. The first is the good
+       * error message, the second is the guarantee -- an ownership check that
+       * lives anywhere but the inserting statement is a race.
+       */
+      if (method === 'POST') {
+        if (artifact.kind !== 'deck') {
+          throw new ApiError(400, 'Cards can only be added to a deck.');
+        }
+
+        const body = readJsonBody(event) as {
+          payloads?: unknown;
+          sourceExcerpt?: unknown;
+        };
+        const raw = Array.isArray(body.payloads) ? body.payloads : [body.payloads];
+        if (raw.length === 0) throw new ApiError(400, 'At least one card is required.');
+        // A cap, because this array is client-controlled and every element
+        // becomes a row. One edit produces a handful of cards; a thousand is
+        // not a use case, it is a way to fill a table.
+        if (raw.length > 100) {
+          throw new ApiError(400, 'At most 100 cards can be created at once.');
+        }
+        // Every payload through the shared schema. Card content is untrusted
+        // and this is the last point before a `jsonb` column.
+        const payloads = raw.map(payload => CardPayload.parse(payload));
+        const sourceExcerpt =
+          typeof body.sourceExcerpt === 'string' ? body.sourceExcerpt : null;
+
+        const rows = await createArtifactCards(
+          userId,
+          artifactId,
+          payloads.map(payload => ({
+            kind: payload.kind,
+            payload,
+            sourceExcerpt,
+          })),
+          freshScheduling(new Date()),
+        );
+        // No rows means the `owned_artifact` CTE matched nothing. The artifact
+        // was fetched above, so this is the narrow race where it was deleted in
+        // between -- the same 404 as any other ownership failure.
+        if (rows.length === 0) throw notFound('Deck');
+
+        /*
+         * `notebook_id` is supplied from the route rather than re-read.
+         * `createArtifactCards` returns plain `cards` rows and `toCard` needs
+         * the notebook, which the path already names and `getArtifact` above
+         * has already proved is the caller's. A second query to learn what the
+         * URL said would be a round trip to confirm a fact in hand.
+         */
+        return json(
+          201,
+          rows.map(row => toCard({ ...row, notebook_id: notebookId })),
+        );
+      }
+
       const limit = Math.min(Number(queryParam(event, 'limit') ?? 50), 100);
       const cursor = decodeCursor<{ createdAt: string; id: string }>(
         queryParam(event, 'cursor'),

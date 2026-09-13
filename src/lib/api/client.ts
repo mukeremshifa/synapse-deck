@@ -284,6 +284,25 @@ export const liveClient: ApiClient = {
         ),
     ),
 
+  /**
+   * **Notebook-scoped, unlike `updateCard` below.** The path names the notebook
+   * and the artifact — `/notebooks/{id}/artifacts/{id}/cards` — so the server
+   * can check the deck is the caller's, and a deck's, in the statement that
+   * inserts. The older `/decks/{deckId}/cards` route reaches the same handler
+   * logic through the pre-notebook table and is not what a notebook-model
+   * client should be calling.
+   *
+   * `201` with the created cards, plural: a cloze draft can be several.
+   */
+  createCards: (notebookId, input) =>
+    call(
+      async () =>
+        await api.post<Card[]>(
+          `${path.artifact(notebookId, input.artifactId)}/cards`,
+          { payloads: input.payloads, sourceExcerpt: input.sourceExcerpt ?? null },
+        ),
+    ),
+
   updateCard: (_notebookId, cardId, input) =>
     call(
       async () =>

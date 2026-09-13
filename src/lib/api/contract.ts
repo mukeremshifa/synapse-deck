@@ -741,6 +741,29 @@ export type Card = z.infer<typeof Card>;
 export const UpdateCardInput = z.object({ payload: CardPayload });
 export type UpdateCardInput = z.infer<typeof UpdateCardInput>;
 
+/**
+ * A card written by hand, and the deck it joins.
+ *
+ * **Content only — scheduling is server-set.** A card created here has never
+ * been reviewed, so its FSRS state is the zero state and the server decides it;
+ * there is no field for `due` or `stability` because a client that could name
+ * them could hand itself an interval it had not earned.
+ *
+ * **`artifactId` names the deck, and the card stays there.** Membership is
+ * fixed at creation for the same reason it is fixed at generation (§1.2(8)) —
+ * there is no move operation anywhere in this interface.
+ *
+ * **`payloads` is an array**, because one draft can be several cards: a cloze
+ * with three deletions is three cards, and the editor emits all of them. A
+ * singular field would force the caller to make three round trips for one act.
+ */
+export const CreateCardInput = z.object({
+  artifactId: z.string().min(1),
+  payloads: z.array(CardPayload).min(1),
+  sourceExcerpt: z.string().nullable().optional(),
+});
+export type CreateCardInput = z.infer<typeof CreateCardInput>;
+
 // ---------------------------------------------------------------------------
 // Review — FSRS state, per card
 // ---------------------------------------------------------------------------
@@ -1397,6 +1420,20 @@ export interface ApiClient {
     artifactId: string,
     page?: PageRequest,
   ): Promise<Page<Card>>;
+  /**
+   * Write cards by hand into a deck that already exists.
+   *
+   * **Returns every card the input produced.** One draft can be several cards —
+   * a cloze with three deletions is three — so this is plural where
+   * `updateCard` is singular, and the count is not knowable to the caller
+   * before the server answers.
+   *
+   * The cards come back with the zero FSRS state: `new`, due immediately, no
+   * stability and no difficulty. That is the one case where FSRS has nothing to
+   * say, which is why the client is allowed to create a card at all without
+   * being allowed to schedule one.
+   */
+  createCards(notebookId: string, input: CreateCardInput): Promise<Card[]>;
   updateCard(notebookId: string, cardId: string, input: UpdateCardInput): Promise<Card>;
   /** Out of the queue without losing history. Reversible. */
   setCardStatus(
