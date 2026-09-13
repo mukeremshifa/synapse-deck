@@ -1,5 +1,6 @@
 import { AlertTriangleIcon } from 'lucide-react';
 
+import { InlineText } from '@/components/InlineText';
 import type { NoteBlock, SourceSnapshot } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -34,18 +35,40 @@ import { cn } from '@/lib/utils';
  * cannot be added to a string without re-parsing content that was never
  * structured (the contract's own comment).
  *
- * So the two do not share code, and neither is a fallback for the other. A
- * block's text is rendered as text, with `whitespace-pre-wrap` doing the only
- * formatting there is.
+ * So the two do not share a *block* pass, and neither is a fallback for the
+ * other: `AnswerText` guesses structure out of one flat string — blank lines
+ * into paragraphs, `- ` lines into a list — and a note must never do that,
+ * because a `NoteBlock` already says what it is and guessing would override the
+ * generator.
+ *
+ * ── Inline formatting, which closes gap (1) below ────────────────────────
+ *
+ * They *do* now share the **inline** pass, `components/InlineText`. Gap (1) in
+ * the list below said a note "cannot bold a term mid-sentence — which is
+ * exactly what a study note wants to do", and called the asymmetry with chat
+ * odd. It is closed: `**bold**`, `*italic*`, `` `code` `` and `$x^2$` render as
+ * elements inside any block's text, which is ROADMAP.md priority 1's inline
+ * markdown and math.
+ *
+ * **No markdown library was added, and that is deliberate rather than lazy.**
+ * The rule at the top of this file is the reason: safety here is structural,
+ * and `InlineText` cannot emit HTML because it never builds a string anything
+ * parses as markup. A library would also parse block structure the contract
+ * does not have — there is no code, table or image block in `NoteBlock` — so a
+ * paragraph that happened to start with `# ` would silently become a heading
+ * inside a paragraph. The full argument is in `InlineText`.
+ *
+ * `whitespace-pre-wrap` stays: it keeps the generator's own line breaks, which
+ * are meaning the block union does not otherwise carry.
  *
  * ── What the schema could not express (FR5 §6.4) ─────────────────────────
  *
  * Recorded here because this is where it was found:
  *
- * 1. **No inline emphasis inside a block.** `paragraph.text` is one flat
- *    string, so a note cannot bold a term mid-sentence — which is exactly what
- *    a study note wants to do. `AnswerText` can do it for chat and this cannot
- *    do it for notes, which is the odd asymmetry of the current shapes.
+ * 1. ~~**No inline emphasis inside a block.**~~ **Closed** — see above.
+ *    `paragraph.text` is still one flat string, but `InlineText` renders the
+ *    inline forms within it, so a note can bold a term mid-sentence. The
+ *    asymmetry with chat is gone; both use the same pass.
  * 2. **No nested or multi-level lists**, and no rich list items: `items` is
  *    `string[]`, so a sub-point becomes a separate flat item or is lost.
  * 3. **No code, table, or image block.** Fine for the current material, and a
@@ -129,7 +152,7 @@ function Block({
           ref={attach as ((node: HTMLParagraphElement | null) => void) | undefined}
           className="leading-relaxed whitespace-pre-wrap scroll-mt-20"
         >
-          {block.text}
+          <InlineText text={block.text} />
         </p>
       );
 
@@ -142,7 +165,7 @@ function Block({
         >
           {block.items.map((item, position) => (
             <li key={position} className="whitespace-pre-wrap">
-              {item}
+              <InlineText text={item} />
             </li>
           ))}
         </ol>
@@ -154,7 +177,7 @@ function Block({
         >
           {block.items.map((item, position) => (
             <li key={position} className="whitespace-pre-wrap">
-              {item}
+              <InlineText text={item} />
             </li>
           ))}
         </ul>
@@ -168,7 +191,7 @@ function Block({
           className="border-border-strong space-y-tight border-l-2 pl-gutter scroll-mt-20"
         >
           <blockquote className="leading-relaxed whitespace-pre-wrap italic">
-            {block.text}
+            <InlineText text={block.text} />
           </blockquote>
           <Attribution
             sourceId={block.sourceId}

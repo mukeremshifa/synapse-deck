@@ -27,6 +27,7 @@ import {
   isTypingTarget,
 } from './QuizAnswer';
 import { QuestionPrompt } from './QuestionPrompt';
+import { QuestionNavigator } from './QuestionNavigator';
 import { AttemptReview } from './AttemptReview';
 import { NotReady, WrongKind } from './WrongKind';
 import {
@@ -622,6 +623,28 @@ function QuizRunner({
             )}
           </CardContent>
         </Card>
+
+        {/*
+          ── The navigator, ported from the exam ────────────────────────────
+
+          Previous and Next alone make a twenty-question quiz a corridor: the
+          only way to reach question 17 is to walk past sixteen. Worse, this
+          runner has had a flag control all along with nothing to find the
+          flagged question again — which the navigator's own note calls the
+          thing that makes flagging worth having.
+
+          It is shown only when there is something to navigate. On a
+          three-question quiz the grid is three squares above two buttons that
+          already reach all of them, which is chrome pretending to be a feature.
+        */}
+        {questions.length > 3 && (
+          <QuestionNavigator
+            questions={questions}
+            answers={answers}
+            currentIndex={index}
+            onNavigate={go}
+          />
+        )}
 
         <div className="flex items-center justify-between gap-3">
           <Button

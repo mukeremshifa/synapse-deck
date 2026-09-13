@@ -36,7 +36,7 @@ import {
 } from '@/lib/schemas';
 import { cn } from '@/lib/utils';
 import { AttemptReview } from './AttemptReview';
-import { ExamNavigator } from './ExamNavigator';
+import { QuestionNavigator } from './QuestionNavigator';
 import { NotReady, WrongKind } from './WrongKind';
 import { useArtifact, useQuestions, useStartAttempt, useSubmitAttempt } from './queries';
 
@@ -824,7 +824,7 @@ function ExamRunner({
         </CardContent>
       </Card>
 
-      <ExamNavigator
+      <QuestionNavigator
         questions={questions}
         answers={answers}
         currentIndex={index}

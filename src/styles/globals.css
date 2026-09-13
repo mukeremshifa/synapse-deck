@@ -422,6 +422,38 @@
   }
 }
 
+/* ── The card flip ──────────────────────────────────────────────────────────
+   SPEC §8.4 asks for a card flip, and this is what it is: the answer turning
+   into place on its own axis, not the whole card rotating.
+
+   **A literal two-sided 3D flip was the wrong shape for this runner**, and the
+   reason is in the layout rather than the taste. Rating a card means reading
+   the question and the answer *together* — you are judging how well you knew
+   this against what it actually said — so the front stays on screen when the
+   back arrives. A card that physically turned over would take the question
+   away at exactly the moment it is needed, and the four rating buttons would be
+   rating something no longer visible.
+
+   So the motion belongs to the answer: a short rotation about the X axis,
+   settling flat, which reads as the card's lower half turning face-up. The
+   perspective is on the container so the rotation has depth rather than looking
+   like a vertical squash.
+
+   The `prefers-reduced-motion` block above matches `*`, so an opted-out user
+   gets the answer instantly — which is the correct end state, because this is
+   decoration on top of a reveal that happens either way. SPEC §8.4 names that
+   an accessibility requirement rather than a preference. */
+@keyframes card-flip {
+  from {
+    opacity: 0;
+    transform: rotateX(-38deg);
+  }
+  to {
+    opacity: 1;
+    transform: rotateX(0deg);
+  }
+}
+
 /* ── Overlay enter/exit ─────────────────────────────────────────────────────
    Radix drives every overlay with `data-state="open" | "closed"`, so the
    animation can live here as one rule per shape rather than as a utility class
@@ -501,6 +533,21 @@
 }
 
 @layer components {
+  /* The revealed answer, turning face-up. See the keyframes above for why the
+     card itself does not rotate. `backface-visibility` is not needed — there is
+     only ever one face — but the origin is: rotating about the top edge is what
+     makes it read as hinged to the question above rather than tumbling. */
+  .ui-card-flip {
+    animation: card-flip var(--duration-moving) var(--ease-standard);
+    transform-origin: top center;
+  }
+
+  /* The perspective that gives the rotation depth. On the parent, because a
+     transformed element cannot supply its own. */
+  .ui-card-stage {
+    perspective: 1000px;
+  }
+
   /* The overlay behind any modal surface. Fade only: sliding the scrim as well
      doubles the motion for no information — the thing that moved is the panel. */
   .ui-overlay[data-state='open'] {

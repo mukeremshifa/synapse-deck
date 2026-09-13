@@ -1,5 +1,6 @@
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CheckIcon, FlagIcon, MinusIcon, XIcon } from 'lucide-react';
+import { CheckIcon, FlagIcon, MinusIcon, TargetIcon, XIcon } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,7 @@ import {
   type QuestionResponse,
 } from '@/lib/schemas';
 import { cn } from '@/lib/utils';
+import { DrillIncorrect } from './DrillIncorrect';
 
 /**
  * What a sitting came to — for a quiz and for an exam, from one component.
@@ -44,7 +46,17 @@ import { cn } from '@/lib/utils';
  * `selectedOption: null` is a real value the fixtures ship (an exam that
  * expired with a question untouched), and it is reported as its own outcome.
  * Folding it into "incorrect" would tell someone they got a question wrong that
- * they never saw.
+ * they never saw. **The drill below inherits that distinction** — it re-asks
+ * what was answered wrongly, not what was never reached.
+ *
+ * ── Drilling what you missed ─────────────────────────────────────────────
+ *
+ * Results used to be a dead end: you read what you got wrong and the only way
+ * to act on it was to sit the whole thing again. The drill re-asks just the
+ * missed questions, and it deliberately **records nothing** — it is practice,
+ * not a second attempt. `DrillIncorrect` carries the argument; the short
+ * version is that an attempt scoring 100% on the four questions you failed
+ * would poison every aggregate that reads attempt history.
  */
 export function AttemptReview({
   attempt,
@@ -83,6 +95,42 @@ export function AttemptReview({
   const score = attempt.score;
 
   const byTopic = groupByTopic(attempt.answers);
+
+  /*
+   * What to drill: answered, and answered wrongly. `response !== null` is what
+   * separates a wrong answer from one never given — see the note above, and
+   * `answered` just above that, which draws the same line for the score.
+   */
+  const incorrectIds = useMemo(
+    () =>
+      new Set(
+        attempt.answers
+          .filter(answer => answer.response !== null && !answer.correct)
+          .map(answer => answer.questionId),
+      ),
+    [attempt.answers],
+  );
+
+  const [drilling, setDrilling] = useState(false);
+
+  /*
+   * The drill replaces the review rather than sitting under it. It is a thing
+   * you *do*, and leaving a scored results page scrolled above a live question
+   * invites answering one while looking at the answer to another.
+   */
+  if (drilling) {
+    return (
+      <div className="space-y-gutter mx-auto max-w-3xl">
+        <DrillIncorrect
+          questions={questions}
+          incorrectIds={incorrectIds}
+          onDone={() => {
+            setDrilling(false);
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-3xl space-y-gutter">
@@ -167,9 +215,37 @@ export function AttemptReview({
         <Button asChild variant="ghost">
           <Link to={notebookPath.open(notebookId)}>Back to the notebook</Link>
         </Button>
-        <Button type="button" onClick={onRetake}>
-          {retakeLabel}
-        </Button>
+        <div className="gap-tight flex flex-wrap items-center">
+          {/*
+            Offered only when there is something to drill. On a clean sheet the
+            button would be an invitation to practise nothing, and on a sitting
+            where everything was left unanswered there is likewise nothing that
+            was got *wrong* — which is the distinction `incorrectIds` keeps.
+
+            It is the primary action here and the retake is secondary: drilling
+            four missed questions is the thing that is actually worth doing
+            next, where sitting the whole paper again mostly re-answers what you
+            already knew.
+          */}
+          {incorrectIds.size > 0 && (
+            <Button
+              type="button"
+              onClick={() => {
+                setDrilling(true);
+              }}
+            >
+              <TargetIcon aria-hidden />
+              Drill the {incorrectIds.size} missed
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant={incorrectIds.size > 0 ? 'outline' : 'default'}
+            onClick={onRetake}
+          >
+            {retakeLabel}
+          </Button>
+        </div>
       </div>
     </div>
   );

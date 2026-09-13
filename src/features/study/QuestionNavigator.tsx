@@ -11,10 +11,18 @@ import { cn } from '@/lib/utils';
  * It also carries the honest count of what is unanswered, which is the number a
  * candidate actually navigates by in the last five minutes.
  *
- * This is `features/exam/QuestionNavigator` re-pointed at the contract's
- * `Question` and `AttemptAnswer` — the old one takes `PreparedQuestion` and
- * `ExamAnswer` from the browser-assembled exam that FR0 replaced. The rendering
- * is unchanged; only the shapes moved.
+ * ── Shared by both runners, which is why it is not `ExamNavigator` ───────
+ *
+ * The quiz had no navigator and the exam did, so a quiz of twenty questions
+ * could only be walked with Previous and Next — and its flag control marked
+ * questions the reader then had no way to find again. ROADMAP.md priority 1
+ * lists that as a polish gap and names this component as the pattern to port.
+ *
+ * Porting it meant **using it**, not copying it: both runners hold answers as
+ * a `Map<string, AttemptAnswer>` keyed by question id and a numeric index, so
+ * the props already fit. The rendering below is unchanged from the exam's, and
+ * the only edit was the name — a component two surfaces share should not be
+ * named after one of them.
  *
  * **Not a `<nav>`, and the states are not colour-only.** The grid is a list of
  * buttons in a labelled group; each button's accessible name says its number
@@ -23,7 +31,7 @@ import { cn } from '@/lib/utils';
  * cannot distinguish it. The flag is an icon rather than a second shade for the
  * same reason.
  */
-export function ExamNavigator({
+export function QuestionNavigator({
   questions,
   answers,
   currentIndex,

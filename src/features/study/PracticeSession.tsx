@@ -344,8 +344,12 @@ export function PracticeSession({
       <CardShell className="flex min-h-0 flex-1 flex-col gap-0 py-0">
         {payload ? (
           <>
-            {/* The question, centred in whatever height is left over. */}
-            <CardContent className="flex min-h-0 flex-1 flex-col justify-center gap-6 overflow-y-auto px-8 py-8">
+            {/*
+              The question, centred in whatever height is left over.
+              `ui-card-stage` supplies the perspective the answer's flip
+              rotates in; a transformed element cannot provide its own.
+            */}
+            <CardContent className="ui-card-stage flex min-h-0 flex-1 flex-col justify-center gap-6 overflow-y-auto px-8 py-8">
               <CardFront
                 className="text-2xl"
                 payload={payload}
@@ -361,12 +365,28 @@ export function PracticeSession({
                 The answer stays with the question rather than moving into the
                 pinned region: it is something to read, and reading it is how
                 you choose between the four ratings. Only the controls pin.
+
+                **This is the card flip (SPEC §8.4), and it is the answer that
+                turns rather than the card.** Rating means judging the question
+                and the answer together, so a two-sided flip would take the
+                question away at the moment it is needed and leave the four
+                buttons rating something off screen. `ui-card-flip` rotates the
+                answer face-up about its top edge instead — hinged to the
+                question above it.
+
+                **No `motion-safe:` prefix, deliberately.** That variant
+                generates nothing in this project: Tailwind v4 emits variants
+                only for utilities it knows, `ui-card-flip` is a component-layer
+                class of ours, and the build confirms no `motion-safe:*` rule
+                ships at all. Reduced motion is honoured by the global
+                `prefers-reduced-motion` block in `globals.css`, which matches
+                `*` and drops every animation to 0.01ms — so an opted-out user
+                gets the answer with no motion, which is what SPEC §8.4 asks
+                for. Writing the prefix here would have looked like the
+                requirement was handled by this line when it is handled there.
               */}
               {revealed && (
-                <div
-                  id="card-answer"
-                  className={cn('border-t pt-6', 'motion-safe:animate-in')}
-                >
+                <div id="card-answer" className={cn('border-t pt-6', 'ui-card-flip')}>
                   <CardBack payload={payload} />
                 </div>
               )}
