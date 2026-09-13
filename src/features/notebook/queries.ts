@@ -1,4 +1,5 @@
 import {
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -15,6 +16,7 @@ import {
   type AskResponse,
   type CreateArtifactInput,
   type Job,
+  type SourceContent,
 } from '@/lib/api';
 import { homeKeys } from '@/features/home/queries';
 
@@ -47,6 +49,12 @@ export const notebookKeys = {
   all: (notebookId: string) => ['api', 'notebook', notebookId] as const,
   detail: (notebookId: string) => ['api', 'notebook', notebookId, 'detail'] as const,
   sources: (notebookId: string) => ['api', 'notebook', notebookId, 'sources'] as const,
+  /**
+   * One source's extracted text. Under the sources key rather than beside it,
+   * so deleting a source drops the text it was showing along with the row.
+   */
+  sourceContent: (notebookId: string, sourceId: string) =>
+    ['api', 'notebook', notebookId, 'sources', sourceId, 'content'] as const,
   artifacts: (notebookId: string) =>
     ['api', 'notebook', notebookId, 'artifacts'] as const,
   /** In-flight and recently finished generation. FR4's `jobs.ts` owns it. */
@@ -95,6 +103,40 @@ export function useSources(notebookId: string) {
     queryFn: () => api.listSources(notebookId),
     select: page => page.items,
   });
+}
+
+/**
+ * One source's extracted text, in slices.
+ *
+ * **An infinite query, because the text is a document.** A PDF's extraction is
+ * routinely far longer than anything worth fetching at once, so the contract
+ * slices it by character offset and this concatenates the slices the reader has
+ * asked for. Everything the viewer renders is in `text`; `hasNextPage` is what
+ * puts a "Read more" under it.
+ *
+ * `enabled` is how a `processing` or `failed` source avoids a pointless
+ * request: it has no text, the viewer already says so, and asking the server to
+ * confirm that on every open would be a round trip for a known answer.
+ */
+export function useSourceContent(notebookId: string, sourceId: string, enabled = true) {
+  const query = useInfiniteQuery({
+    queryKey: notebookKeys.sourceContent(notebookId, sourceId),
+    queryFn: ({ pageParam }: { pageParam: number }) =>
+      api.getSourceContent(notebookId, sourceId, { offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (last: SourceContent) =>
+      last.hasMore ? last.offset + last.text.length : undefined,
+    enabled,
+  });
+
+  const pages = query.data?.pages ?? [];
+  return {
+    ...query,
+    /** Every slice fetched so far, in order — what the reader shows. */
+    text: pages.map(page => page.text).join(''),
+    /** The whole document's length, from whichever slice answered last. */
+    totalChars: pages[pages.length - 1]?.totalChars ?? 0,
+  };
 }
 
 /**

@@ -273,6 +273,7 @@ const ROUTES = [
 
   // Sources.
   { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/sources$/, fn: 'notebooks', params: ['notebookId'] },
+  { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/sources\/([^/]+)\/content$/, fn: 'notebooks', params: ['notebookId', 'sourceId'] },
   { method: 'GET', pattern: /^\/notebooks\/([^/]+)\/sources\/([^/]+)$/, fn: 'notebooks', params: ['notebookId', 'sourceId'] },
   { method: 'DELETE', pattern: /^\/notebooks\/([^/]+)\/sources\/([^/]+)$/, fn: 'notebooks', params: ['notebookId', 'sourceId'] },
 

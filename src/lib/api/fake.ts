@@ -709,6 +709,37 @@ function advanceJob(jobId: string): Job {
 // content someone will screenshot, or study from.
 // ---------------------------------------------------------------------------
 
+/**
+ * Stand-in extracted text for a source the fake never actually read.
+ *
+ * Long enough to page -- the viewer's "load more" is a real branch and a
+ * one-paragraph fixture would never reach it -- and built from the source's own
+ * title and topics so it reads as that document rather than as filler.
+ */
+function fakeSourceText(source: Source): string {
+  const topics = source.topicNames.length > 0 ? source.topicNames : ['this material'];
+  const paragraphs: string[] = [
+    `[fake] Extracted text for “${source.title}”.`,
+    'The fake API never reads a document, so this stands in for an extraction. ' +
+      'It is here so the source viewer can be looked at rather than reasoned about.',
+  ];
+
+  for (let section = 0; section < 12; section += 1) {
+    const topic = topics[section % topics.length] ?? 'this material';
+    paragraphs.push(
+      `${String(section + 1)}. ${topic}\n\n` +
+        `This passage covers ${topic.toLowerCase()} as it appears in ` +
+        `“${source.title}”. Chunking would split a real document near ` +
+        'here, and each chunk would be embedded separately, which is what lets a ' +
+        'grounded answer cite a passage rather than a whole file. Nothing below ' +
+        'this line came from a model: the fake generates it so that a long ' +
+        'document, a scrollbar and a second page all exist to be tested.',
+    );
+  }
+
+  return paragraphs.join('\n\n');
+}
+
 function generatedCards(artifact: Artifact, count: number): Card[] {
   return Array.from({ length: count }, (_, index) => ({
     id: id('card'),
@@ -1076,6 +1107,43 @@ export const fakeClient: ApiClient = {
       );
       if (!source) fail('not_found');
       return { ...source };
+    }),
+
+  /**
+   * A source's extracted text, sliced.
+   *
+   * The fixtures carry no extracted text -- the fake has nowhere to put bytes
+   * and never runs an extraction -- so this synthesises a document from what
+   * the source *does* know: its title and its topic names. That is deliberately
+   * not lorem ipsum. The viewer's job is to render a long untrusted string and
+   * let someone read through it, and a placeholder recognisably about the right
+   * subject is what makes the screen judgeable without a backend.
+   *
+   * A `processing` or `failed` source returns an empty slice with a zero total,
+   * which is the answer the real handler gives for null content: there is
+   * nothing to read yet, and that is a state the viewer renders rather than an
+   * error it reports.
+   */
+  getSourceContent: (notebookId, sourceId, range) =>
+    gate(() => {
+      notebookOr404(notebookId);
+      const source = store.sources.find(
+        candidate => candidate.id === sourceId && candidate.notebookId === notebookId,
+      );
+      if (!source) fail('not_found');
+
+      const whole = source.status === 'ready' ? fakeSourceText(source) : '';
+      const offset = Math.max(0, range?.offset ?? 0);
+      const limit = Math.min(Math.max(1, range?.limit ?? 20000), 50000);
+      const text = whole.slice(offset, offset + limit);
+
+      return {
+        sourceId,
+        offset,
+        text,
+        totalChars: whole.length,
+        hasMore: offset + text.length < whole.length,
+      };
     }),
 
   requestUpload: (notebookId, input) =>

@@ -507,6 +507,14 @@ export class ApiStack extends Stack {
       notebooksFn,
       'SourceInt',
     );
+    // The extracted text, sliced. Separate from the metadata route above
+    // because `Source` has no content field and a list must not carry one.
+    route(
+      '/notebooks/{notebookId}/sources/{sourceId}/content',
+      [HttpMethod.GET],
+      notebooksFn,
+      'SourceContentInt',
+    );
 
     route(
       '/notebooks/{notebookId}/jobs',

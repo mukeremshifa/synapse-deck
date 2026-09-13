@@ -19,6 +19,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import type { Source, SourceKind } from '@/lib/api';
 import { useModal } from '@/app/modals';
 import { useDeleteSource, useSources } from './queries';
+import { SourceViewer } from './SourceViewer';
 
 /**
  * The left pane: this notebook's sources, and the button that adds one.
@@ -65,6 +66,14 @@ export function SourcesPane({
 }) {
   const sources = useSources(notebookId);
   const { openModal } = useModal();
+  /*
+   * **One viewer for the pane, not one per row.** The open source is held here
+   * and passed down, so a list of forty sources mounts one sheet rather than
+   * forty. It is local state and not a modal in the URL: by `modals.tsx`'s rule
+   * the URL carries things you can be *in the middle of*, and reading a source
+   * is a glance you close, not a flow you resume.
+   */
+  const [viewing, setViewing] = useState<Source | null>(null);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -126,11 +135,23 @@ export function SourcesPane({
                 onToggle={() => {
                   onToggleSource(source.id);
                 }}
+                onOpen={() => {
+                  setViewing(source);
+                }}
               />
             ))}
           </ul>
         )}
       </div>
+
+      <SourceViewer
+        notebookId={notebookId}
+        source={viewing}
+        open={viewing !== null}
+        onOpenChange={open => {
+          if (!open) setViewing(null);
+        }}
+      />
     </div>
   );
 }
@@ -148,11 +169,13 @@ function SourceRow({
   source,
   selected,
   onToggle,
+  onOpen,
 }: {
   notebookId: string;
   source: Source;
   selected: boolean;
   onToggle: () => void;
+  onOpen: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const remove = useDeleteSource(notebookId);
@@ -172,13 +195,32 @@ function SourceRow({
         }
       />
 
+      {/*
+        ── The label opens the source; the checkbox and the delete button keep
+        their own hit areas ───────────────────────────────────────────────
+
+        A row-wide click handler would have swallowed both: selecting a source
+        to ground an answer and deleting one are not "opening" it, and a
+        checkbox that opens a reader when you tick it is a trap.
+
+        So the opener is a `<button>` wrapped around the title only, and it is a
+        real button rather than a click handler on the `<p>` — that is what puts
+        it in the tab order, gives it Enter and Space for free, and makes the
+        keyboard path the same path as the mouse. The three controls are
+        siblings, and the row has three tab stops because it has three actions.
+      */}
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-tight">
+        <button
+          type="button"
+          onClick={onOpen}
+          className="flex w-full min-w-0 items-center gap-tight rounded-sm text-left focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none"
+          aria-label={`Open ${source.title}`}
+        >
           <SourceIcon source={source} />
-          <p className="truncate text-sm" title={source.title}>
+          <p className="truncate text-sm hover:underline" title={source.title}>
             {source.title}
           </p>
-        </div>
+        </button>
 
         {/*
           `error` is a string from the pipeline and is rendered as text. It can

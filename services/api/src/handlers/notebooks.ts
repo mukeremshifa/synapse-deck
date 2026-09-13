@@ -36,7 +36,12 @@ import {
   updateNotebook,
   type NotebookWithCounts,
 } from '../data/notebooks.ts';
-import { deleteSource, getSource, listSources } from '../data/sources.ts';
+import {
+  deleteSource,
+  getSource,
+  getSourceSlice,
+  listSources,
+} from '../data/sources.ts';
 import { getProfile } from '../data/profiles.ts';
 /*
  * The reviewed mastery arithmetic, reused rather than reimplemented in SQL.
@@ -311,6 +316,34 @@ export async function handler(event: ApiEvent): Promise<ApiResponse> {
           default:
             throw new ApiError(405, `${method} is not allowed here.`);
         }
+      }
+
+      /*
+       * The extracted text, in slices -- the source viewer's read.
+       *
+       * Before the query, because `/sources/{id}/content` also matches the
+       * single-source block below and would otherwise be served its metadata.
+       *
+       * **A cap on `limit`, because the caller chooses it.** Without one, a
+       * request for the whole of a 40MB extraction is one statement away, and
+       * the point of slicing is that no single response can be that.
+       */
+      if (path.endsWith('/content')) {
+        if (method !== 'GET') throw new ApiError(405, `${method} is not allowed here.`);
+        const offset = Math.max(0, Number(queryParam(event, 'offset') ?? 0) || 0);
+        const limit = Math.min(
+          Math.max(1, Number(queryParam(event, 'limit') ?? 20000) || 20000),
+          50000,
+        );
+        const slice = await getSourceSlice(userId, notebookId, sourceId, offset, limit);
+        if (!slice) throw notFound('Source');
+        return json(200, {
+          sourceId,
+          offset,
+          text: slice.text,
+          totalChars: slice.totalChars,
+          hasMore: offset + slice.text.length < slice.totalChars,
+        });
       }
 
       switch (method) {

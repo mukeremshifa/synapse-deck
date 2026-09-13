@@ -77,6 +77,41 @@ export async function getSourceContent(
 }
 
 /**
+ * One slice of a source's extracted text, and the total length.
+ *
+ * **Sliced in Postgres, not in Node.** `substr` on the column means the server
+ * never materialises a multi-megabyte string to return four thousand
+ * characters of it; `length(content)` comes back in the same statement so the
+ * reader can say how far through it is without a second query.
+ *
+ * Filtered on `user_id` **and** `notebook_id` as well as the id, like every
+ * other statement that reaches a source through its notebook: knowing a source
+ * id from another notebook is not enough to read it.
+ *
+ * `substr` is 1-indexed, so the character offset is `offset + 1`. Null content
+ * -- a source still processing, or one that failed -- comes back as an empty
+ * slice with a zero total, which is a state and not an error.
+ */
+export async function getSourceSlice(
+  userId: string,
+  notebookId: string,
+  sourceId: string,
+  offset: number,
+  limit: number,
+): Promise<{ text: string; totalChars: number } | null> {
+  const result = await query<{ text: string | null; total_chars: number | null }>(
+    `select substr(content, $4 + 1, $5) as text,
+            length(content) as total_chars
+       from public.sources
+      where user_id = $1 and notebook_id = $2 and id = $3`,
+    [userId, notebookId, sourceId, offset, limit],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return { text: row.text ?? '', totalChars: row.total_chars ?? 0 };
+}
+
+/**
  * The text behind a set of sources, in the order given, for a generation.
  *
  * One statement rather than one per id: a generate over six sources should not

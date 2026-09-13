@@ -19,6 +19,7 @@ import type {
   RetentionSummary,
   ReviewHistory,
   Source,
+  SourceContent,
   TopicMasteryReport,
   TopicSummary,
   UploadTicket,
@@ -191,6 +192,19 @@ export const liveClient: ApiClient = {
           `${path.notebook(notebookId)}/sources/${encodeURIComponent(sourceId)}`,
         ),
     ),
+
+  getSourceContent: (notebookId, sourceId, range) => {
+    const params = new URLSearchParams();
+    if (range?.offset !== undefined) params.set('offset', String(range.offset));
+    if (range?.limit !== undefined) params.set('limit', String(range.limit));
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return call(
+      async () =>
+        await api.get<SourceContent>(
+          `${path.notebook(notebookId)}/sources/${encodeURIComponent(sourceId)}/content${suffix}`,
+        ),
+    );
+  },
 
   /**
    * Adding a source is a **job**, not a create.

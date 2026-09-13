@@ -282,6 +282,42 @@ export type Source = z.infer<typeof Source>;
  * a key is not a capability, and one arriving in a request body could name
  * anyone's object.
  */
+/**
+ * A source's extracted text, in slices.
+ *
+ * ── Why this is not a field on `Source` ──────────────────────────────────
+ *
+ * Because `Source` is what a *list* returns, and the text is the whole
+ * document. `data/sources.ts` says so in as many words: `content` is
+ * deliberately absent from its column list, because "selecting it on every list
+ * would ship a book to render a filename". A field here would undo that for
+ * every caller of `listSources`, which is the notebook's left rail.
+ *
+ * ── Why it is sliced rather than whole ───────────────────────────────────
+ *
+ * A PDF's extracted text is routinely megabytes, and the viewer that renders it
+ * is a reading surface, not a download. Slicing by character offset keeps the
+ * first paint bounded no matter how long the document is, and the reader asks
+ * for more as it goes — the same bargain `Page` makes for lists, in the one
+ * shape that suits a single long string.
+ *
+ * `offset` and `totalChars` are **characters, not bytes**: they index the text
+ * the reader is actually showing. `sizeBytes` on `Source` is the file, which is
+ * a different number and answers a different question.
+ */
+export const SourceContent = z.object({
+  sourceId: z.string().min(1),
+  /** Where this slice starts, in characters from the beginning. */
+  offset: z.number().int().nonnegative(),
+  /** The slice itself. **Untrusted** — extracted text, rendered as text. */
+  text: z.string(),
+  /** The whole document's length, so a reader can say how far through it is. */
+  totalChars: z.number().int().nonnegative(),
+  /** False when `offset + text.length` has reached the end. */
+  hasMore: z.boolean(),
+});
+export type SourceContent = z.infer<typeof SourceContent>;
+
 export const AddSourceInput = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('document'),
@@ -1365,6 +1401,23 @@ export interface ApiClient {
 
   listSources(notebookId: string, page?: PageRequest): Promise<Page<Source>>;
   getSource(notebookId: string, sourceId: string): Promise<Source>;
+  /**
+   * The extracted text, in slices — what the source viewer reads.
+   *
+   * **Separate from `getSource` on purpose.** `Source` is metadata and is
+   * returned by `listSources` for every row in the rail; the text is the
+   * document. See `SourceContent`.
+   *
+   * A source that is still `processing` has no text yet and a `failed` one
+   * never will: both answer with an empty slice and `totalChars: 0` rather than
+   * an error, because "there is nothing to read yet" is a state the viewer
+   * renders, not a failure it reports.
+   */
+  getSourceContent(
+    notebookId: string,
+    sourceId: string,
+    range?: { offset?: number; limit?: number },
+  ): Promise<SourceContent>;
   /** A presigned PUT for a document. The browser uploads, then calls `addSource`. */
   requestUpload(notebookId: string, input: UploadRequest): Promise<UploadTicket>;
   /** **Returns a job.** Extraction, chunking and embedding take time. */
