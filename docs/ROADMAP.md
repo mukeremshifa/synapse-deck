@@ -15,18 +15,19 @@ Three things, in this order. Later ones do not start until earlier ones are done
 Not deployed. Not tested. **Polished.** The bar is: a stranger can use it without hitting a
 dead end, and nothing on screen is a lie.
 
+### Done
+
+- ~~Cards cannot be edited; no card list; no manual creation~~ — **`DeckBrowser` at
+  `/notebooks/:id/decks/:deckId/cards`** lists, edits, suspends, deletes and adds cards.
+  `createCards` was added to the contract, both clients and the API.
+- ~~Sources cannot be opened~~ — **`SourceViewer`**, opened from the source's title in the
+  rail. It needed more than `getSource`: see the decision below.
+
+Neither has been exercised in a browser. There are no tests.
+
 ### What is broken today
 
-Four features exist in the API and have no UI at all:
-
-| Gap | The API already has |
-| --- | --- |
-| Cards cannot be edited — AI hallucinations are permanent | `updateCard` |
-| No card list; cards are met one at a time during review | `listCards` |
-| No manual card creation | *nothing — `createCard` must be added* |
-| Sources cannot be opened, viewed or searched | `getSource` |
-
-And four structural problems:
+Four structural problems:
 
 - The chat pane owns 52% of the notebook viewport while being ephemeral, non-streaming and
   reset on navigation. The Studio — where the actual study material lives — gets 26%.
@@ -53,10 +54,25 @@ flat pure black with no surface layering, and loading states are raw spinners.
   whatever is selected — a source, the card list, the overview. Chat moves to a surface
   that suits something ephemeral.
 
+Taken while building the card and source workflows, and now binding:
+
+- **A source's text is a separate read from its metadata.** `Source` carries no content
+  field and `listSources` must never fetch one — the extraction is the whole document and
+  the rail renders a filename. `getSourceContent` slices it by character offset instead.
+- **An edit that splits one card into several updates the first and creates the rest.**
+  The edited card keeps its id and its whole FSRS schedule; the extra cloze deletions
+  arrive as new cards. Dropping them would be silent data loss; refusing the split would
+  block adding a deletion to a cloze that already exists.
+- **Deleting a card confirms; suspending does not.** Delete destroys FSRS history, which
+  is the user's actual work. Suspend is the reversible one and the dialog names it.
+- **The `SourceViewer` is a sheet until the workspace pane exists.** Its readable half is
+  a separate `SourceBody` component that knows nothing about the sheet, so the layout
+  restructure moves it by rendering it elsewhere and dropping the wrapper.
+
 ### Order
 
-Contract and card workflows first (they unblock everything and touch no layout), then the
-source viewer, then the layout restructure, then study polish, then visual refinement.
+~~Contract and card workflows first~~ ~~then the source viewer~~ — both done. Next is the
+**layout restructure**, then study polish, then visual refinement.
 
 The layout restructure is the largest and most invasive item. It waits until the things it
 would otherwise churn are already built.

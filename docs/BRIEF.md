@@ -1,15 +1,14 @@
-# Session brief — priority 1, part 1
+# Session brief — priority 1, part 2
 
 **Written 2026-09-13.** Branch `dev`. Read [ROADMAP.md](ROADMAP.md) first, then this.
 
-Your job is items **1–3** of priority 1, and then to rewrite this file for the session that
-takes items 4–5. If you get further than 3, take more. If you get stuck before finishing 3,
-stop and hand over honestly — a half-built layout is worse than a clear note saying where
-you stopped.
+Your job is items **4 and 5** of priority 1 — the layout restructure, then study polish.
+Items 1–3 are done and are described below only where you need them. When you finish,
+rewrite this file for the session after you.
 
-> **Everything below was verified against the code on 2026-09-13.** Where an earlier
-> audit was wrong, this says so. Trust this file over any other description of the app,
-> but trust the code over this file.
+> **Everything below was verified against the code on 2026-09-13**, and every claim about
+> items 1–3 was either driven by hand or is flagged as unverified. Trust this file over any
+> other description of the app, and the code over this file.
 
 ---
 
@@ -18,254 +17,205 @@ you stopped.
 ```sh
 git branch --show-current      # expect: dev
 git status --short             # expect: clean
-npm run check                  # expect: pass, ~55s
+npm run check                  # expect: pass, ~15s
 ```
 
 `dev` is yours — commit and push without asking. `main` is frozen. There are no tests;
 report work as "typechecks and builds", never "tested" or "works".
 
-**There is one known-broken command.** `npm run infra:synth` fails on this machine with
-`EPERM: operation not permitted, rename` during CDK asset bundling. It is a Windows file
-lock, it predates this work, and it is **not yours to fix** — `infra/` is frozen. Do not
-touch `infra/`; if you somehow must, know that synth cannot verify you.
+**`npm run infra:synth` is still broken on this machine** — `EPERM: operation not
+permitted, rename` during CDK asset bundling. It is a Windows file lock, it predates all of
+this, and `infra/` is frozen. Do not touch it. (Note that item 3 *did* have to add one
+route to `infra/lib/api-stack.ts`, because `check:routes` enforces parity between that file
+and `scripts/dev-api.mjs`. Editing the route table is unavoidable and safe; deploying is
+not yours.)
 
 ---
 
-## 1. What you are building, and why this order
+## 1. What the last session built
 
-Four features exist in the API and have no UI. They are the reason a user cannot fix an AI
-hallucination or look at their own material.
-
-| # | Item | Why it is in this position |
+| # | Item | State |
 | --- | --- | --- |
-| 1 | `createCard` in the contract | Nothing else can be built on top until it exists |
-| 2 | DeckBrowser — list, edit, suspend, delete, create | Where `CardEditor` gets un-orphaned |
-| 3 | SourceViewer — open a source | Independent of 1–2; also unblocks citation links later |
-| 4 | Layout restructure — workspace pane, chat relocation | Largest; goes after the things it would churn |
-| 5 | Study polish — flip, quiz navigator, drill-incorrect, markdown notes | Last |
+| 1 | `createCards` in the contract | **Done**, driven against real Postgres |
+| 2 | DeckBrowser — list, edit, suspend, delete, create | **Done**, UI unverified |
+| 3 | SourceViewer — open a source | **Done**, UI unverified |
+| 4 | Layout restructure — workspace pane, chat relocation | **Yours** |
+| 5 | Study polish — flip, quiz navigator, drill-incorrect, markdown notes | **Yours** |
 
-Items 1–3 touch **no layout**. That is deliberate: item 4 rearranges the notebook shell,
-and building 1–3 inside the old shell first means you are not rewriting them mid-move.
+New files: `src/features/cards/queries.ts`, `src/features/cards/DeckBrowser.tsx`,
+`src/features/notebook/SourceViewer.tsx`. New route:
+`/notebooks/:notebookId/decks/:deckId/cards`. Two new contract methods: `createCards` and
+`getSourceContent` (46 methods now, not the 43 `SPEC.md` used to claim — that count was
+already stale by one before this work).
 
----
+### The two DeckBrowser decisions, and why
 
-## 2. Ground truth — five things an earlier audit got wrong
+**An edit that splits into several cards updates the first and creates the rest.**
+`CardEditor.onSubmit` hands back `CardPayload[]` and `updateCard` takes exactly one. The
+edited card takes the first payload, so it keeps its id and its **entire FSRS schedule**;
+further deletions become new cards at the zero state. Dropping the extras would be silent
+data loss, and refusing the split would block adding a second deletion to an existing
+cloze, which is an ordinary thing to want. The toast says how many cards resulted.
 
-An earlier brief described this work and was mostly right, but it was written without
-reading the code. These five corrections change what you build:
+**Delete confirms; suspend does not.** Delete destroys the card's review history — months
+of the user's actual work — and the dialog names suspend as the reversible alternative
+rather than only warning. Per `modals.tsx`, the confirmation is local state, not in the URL.
 
-**(a) `CardEditor` already supports create mode.** It is not edit-only. The props are:
+### Where the SourceViewer is, and what you are moving
 
-```ts
-// src/features/cards/CardEditor.tsx:56
-export type CardEditorProps = {
-  /** Editing an existing card, or null when adding a new one. */
-  defaultValue?: CardPayload | null;
-  /** Receives every card the draft produced — more than one for a split cloze. */
-  onSubmit: (payloads: CardPayload[]) => void | Promise<void>;
-  onCancel?: () => void;
-  submitLabel?: string;
-  autoFocus?: boolean;
-  className?: string;
-};
-```
+**It is a right-hand `Sheet`, mounted once by `SourcesPane` and opened from a source's
+title.** This is item 4's problem, so it was built to be moved:
 
-Pass `defaultValue={null}` and it is a create form. **No work needed inside the component.**
-It also already validates through `zodResolver(CardPayload)` — the one schema in
-`src/lib/schemas.ts` — so user edits are checked the same way generated cards are.
-
-Note `onSubmit` takes an **array**. A cloze card can split into several cards. Your create
-flow must handle n≥1, and your *edit* flow must decide what a split means when editing one
-existing card — see §3.2.
-
-**(b) `POST /decks/{deckId}/cards` already works, end to end.** The handler is at
-`services/api/src/handlers/cards.ts:135`, and `createCards` / `createArtifactCards` both
-exist in `services/api/src/data/cards.ts`. The backend is **not** the missing piece. What
-is missing is the contract method and a notebook-scoped route. See §3.1.
-
-**(c) `CardEditor` was orphaned deliberately, not by accident.** The reason is written at
-`src/features/study/PracticeSession.tsx:47`:
-
-> Editing mid-review is also the one moment the user is least able to judge a card fairly.
-> Removed rather than half-carried.
-
-**Do not add an Edit button to the practice runner.** The editor belongs in the
-DeckBrowser, where the user is browsing rather than being graded. This is settled; it is in
-[ROADMAP.md](ROADMAP.md).
-
-**(d) Cards are locked to their deck.** From `contract.ts:701`: membership is fixed at
-generation, which is why there is no move operation and `artifactId` has no setter. A
-created card must therefore name its deck and stay there. Do not add a move.
-
-**(e) `Skeleton` already exists** at `src/components/ui/skeleton.tsx`. Do not create one.
+- `SourceViewer` is the sheet wrapper. **`SourceBody` is exported separately** and knows
+  nothing about the sheet — it takes `notebookId` and a `Source`, reads its own data, and
+  owns no layout. Moving the viewer into the workspace pane should be rendering
+  `<SourceBody>` there and deleting the wrapper.
+- `SourcesPane` holds `viewing: Source | null` in local state and passes an `onOpen` to
+  each row. When the workspace pane exists, that state probably belongs to `NotebookPage`
+  instead, because the workspace shows *whatever is selected* — a source, a deck, or the
+  overview — and a source is only one of three things it can be.
 
 ---
 
-## 3. The work
+## 2. Four things the last brief got wrong
 
-### 3.1 `createCard` — the contract, both implementations, the route
+**(a) `getSource` was not enough for a source viewer, and this is the big one.** The brief
+said `getSource` exists and nothing calls it, so item 3 was "wire it up". But `Source` has
+**no content field**, and `services/api/src/data/sources.ts:21` excludes `content` from its
+column list deliberately — "selecting it on every list would ship a book to render a
+filename". A viewer on `getSource` alone shows a title, a size and a date, which is
+metadata the rail already displays: a dead end, which is the thing priority 1 exists to
+remove.
 
-**No hook, no component exists for any card method.** `grep` for `listCards`, `updateCard`,
-`setCardStatus`, `deleteCards`, `getSource` across `src/` outside `src/lib/api/` returns
-exactly one hit, and it is a comment. You are building the whole client path.
+So `getSourceContent(notebookId, sourceId, { offset, limit })` was added — contract,
+data layer (`getSourceSlice`, a `substr` + `length` in one statement), handler, route in
+both tables, and both client implementations. **Sliced by character offset**, because an
+extraction is routinely megabytes and the viewer is a reading surface, not a download.
 
-Add to `src/lib/api/contract.ts`, next to `UpdateCardInput` (line ~741):
+**(b) The backend for `createCards` existed, but not where the brief said to use it.** The
+brief pointed at `services/api/src/handlers/cards.ts:135` and `createCards` in the data
+layer. That path is the **pre-notebook** one: it takes a `deckId` and joins
+`public.decks`. The notebook-model path is `createArtifactCards`, whose CTE matches
+`kind = 'deck'` on `public.artifacts`. The new route is a POST on the existing
+`GET /notebooks/{id}/artifacts/{id}/cards` in `handlers/artifacts.ts`, not a new path.
 
-```ts
-/** Content only, and the deck it joins. Scheduling is server-set. */
-export const CreateCardInput = z.object({
-  artifactId: z.string().min(1),
-  payloads: z.array(CardPayload).min(1),
-  sourceExcerpt: z.string().nullable().optional(),
-});
-export type CreateCardInput = z.infer<typeof CreateCardInput>;
-```
+**(c) `freshScheduling` is now duplicated three times** in `handlers/` — `cards.ts`,
+`generation.ts` and now `artifacts.ts`. Each carries the same comment explaining why
+(importing ts-fsrs to compute `due = now` would put the whole scheduling library in a
+Lambda bundle). If a fresh card ever gains a non-trivial schedule all three go wrong
+together. It was left as a third copy rather than extracted, to match what the two existing
+ones already decided; extracting it is a reasonable small cleanup if you are in there.
 
-Then on the `ApiClient` interface, beside `updateCard` (line ~1400):
-
-```ts
-/** Returns every card the input produced — a cloze can split into several. */
-createCards(notebookId: string, input: CreateCardInput): Promise<Card[]>;
-```
-
-**Name it `createCards`, plural.** The editor emits an array and the backend already
-inserts arrays; a singular method would have to lie about one of them.
-
-Then, in order:
-
-1. **`src/lib/api/fake.ts`** — implement it. The fake must produce fresh FSRS state
-   (`fsrsState: 'new'`, `due` now, `reps: 0`, `lapses: 0`, `stability: null`,
-   `difficulty: null`, `lastReviewedAt: null`). Mirror whatever the fake already does for
-   generated cards. **Return copies, not live store objects** — the fake handing out live
-   objects was a real bug once, and it made a staleness check impossible to fire.
-2. **`src/lib/api/client.ts`** — the HTTP call.
-3. **The backend route.** The logic exists; what is missing is the notebook-scoped path.
-   Follow the existing artifact-scoped routes. Register it in **both** the API Gateway
-   stack and `scripts/dev-api.mjs` — `npm run check:routes` compares the two tables and
-   will fail if you do one. Be aware it says in its own header that it does **not** check
-   that a route reaches a handler; a whole phase once shipped with every ingestion route
-   returning 500 because a handler was never imported. Drive it once by hand.
-
-Both implementations must satisfy the interface **with no cast**. That is the rule that
-makes `contract.ts` a specification rather than a suggestion.
-
-### 3.2 DeckBrowser
-
-New: `src/features/cards/DeckBrowser.tsx`, plus query hooks.
-
-**Hooks first.** Follow `src/features/notebook/queries.ts` exactly — a `*Keys` object, a
-`use*` query per read, `useMutation` + `invalidate*` per write. Put card hooks in
-`src/features/cards/queries.ts`. `listCards(notebookId, artifactId, page?)` returns a
-`Page<Card>`, so it is paginated; handle that rather than assuming one page.
-
-**The list.** Per card: front text truncated, kind badge (`basic` / `cloze` / `mcq`), FSRS
-state, next review date. `src/features/cards/card-summary.ts` and `CardFace.tsx` already
-exist — use them rather than re-deriving a front-text preview.
-
-**Actions:** Edit (mount `CardEditor` with `defaultValue={card.payload}`), Suspend /
-Unsuspend (`setCardStatus`), Delete (`deleteCards`). Add Card (`CardEditor` with
-`defaultValue={null}`).
-
-Two decisions are yours, and both need writing down in your handover:
-
-- **What an edit that splits into several cards means.** `onSubmit` hands you
-  `CardPayload[]`. `updateCard` takes exactly one payload. The honest options are: update
-  the first and create the rest; or refuse to split on edit and say so in the UI. Pick one,
-  implement it, and say which in your handover. Do not silently drop the extras.
-- **Whether delete confirms.** Deleting a card destroys its FSRS history, which is months
-  of the user's work. Suspend is the reversible one and exists for this reason. Note that
-  in this repo confirmations are deliberately *not* URL-reflected, unlike modals.
-
-**Reachability.** `src/features/notebook/StudioPane.tsx` lists artifacts per kind. A deck
-should be openable to browse as well as to practise. Do not rename or remove the existing
-Practice action — add alongside it.
-
-**Route.** Register in `src/app/routes.tsx`. Every runner route names its artifact:
-
-```
-/notebooks/:notebookId/decks/:deckId/cards
-```
-
-A route reading `:notebookId` and treating it as a deck id was a real bug — one notebook's
-session served every notebook's cards. Name the artifact.
-
-### 3.3 SourceViewer
-
-`getSource(notebookId, sourceId)` exists at `contract.ts:1344` and nothing calls it.
-
-New: `src/features/notebook/SourceViewer.tsx`. Click a source in
-`src/features/notebook/SourcesPane.tsx` to open it.
-
-**The one trap:** each source row already has a `Checkbox` (selection scopes generation and
-chat to chosen sources) and a delete control. A click-to-open must not steal clicks from
-either. The checkbox keeps its own hit area; the row's label opens the source. Check this
-with the keyboard too, not just the mouse.
-
-**Where it renders is constrained by the fact that item 4 has not happened yet.** The
-workspace pane does not exist. Do not build it here — that is item 4, and doing it early is
-how this brief turns into a rewrite. Put the viewer somewhere self-contained (a sheet, a
-dialog, or the chat pane's area) and say in your handover where you put it and why, so item
-4 knows what to move.
-
-**Render source content as text.** It is untrusted. `dangerouslySetInnerHTML` is blocked by
-an ESLint rule; do not disable it.
+**(d) `SPEC.md` said "43 contract methods".** It was 44 before this session and is 46 now.
+The count is corrected; be aware the doc can drift from the interface, because nothing
+checks it.
 
 ---
 
-## 4. Rules that will bite you
+## 3. Item 4 — the layout restructure
+
+The largest and most invasive item. Today: sources 22%, chat 52%, studio 26%
+(`NotebookPage.tsx:193`). The most transient pane owns the most screen — chat is
+`useState<AskResponse[]>([])`, resets on navigation, and **has never answered a question**,
+because no embedding key was ever supplied.
+
+The plan: a **workspace pane** in the centre showing whatever is selected — a source, the
+DeckBrowser, the overview — with chat moved to a surface that suits something ephemeral.
+
+**Four traps, three of them inherited and one new:**
+
+1. **`PaneGroup` hardcodes `flex` in its own `cn(...)`**, so a `hidden` class passed to it
+   loses and both layouts render at once below `md`. **Branch, do not hide.** This is in
+   `SPEC.md §4` as well.
+2. **The Overview is reachable only via a tile labelled "Diagnostics"** buried in the
+   Studio grid (`StudioPane.tsx`, the `GENERATORS` entry with `kind: null`). It should
+   become a real tab.
+3. **Every runner route names its artifact**, and that is load-bearing — a route that read
+   `:notebookId` and treated it as a deck id was a real bug that served one notebook's
+   session every notebook's cards. If the workspace pane makes the DeckBrowser reachable
+   *without* navigating, the URL must still say which deck is open.
+4. **New:** `StudioPane`'s deck rows now have **two** links — the row itself (Practice) and
+   a "Browse cards" link under it. The row is deliberately one link and one tab stop,
+   because a `<button>` inside an `<a>` is invalid HTML; the browse action is a sibling for
+   that reason. If you restructure those rows, keep the two actions as siblings.
+
+---
+
+## 4. Item 5 — study polish
+
+- **Card flip.** Respect `prefers-reduced-motion`.
+- **A quiz question navigator.** Exams have `ExamNavigator`; port the pattern.
+- **Drill-incorrect** on quiz and exam results.
+- **Inline markdown and math in `NoteBlocks.tsx`.** This is the only item here that adds
+  dependencies, and it needs a React markdown renderer that emits **elements, never raw
+  HTML** — `dangerouslySetInnerHTML` is blocked by an ESLint rule and that rule does not
+  get disabled. Notes stay **read-only**; there is no notes editor and none is planned.
+
+---
+
+## 5. Rules that will bite you
 
 - **`userId` never comes from the client.** If you touch `services/api/`, read the four
   tenancy rules in [HISTORY.md §2](HISTORY.md#2-tenancy-is-application-level-and-weaker-than-what-it-replaced).
-  Rules 2 and 4 are **not enforced by any linter** — a function that takes `userId` and
-  ignores it passes every gate here.
+  Rules 2 and 4 are **not enforced by any linter**.
 - **No SQL outside `services/api/src/data/`.**
-- **One Zod definition per concept.** `CardPayload` lives in `src/lib/schemas.ts`. Do not
-  redefine a card shape. This is the rule most often broken by a session that did not look.
-- **`npm run check` before every commit.** Never commit with it failing; if you cannot fix
-  it, leave the work uncommitted and say so.
-- **Do not create new documents.** `docs/` is six files and stays that way — and `BRIEF.md`
-  is the only one that is ever *replaced*, never added to. There is no `plans/` and no
-  `adr/`. Record decisions in the files that exist.
+- **One Zod definition per concept.** `CardPayload` lives in `src/lib/schemas.ts`, **not**
+  in `contract.ts` — importing it from `@/lib/api` does not typecheck, which is the
+  guardrail working.
+- **`npm run check:routes` proves the two route tables match. It does not prove a route
+  reaches a handler.** Its own header says so, and a whole phase once shipped with every
+  ingestion route returning 500. Drive any new route by hand — see §6 for how.
+- **`npm run check` before every commit.** Never commit with it failing.
+- **Do not create new documents.** `docs/` is six files and stays that way. `BRIEF.md` is
+  the only one ever *replaced*.
 
 ---
 
-## 5. When you finish — the handover
+## 6. What nothing verifies — read this before you trust anything above
 
-**Rewrite this file in place** for the next session. Same shape, retargeted at items 4–5.
-Delete what is done; a brief describing finished work is the archaeology this project just
-deleted 18,000 lines of.
+There are no tests. `check` and `verify` prove the code compiles, lints and builds, and
+nothing else. Here is the honest state of items 1–3, split by what was actually exercised.
 
-It must contain:
+### Driven by hand, against real local Postgres
 
-1. **What you actually built**, and what you did not. Name the gap plainly.
-2. **The two DeckBrowser decisions** from §3.2 — what a splitting edit does, and whether
-   delete confirms — and why.
-3. **Where you put the SourceViewer**, so item 4 knows what it is moving.
-4. **Anything you found that this brief got wrong.** It will have got something wrong.
-5. **What nothing verifies.** There are no tests. Name the paths you changed that only a
-   human clicking can check.
+Both new routes were invoked directly with synthetic API Gateway events, because
+`check:routes` cannot tell you a route reaches a working handler. Probes were deleted after
+running; recreate them the same way if you need to.
 
-Then update [ROADMAP.md](ROADMAP.md): tick off what is done, and record any decision you
-took that now binds. If something you built changed what the product *is*, edit
-[SPEC.md](SPEC.md) in place — `§10 What is not true yet` is the section your work should be
-shrinking.
+- `POST /notebooks/{id}/artifacts/{id}/cards` — 201 with both cards, `fsrs_state: new`,
+  correct notebook and artifact ids; a quiz artifact refused with 400; **another user's id
+  404s and inserts nothing**; an invalid payload 400s through the shared schema.
+- `GET /notebooks/{id}/sources/{id}/content` — slices contiguous and exact, reassembly
+  equals the `content` column byte for byte, `hasMore` false at the end, the metadata route
+  still carries no content field, and both a stranger's id and a cross-notebook source id
+  404.
 
-### Item 4 and 5, for the session after you
+### Exercised against the fake, headlessly
 
-Context you should carry forward, not act on:
+- Create returns **copies**, not live store objects (a caller mutating the result does not
+  reach the store), with the zero FSRS state.
+- A splitting edit keeps the original's **id, `fsrsState`, `due` and `reps`**.
+- Suspend round-trips; delete returns the deck to its starting count.
+- 27 small content slices reassemble byte-identically to one whole fetch.
+- `processing` and `failed` sources both return an empty slice and a zero total rather than
+  an error.
 
-**Item 4 — the layout restructure.** Today: sources 22%, chat 52%, studio 26%
-(`NotebookPage.tsx:193`). The most transient pane owns the most screen. Chat is ephemeral —
-`useState<AskResponse[]>([])`, no persistence, resets on navigation — and it has **never
-answered a question**, because no embedding key was ever supplied. The plan is a workspace
-pane in the centre showing whatever is selected (a source, the DeckBrowser, the overview),
-with chat moved somewhere suited to something ephemeral. **Two traps:** `PaneGroup`
-hardcodes `flex` in its own `cn(...)`, so a `hidden` class passed to it loses and both
-layouts render at once — branch, do not hide. And the Overview is currently reachable only
-via a tile labelled "Diagnostics" buried in the Studio grid; it should become a real tab.
+### Not verified by anything — a human clicking is the only check
 
-**Item 5 — study polish.** Card flip (respect `prefers-reduced-motion`), a quiz question
-navigator (exams have `ExamNavigator`; port the pattern), drill-incorrect on quiz and exam
-results, and inline markdown + math in `NoteBlocks.tsx`. That last one needs a React
-markdown renderer emitting elements — never raw HTML — and is the only item here that adds
-dependencies. Notes stay **read-only**; there is no notes editor and none is planned.
+**No browser was available in that session.** Every one of these is typechecked and built
+and has never been rendered:
+
+- The whole of `DeckBrowser.tsx`: layout, the dropdown menu, the inline editor mounting in
+  a list row, the confirm dialog, "Load more", every empty and error state.
+- The whole of `SourceViewer.tsx` and `SourceBody`: the sheet, scrolling a long document,
+  "Read more", and the processing/failed states.
+- **The `SourcesPane` click split** — the row now has three tab stops (open, select,
+  delete) where it had two. The claim that the checkbox and delete button keep their own
+  hit areas is a claim about markup, not an observation. **Check this with the keyboard as
+  well as the mouse**; it is the specific thing the previous brief warned about.
+- The "Browse cards" link in `StudioPane`, and whether two stacked links per deck row read
+  as one control or two.
+- Toast copy and whether the split-edit message actually makes sense to someone who did not
+  write it.
+
+If you start with anything, start by opening `npm run dev` and clicking through those.

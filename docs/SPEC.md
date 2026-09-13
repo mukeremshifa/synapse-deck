@@ -72,6 +72,7 @@ does not.
 /settings                                          settings
 /notebooks/:notebookId                             the notebook (three panes)
 /notebooks/:notebookId/overview                    analytics
+/notebooks/:notebookId/decks/:deckId/cards         card browser (list, edit, add)
 /notebooks/:notebookId/decks/:deckId/practice      practice runner
 /notebooks/:notebookId/quizzes/:quizId             quiz runner
 /notebooks/:notebookId/exams/:examId               exam runner
@@ -146,7 +147,7 @@ services/api/migrations/    append-only plain SQL
 infra/                      CDK, two stacks, us-east-1 — frozen, do not delete
 ```
 
-43 contract methods, all 43 served. Both implementations satisfy the interface with no
+46 contract methods, all 46 served. Both implementations satisfy the interface with no
 cast. **Change the contract first, then both sides.**
 
 ### Tenancy
@@ -199,6 +200,14 @@ Listed so the spec does not describe software that does not exist:
 - **Exam questions are a fixture.** The blueprint and diagnostic read real user data; the
   questions do not. The UI says so.
 - **Nothing is deployed.** The path has never been walked on real infrastructure.
-- Cards cannot be edited, listed, or created by hand. Sources cannot be opened.
+- **The layout is still wrong.** Chat owns 52% of the notebook while being ephemeral; the
+  Overview is reachable only through a tile labelled "Diagnostics". See §4.
+- **Study polish is missing**: no card flip, no question navigator in quizzes, no
+  drill-incorrect after a quiz or exam, and notes render without inline markdown or math.
 
-All four are [ROADMAP.md](ROADMAP.md) priority 1.
+All of these are [ROADMAP.md](ROADMAP.md) priority 1.
+
+**Cards can now be edited, listed, created by hand and suspended, and sources can be
+opened and read** — the four gaps this section used to name. The card browser is §3's
+`/decks/:deckId/cards`; the source viewer opens from the sources rail. Both are typechecked
+and built, and neither has been exercised in a browser, because there are no tests.
