@@ -202,21 +202,47 @@ function Stat({
 /* ── A notebook ───────────────────────────────────────────────────────── */
 
 /**
- * The whole card is the link, and the only action on it opens *this* notebook.
+ * A card whose every action names *this* notebook.
  *
  * That is the §3.5 rule made physical: there is nowhere on this screen to click
  * that does not name the notebook it is about.
+ *
+ * ── Why the card is no longer one big `<Link>` ───────────────────────────
+ *
+ * It was, and the due count was plain text inside it. ROADMAP.md's remaining
+ * complaint is that "five minutes between classes costs four clicks": a user
+ * with cards due had to open the notebook, find the deck in the Studio rail,
+ * and start it, with the count on this card telling them work was waiting while
+ * offering no way to reach it.
+ *
+ * So the count is now a link. It cannot be nested inside the card's own link —
+ * an `<a>` inside an `<a>` is invalid and browsers unnest it — so the card is a
+ * container with a stretched title link and the count as a *sibling*. The
+ * `after:absolute after:inset-0` on the title is what keeps the whole card
+ * clickable; `relative z-10` on the count lifts it back above that overlay.
+ * Two tab stops, both labelled, instead of one.
+ *
+ * **The count links to the notebook, not to a runner**, and that is the honest
+ * limit: `counts.dueCards` is an aggregate across every deck (see the contract's
+ * note on why the card gets counts rather than a nested graph), so this card
+ * cannot name a deck without one extra request per notebook. Pointing it at the
+ * notebook is a step removed, not a promise the data cannot keep — and it keeps
+ * the strip's rule intact, because it still names its subject.
  */
 function NotebookCard({ notebook }: { notebook: Notebook }) {
   const { counts, readiness } = notebook;
 
   return (
-    <Link
-      to={`/notebooks/${notebook.id}`}
-      className="bg-card hover:border-border-strong focus-visible:ring-ring flex h-full flex-col rounded-xl border p-base transition-colors outline-none focus-visible:ring-2"
-    >
+    <div className="bg-card hover:border-border-strong focus-within:ring-ring relative flex h-full flex-col rounded-xl border p-base transition-colors focus-within:ring-2">
       <div className="flex items-start justify-between gap-tight">
-        <p className="min-w-0 flex-1 font-medium break-words">{notebook.title}</p>
+        <p className="min-w-0 flex-1 font-medium break-words">
+          <Link
+            to={`/notebooks/${notebook.id}`}
+            className="rounded outline-none after:absolute after:inset-0"
+          >
+            {notebook.title}
+          </Link>
+        </p>
         <ReadinessBadge readiness={readiness} />
       </div>
 
@@ -236,9 +262,20 @@ function NotebookCard({ notebook }: { notebook: Notebook }) {
       <p className="text-muted-foreground mt-auto pt-snug font-mono text-xs">
         {plural(counts.sources, 'source')} ·{' '}
         {plural(counts.artifacts, 'artifact')}
-        {counts.dueCards > 0 ? ` · ${counts.dueCards} due` : ''}
+        {counts.dueCards > 0 ? (
+          <>
+            {' · '}
+            <Link
+              to={`/notebooks/${notebook.id}`}
+              aria-label={`Review ${plural(counts.dueCards, 'card')} due in ${notebook.title}`}
+              className="text-foreground hover:decoration-foreground focus-visible:ring-ring relative z-10 rounded underline decoration-dotted underline-offset-2 outline-none focus-visible:ring-2"
+            >
+              {counts.dueCards} due
+            </Link>
+          </>
+        ) : null}
       </p>
-    </Link>
+    </div>
   );
 }
 
