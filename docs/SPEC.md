@@ -70,7 +70,7 @@ does not.
 ```
 /                                                  home
 /settings                                          settings
-/notebooks/:notebookId                             the notebook (three panes)
+/notebooks/:notebookId                             the notebook (sources · workspace · Studio)
 /notebooks/:notebookId/overview                    analytics
 /notebooks/:notebookId/decks/:deckId/cards         card browser (list, edit, add)
 /notebooks/:notebookId/decks/:deckId/practice      practice runner
@@ -93,12 +93,24 @@ Three panes above tablet width, three tabs below `md`.
 
 | Pane | Width | Holds |
 | --- | --- | --- |
-| Sources | 22% | The notebook's sources. "+ Add source" is the primary CTA. |
-| Chat | 52% | Grounded chat. Ephemeral — no persistence, no history, resets on navigation. |
-| Studio | 26% | Artifacts by kind, each with server-computed readiness and provenance. |
+| Sources | 20% | The notebook's sources. "+ Add source" is the primary CTA. |
+| Workspace | 52% | Whatever is selected: a source, a deck's cards, or the notebook's summary. |
+| Studio | 28% | Artifacts by kind, each with server-computed readiness and provenance. |
 
-> **This split is wrong and [ROADMAP.md](ROADMAP.md) priority 1 changes it.** The most
-> transient pane owns the most screen; the study material is cramped into a quarter.
+**The workspace's selection is in the URL** — `?view=source&item=<id>`, `?view=deck&…`, or
+neither for the summary. Same test as a modal: a place you can be, link to and return to.
+It is also what keeps the address able to name an open deck, which matters because a route
+that read `:notebookId` and treated it as a deck id once served one notebook's session
+every notebook's cards.
+
+**Chat is a sheet, opened from the notebook header** (`?modal=chat`), not a pane. It is
+ephemeral — no persistence, no history, reset on navigation — and it owned 52% of the
+notebook until the layout restructure while the study material had a quarter. A sheet
+costs no screen at rest and is wider when open, which an answer with cited passages needs.
+
+The Overview is a named link in the header and the workspace. It used to be reachable only
+through a tile labelled "Diagnostics" in the Studio's grid of things you *create*, which is
+why it was never found.
 
 Below `md` both layouts must not render at once — `PaneGroup` hardcodes `flex` in its own
 `cn(...)`, so a `hidden` class passed to it loses. Branch, do not just hide.
@@ -200,14 +212,24 @@ Listed so the spec does not describe software that does not exist:
 - **Exam questions are a fixture.** The blueprint and diagnostic read real user data; the
   questions do not. The UI says so.
 - **Nothing is deployed.** The path has never been walked on real infrastructure.
-- **The layout is still wrong.** Chat owns 52% of the notebook while being ephemeral; the
-  Overview is reachable only through a tile labelled "Diagnostics". See §4.
-- **Study polish is missing**: no card flip, no question navigator in quizzes, no
-  drill-incorrect after a quiz or exam, and notes render without inline markdown or math.
+- **Nothing in priority 1 has been exercised in a browser.** The layout restructure, the
+  card and source workflows and the study polish are all typechecked and built and none has
+  been rendered — no browser has been available in any session that built them. This is the
+  largest gap in this list and the cheapest to close.
 
-All of these are [ROADMAP.md](ROADMAP.md) priority 1.
+What remains of [ROADMAP.md](ROADMAP.md) priority 1 is **visual refinement**: dark mode is
+flat pure black with no surface layering, loading states are raw spinners, and home shows
+four stats with no way to act on them.
 
-**Cards can now be edited, listed, created by hand and suspended, and sources can be
-opened and read** — the four gaps this section used to name. The card browser is §3's
-`/decks/:deckId/cards`; the source viewer opens from the sources rail. Both are typechecked
-and built, and neither has been exercised in a browser, because there are no tests.
+**The four workflow gaps this section used to name are closed.** Cards can be edited,
+listed, created by hand and suspended (§3's `/decks/:deckId/cards`, and inline in the
+workspace); sources can be opened and read in the workspace; the notebook's layout no
+longer gives the most screen to its most transient surface; and the study polish is in —
+card flip, a question navigator in quizzes, drill-incorrect after a quiz or exam, and
+inline markdown and math in notes.
+
+Inline formatting is `components/InlineText`, shared by chat answers and note blocks:
+`**bold**`, `*italic*`, `` `code` ``, `$math$` and `[1]` markers, rendered **as elements**.
+No markdown library — the safety is structural rather than configured, and the contract has
+no code, table or image block for an engine to parse. Maths sets variables, exponents and
+indices; anything beyond that renders as its own source rather than as a wrong formula.

@@ -17,30 +17,34 @@ dead end, and nothing on screen is a lie.
 
 ### Done
 
-- ~~Cards cannot be edited; no card list; no manual creation~~ — **`DeckBrowser` at
-  `/notebooks/:id/decks/:deckId/cards`** lists, edits, suspends, deletes and adds cards.
-  `createCards` was added to the contract, both clients and the API.
-- ~~Sources cannot be opened~~ — **`SourceViewer`**, opened from the source's title in the
-  rail. It needed more than `getSource`: see the decision below.
+- ~~Cards cannot be edited; no card list; no manual creation~~ — **`DeckBody`** lists,
+  edits, suspends, deletes and adds cards, full-screen at
+  `/notebooks/:id/decks/:deckId/cards` and inline in the workspace. `createCards` was added
+  to the contract, both clients and the API.
+- ~~Sources cannot be opened~~ — **`SourceBody`**, in the workspace. It needed more than
+  `getSource`: see the decision below.
+- ~~The chat pane owns 52% of the viewport~~ — **the centre is a workspace**: a source, a
+  deck's cards, or the notebook's summary, with the selection in the URL. Chat is a sheet
+  opened from the header.
+- ~~Every artifact click navigates away~~ — a deck's cards open **in** the notebook, with
+  the Studio still beside them. The full-screen route is kept for deep links and width.
+- ~~The Overview is reachable only through a "Diagnostics" tile~~ — it is a named link in
+  the header and the workspace, and the tile is gone.
+- ~~The polish gaps~~ — **card flip** (the answer turns, not the card), a **question
+  navigator** in quizzes (the exam's, shared rather than copied), **drill-incorrect** after
+  a quiz or exam, and **inline markdown and math** in notes via `components/InlineText`.
 
-Neither has been exercised in a browser. There are no tests.
+**None of this has been exercised in a browser.** No session that built it had one
+available. There are no tests, so nothing above is known to render — only to compile.
 
 ### What is broken today
 
-Four structural problems:
-
-- The chat pane owns 52% of the notebook viewport while being ephemeral, non-streaming and
-  reset on navigation. The Studio — where the actual study material lives — gets 26%.
-- Every artifact click unmounts the notebook shell and navigates away, so studying several
-  small decks is constant ping-pong.
-- The Overview (heatmaps, retention, forecast, mastery) is reachable only through a tile
-  labelled "Diagnostics" buried in a grid.
 - Home shows four stats and offers no way to act on them. Five minutes between classes
   costs four clicks.
+- Dark mode is flat pure black with no surface layering, and loading states are raw
+  spinners.
 
-Plus the polish gaps: no card flip, no drill-incorrect after a quiz, no question navigator
-in quizzes (exams have one), notes render without inline markdown or math, dark mode is
-flat pure black with no surface layering, and loading states are raw spinners.
+That is **visual refinement**, and it is what is left of this priority.
 
 ### Decisions already taken
 
@@ -49,10 +53,14 @@ flat pure black with no surface layering, and loading states are raw spinners.
 - **Card editing lands in the card list, not in the review runner.** Editing mid-review is
   the one moment a user is least able to judge a card fairly — that was the original
   reason the editor was disconnected, and it still holds. Browsing is the right context.
-- **Chat gets reorganised for the best possible UX**, which almost certainly means it
-  stops owning the centre of the screen. The centre becomes a workspace that shows
-  whatever is selected — a source, the card list, the overview. Chat moves to a surface
-  that suits something ephemeral.
+- **Chat does not own the centre.** Settled: the centre is a workspace showing whatever is
+  selected — a source, a deck's cards, or the notebook's summary — and chat is a sheet
+  opened from the notebook header. A pane, however narrow, spends screen on chat at rest;
+  a sheet costs nothing until opened and is wider when it is, which an answer with cited
+  passages needs.
+- **What the workspace shows is in the URL**, not local state: `?view=source&item=<id>`.
+  Same test as a modal — a place you can be, link to and return to — and it is what keeps
+  the address able to name an open deck.
 
 Taken while building the card and source workflows, and now binding:
 
@@ -65,17 +73,25 @@ Taken while building the card and source workflows, and now binding:
   block adding a deletion to a cloze that already exists.
 - **Deleting a card confirms; suspending does not.** Delete destroys FSRS history, which
   is the user's actual work. Suspend is the reversible one and the dialog names it.
-- **The `SourceViewer` is a sheet until the workspace pane exists.** Its readable half is
-  a separate `SourceBody` component that knows nothing about the sheet, so the layout
-  restructure moves it by rendering it elsewhere and dropping the wrapper.
+- **A body that owns no layout renders in any frame.** `SourceBody` was split from its
+  sheet before the workspace existed and moved into it unchanged; `DeckBody` was split from
+  `DeckBrowser`'s `FocusFrame` the same way and now renders in both. This is the pattern to
+  reach for when a surface needs to exist in two frames — not a fork.
+- **The drill after a quiz records nothing.** Re-asking the missed questions as a new
+  attempt would land a 100% score on a quiz actually scored 60% in the user's history, and
+  every aggregate reading attempts would see improvement that never happened. It drills what
+  was answered wrongly, never what was left unanswered.
+- **No markdown library.** Inline formatting is a regex split producing elements
+  (`components/InlineText`), so it cannot emit HTML by construction rather than by
+  configuration. A real engine would also parse block structure the contract does not
+  have.
 
 ### Order
 
-~~Contract and card workflows first~~ ~~then the source viewer~~ — both done. Next is the
-**layout restructure**, then study polish, then visual refinement.
-
-The layout restructure is the largest and most invasive item. It waits until the things it
-would otherwise churn are already built.
+~~Contract and card workflows~~ ~~the source viewer~~ ~~the layout restructure~~ ~~study
+polish~~ — all done. What is left is **visual refinement**, and before it, the one thing
+worth more than any of it: **open the app and use it.** Four sessions have now built
+priority 1 without a browser, so every claim above is "it compiles", not "it works".
 
 ---
 
