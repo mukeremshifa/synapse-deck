@@ -220,6 +220,38 @@ function SelectedDeck({
 }) {
   const artifact = useArtifact(notebookId, deckId);
 
+  /*
+   * A deck the id does not name gets the same treatment a missing source gets,
+   * and for the same reason: the toolbar is outside `DeckBody`'s own guards, so
+   * without this it keeps the title "Cards" and — worse — keeps offering
+   * "Practise" and "Full screen" as live links **into the deck that is not
+   * there.** Found by opening `?view=deck&item=<made up>` in a browser, where
+   * the body said "Could not load this deck" while the header above it offered
+   * two ways to navigate deeper into nothing.
+   *
+   * `isError` rather than `!artifact.data`: while the query is still pending
+   * there is nothing to report yet, and `DeckBody` renders the skeletons.
+   */
+  if (artifact.isError) {
+    return (
+      <>
+        <WorkspaceToolbar
+          icon={<LayersIcon className="text-muted-foreground size-4" aria-hidden />}
+          title="Deck not found"
+          onClose={onClose}
+        />
+        <div className="p-gutter">
+          <EmptyState
+            icon={<LayersIcon />}
+            title="That deck is not in this notebook"
+            description="It may have been deleted, or the link may name a deck from somewhere else."
+            action={<Button onClick={onClose}>Back to the notebook</Button>}
+          />
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <WorkspaceToolbar
