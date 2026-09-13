@@ -9,7 +9,6 @@ import {
   ListIcon,
   PlayIcon,
   SparklesIcon,
-  StethoscopeIcon,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -22,6 +21,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { GenerationPanel } from './GenerationPanel';
 import { useNotebookJobs } from './jobs';
 import { useArtifacts, useDeleteArtifact } from './queries';
+import { workspaceSearch } from './workspace';
 
 /**
  * The right pane: what you can make, and what you have made.
@@ -112,7 +112,7 @@ export function StudioPane({ notebookId }: { notebookId: string }) {
 
         {artifacts.data && (
           <div className="flex flex-col gap-gutter">
-            <GeneratorGrid notebookId={notebookId} />
+            <GeneratorGrid />
 
             {/*
               What is running, what failed, and what finished with gaps — above
@@ -219,17 +219,27 @@ export function StudioPane({ notebookId }: { notebookId: string }) {
 /**
  * What this notebook can make.
  *
- * `kind` is the contract's `ArtifactKind` for the four that are one, and `null`
- * for Diagnostics, which is a *view* over attempts and card states rather than
- * a thing you generate — FR6 builds it, and it links to the overview. The null
- * is what stops a later session wiring a "generate a diagnostic" modal to a
- * kind that does not exist in the contract. Recorded in the plan's §6.4.
+ * ── The "Diagnostics" tile is gone, and that was the point ───────────────
+ *
+ * There used to be a fifth tile with `kind: null`, because the Overview is a
+ * *view* over attempts and card states rather than a thing you generate. The
+ * null was a guard against wiring a "generate a diagnostic" modal to a kind the
+ * contract does not have — but the tile itself was the bug ROADMAP.md names:
+ * **the Overview was reachable only through it**, under a word the rest of the
+ * product never uses, in a grid of things you create. It read as a fifth kind
+ * of artifact and so nobody found the analytics.
+ *
+ * It is now a named link in the notebook header and in the workspace, next to
+ * the other ways of *looking at* a notebook rather than making one. With it
+ * goes the null: every generator here is a real `ArtifactKind`, the grid is
+ * exactly the contract's list again, and there is no longer a nullable kind for
+ * a later session to mishandle.
  */
 type Generator = {
   id: string;
   label: string;
   icon: LucideIcon;
-  kind: ArtifactKind | null;
+  kind: ArtifactKind;
   /** One line under the label, saying what the thing is for. */
   blurb: string;
 };
@@ -263,27 +273,20 @@ const GENERATORS: readonly Generator[] = [
     kind: 'exam',
     blurb: 'A timed paper, built to a blueprint',
   },
-  {
-    id: 'diagnostics',
-    label: 'Diagnostics',
-    icon: StethoscopeIcon,
-    kind: null,
-    blurb: 'Where you are strong and where you are not',
-  },
 ];
 
 /**
- * The grid. Two columns, because the Studio is a 26%-wide pane that resizes
+ * The grid. Two columns, because the Studio is a ~28%-wide pane that resizes
  * down to 18% — three would put four words on four lines.
  */
-function GeneratorGrid({ notebookId }: { notebookId: string }) {
+function GeneratorGrid() {
   return (
-    <section className="flex flex-col gap-tight">
+    <section className="gap-tight flex flex-col">
       <h3 className="px-tight text-sm font-medium">Create</h3>
-      <ul className="grid grid-cols-2 gap-hairline">
+      <ul className="gap-hairline grid grid-cols-2">
         {GENERATORS.map(generator => (
           <li key={generator.id} className="min-w-0">
-            <GeneratorTile generator={generator} notebookId={notebookId} />
+            <GeneratorTile generator={generator} />
           </li>
         ))}
       </ul>
@@ -291,13 +294,7 @@ function GeneratorGrid({ notebookId }: { notebookId: string }) {
   );
 }
 
-function GeneratorTile({
-  generator,
-  notebookId,
-}: {
-  generator: Generator;
-  notebookId: string;
-}) {
+function GeneratorTile({ generator }: { generator: Generator }) {
   const { openModal } = useModal();
   const Icon = generator.icon;
 
@@ -313,27 +310,12 @@ function GeneratorTile({
     </>
   );
 
-  const className =
-    'hover:bg-accent flex h-full w-full flex-col rounded-md border p-tight text-left transition-colors';
-
-  /*
-   * Diagnostics is a view over what the other four produced, so it navigates
-   * rather than offering to generate anything.
-   */
-  if (generator.kind === null) {
-    return (
-      <Link to={notebookPath.overview(notebookId)} className={className}>
-        {body}
-      </Link>
-    );
-  }
-
   return (
     <button
       type="button"
-      className={className}
+      className="hover:bg-accent p-tight flex h-full w-full flex-col rounded-md border text-left transition-colors"
       onClick={() => {
-        openModal('generate', { kind: generator.kind ?? '' });
+        openModal('generate', { kind: generator.kind });
       }}
     >
       {body}
@@ -439,6 +421,15 @@ function ArtifactRow({
    * already knows this rail. Two siblings, two tab stops, each naming where it
    * goes.
    *
+   * **Browse now opens in the workspace rather than navigating away.** That is
+   * the restructure's point: studying several small decks used to be constant
+   * ping-pong, because every artifact click unmounted the notebook shell. The
+   * cards now appear in the centre pane with this rail still beside them — and
+   * the URL still names the deck (`?view=deck&item=…`), which is not optional:
+   * a deck on screen that the address cannot name is the shape of a real bug
+   * this app already had. The full-screen browser is still one click away from
+   * the workspace toolbar.
+   *
    * Nothing is offered for the other three kinds: there is no list to browse
    * behind a quiz, an exam or a note set that the runner does not already show.
    */
@@ -457,8 +448,9 @@ function ArtifactRow({
     <div className="flex flex-col gap-hairline">
       {link}
       <Link
-        to={notebookPath.cards(notebookId, artifact.id)}
-        className="text-muted-foreground hover:text-foreground hover:bg-accent flex items-center gap-tight rounded-md px-tight py-0.5 text-xs transition-colors"
+        to={{ search: workspaceSearch({ kind: 'deck', id: artifact.id }) }}
+        replace
+        className="text-muted-foreground hover:text-foreground hover:bg-accent gap-tight px-tight flex items-center rounded-md py-0.5 text-xs transition-colors"
       >
         <ListIcon className="size-3 shrink-0" aria-hidden />
         Browse cards

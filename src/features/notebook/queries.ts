@@ -311,7 +311,7 @@ export function useSaveResponseAsNote(notebookId: string) {
  *
  * The final fallback is the first selected id, which is reached only when an
  * answer cited nothing — and an answer with no citations and no selection
- * cannot be saved at all, which is why `ChatPane` hides the button in that case
+ * cannot be saved at all, which is why `ChatBody` hides the button in that case
  * rather than letting this return something invented.
  */
 function noteSourceFor(response: AskResponse, sourceIds: string[]): string {

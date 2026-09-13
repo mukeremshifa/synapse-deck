@@ -1,15 +1,9 @@
 import { useRef, useState } from 'react';
-import {
-  ArrowUpIcon,
-  BookmarkPlusIcon,
-  MessageCircleIcon,
-  QuoteIcon,
-} from 'lucide-react';
+import { ArrowUpIcon, BookmarkPlusIcon, MessageCircleIcon, QuoteIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Toolbar, ToolbarSpacer } from '@/components/layout';
 import { EmptyState } from '@/components/states';
 import type { AskResponse } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -17,7 +11,20 @@ import { AnswerText } from './AnswerText';
 import { useAsk, useSaveResponseAsNote } from './queries';
 
 /**
- * The centre pane: grounded chat over this notebook's sources.
+ * Grounded chat over this notebook's sources — **the transcript and the
+ * composer, with no chrome of its own.**
+ *
+ * ── It is no longer the centre pane ──────────────────────────────────────
+ *
+ * It was, at 52% of the notebook, and the layout restructure moved it into
+ * `ChatSheet` — a right-hand sheet opened on demand. The argument is written up
+ * there: a surface this transient should not own the resting layout, and an
+ * answer with cited passages reads better in a wide sheet than a narrow pane.
+ *
+ * What moved was the frame. This is the same transcript and the same composer,
+ * with its `Toolbar` dropped because the sheet's header now says what chat is
+ * and which sources ground it. Split out rather than forked, for the reason
+ * `SourceBody` was: one implementation of the conversation surface.
  *
  * ═══ What is settled here, and what is deliberately not ══════════════════
  *
@@ -59,7 +66,7 @@ import { useAsk, useSaveResponseAsNote } from './queries';
  * fake it answers fine and the surface is exercised; that proves the surface,
  * not the retrieval. Recorded in the plan's §7 and not reported as working.
  */
-export function ChatPane({
+export function ChatBody({
   notebookId,
   selectedIds,
   readySourceCount,
@@ -101,20 +108,13 @@ export function ChatPane({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <Toolbar>
-        <MessageCircleIcon className="text-muted-foreground size-4" aria-hidden />
-        <h2 className="text-sm font-medium">Chat</h2>
-        <ToolbarSpacer />
-        <span className="text-muted-foreground text-xs">
-          {readySourceCount === 0
-            ? 'No sources ready'
-            : sourceIds.length > 0
-              ? `Grounded in ${String(sourceIds.length)} selected`
-              : `Grounded in all ${String(readySourceCount)}`}
-        </span>
-      </Toolbar>
-
+    /*
+      `-mx-gutter` pulls the scroll container out to the sheet's edges: the
+      sheet supplies the page padding, and a transcript that scrolls inside an
+      inset box leaves a dead margin the answers never reach. The padding comes
+      back on the inner column, where it belongs.
+    */
+    <div className="-mx-gutter -mb-gutter flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="gap-gutter p-gutter mx-auto flex w-full max-w-2xl flex-col">
           {exchanges.length === 0 && (

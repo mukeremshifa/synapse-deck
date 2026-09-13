@@ -113,7 +113,18 @@ export type ModalName =
   /** FR3: edit one card. */
   | 'edit-card'
   /** FR3: this notebook's settings. */
-  | 'notebook-settings';
+  | 'notebook-settings'
+  /**
+   * Grounded chat over this notebook's sources.
+   *
+   * A modal rather than a pane since the layout restructure: chat is ephemeral
+   * — no persistence, no history, reset on navigation — and it owned 52% of the
+   * notebook while the study material had a quarter. It is in the URL like
+   * every other modal because it *configures*: which sources ground an answer
+   * is a real choice, and "open this notebook with chat up" is a thing worth
+   * being able to link to.
+   */
+  | 'chat';
 
 const MODAL_NAMES: readonly ModalName[] = [
   'new-notebook',
@@ -121,6 +132,7 @@ const MODAL_NAMES: readonly ModalName[] = [
   'add-source',
   'edit-card',
   'notebook-settings',
+  'chat',
 ];
 
 function isModalName(value: string | null): value is ModalName {

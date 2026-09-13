@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ChevronLeftIcon, SettingsIcon } from 'lucide-react';
+import {
+  BarChart3Icon,
+  ChevronLeftIcon,
+  MessageCircleIcon,
+  SettingsIcon,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -17,15 +22,44 @@ import { AccountMenu } from '@/app/AccountMenu';
 import { useModal } from '@/app/modals';
 import { notebookPath } from '@/lib/notebooks';
 import { AddSourceModal } from './AddSourceModal';
-import { ChatPane } from './ChatPane';
+import { ChatSheet } from './ChatSheet';
 import { GenerateModal } from './GenerateModal';
 import { NotebookSettingsModal } from './NotebookSettingsModal';
 import { SourcesPane } from './SourcesPane';
 import { StudioPane } from './StudioPane';
+import { WorkspacePane } from './WorkspacePane';
 import { useNotebook, useSources } from './queries';
 
 /**
- * The notebook — sources, chat, Studio. FR3, brief §3.3.
+ * The notebook — sources, workspace, Studio.
+ *
+ * ═══ The layout restructure, and what it fixed ═══════════════════════════
+ *
+ * Until this commit the centre was **chat, at 52%**, and the Studio — where the
+ * study material lives — had 26%. ROADMAP.md priority 1 calls that the layout's
+ * central mistake: *the most transient pane owned the most screen.* Chat is
+ * `useState([])`, it resets on navigation, and it has never answered a real
+ * question, because no embedding key was ever supplied.
+ *
+ * Three changes, and each is a move rather than a rewrite:
+ *
+ * 1. **The centre is a workspace** showing whatever is selected — a source you
+ *    are reading, a deck you are editing, or the notebook's own summary.
+ *    `WorkspacePane` renders bodies that already existed (`SourceBody`,
+ *    `DeckBody`), so nothing was reimplemented to put it there.
+ * 2. **Chat moved to a sheet** opened from this header. It costs no screen at
+ *    rest and opens wider than a pane, which is what an answer with cited
+ *    passages needs. See `ChatSheet`.
+ * 3. **The Overview is a named link**, here and in the workspace. It was
+ *    reachable only through a tile labelled "Diagnostics" buried in the Studio
+ *    grid, which is why nobody found it.
+ *
+ * What is open is **in the URL** (`?view=source&item=…`), not local state —
+ * see `workspace.ts`. That is `modals.tsx`'s own test applied honestly, and it
+ * is what keeps the address able to name the deck on screen: a route that read
+ * `:notebookId` and treated it as a deck id was a real bug that served one
+ * notebook's session every notebook's cards, and a deck openable without an
+ * address would be that bug's shape again.
  *
  * ═══ The shape, and the one rule behind it ═══════════════════════════════
  *
@@ -137,13 +171,7 @@ function NotebookShell({ notebookId }: { notebookId: string }) {
         onToggleSource={toggleSource}
       />
     ),
-    chat: (
-      <ChatPane
-        notebookId={notebookId}
-        selectedIds={selectedIds}
-        readySourceCount={readySourceCount}
-      />
-    ),
+    workspace: <WorkspacePane notebookId={notebookId} />,
     studio: <StudioPane notebookId={notebookId} />,
   };
 
@@ -153,6 +181,9 @@ function NotebookShell({ notebookId }: { notebookId: string }) {
         notebookId={notebookId}
         title={notebook.data?.title ?? 'Notebook'}
         pending={notebook.isPending}
+        onChat={() => {
+          openModal('chat');
+        }}
         onSettings={() => {
           openModal('notebook-settings');
         }}
@@ -189,35 +220,58 @@ function NotebookShell({ notebookId }: { notebookId: string }) {
           The minimums are not decoration: below ~15% the sources rail truncates
           every title to nothing, and the centre pane is where the reading
           happens, so it keeps the largest share by default.
+
+          ── The id is `-v2`, deliberately ─────────────────────────────────
+
+          A stored layout is three percentages against the *old* three panes.
+          Restoring it would hand the workspace whatever width the user had
+          chosen for **chat** — so anyone who had dragged that pane narrow, which
+          is the rational thing to do with a surface that never answered, would
+          open the new notebook with the workspace crushed to it. A new key
+          discards those sizes once rather than silently mis-restoring them.
         */
-        <PaneGroup autoSaveId="notebook-panes" className="min-h-0 flex-1">
-          <Pane defaultSize={22} minSize={15} className="border-r">
+        <PaneGroup autoSaveId="notebook-panes-v2" className="min-h-0 flex-1">
+          <Pane defaultSize={20} minSize={15} className="border-r">
             {panes.sources}
           </Pane>
           <PaneHandle />
+          {/*
+            The workspace takes the centre and the largest share — it is where
+            the reading, the editing and the studying happen, which is the whole
+            argument of the restructure.
+          */}
           <Pane defaultSize={52} minSize={30}>
-            {panes.chat}
+            {panes.workspace}
           </Pane>
           <PaneHandle />
-          <Pane defaultSize={26} minSize={18} className="border-l">
+          {/*
+            The Studio keeps a little more than it had. It is the answer to
+            "what have I got and what do I do next", and at 26% its generator
+            tiles were already two words to a line.
+          */}
+          <Pane defaultSize={28} minSize={18} className="border-l">
             {panes.studio}
           </Pane>
         </PaneGroup>
       ) : (
-        <Tabs
-          defaultValue="sources"
-          className="flex min-h-0 flex-1 flex-col gap-0"
-        >
+        /*
+          Below `md`, the same three surfaces as tabs — and the workspace is the
+          one that opens, because it is what the notebook is *for*. Chat is not
+          a tab: it is the sheet, reachable from the header at every width, so
+          the phone layout has one fewer tab rather than a fourth competing with
+          the study material.
+        */
+        <Tabs defaultValue="workspace" className="flex min-h-0 flex-1 flex-col gap-0">
           <TabsList className="mx-snug mt-snug">
             <TabsTrigger value="sources">Sources</TabsTrigger>
-            <TabsTrigger value="chat">Chat</TabsTrigger>
+            <TabsTrigger value="workspace">Workspace</TabsTrigger>
             <TabsTrigger value="studio">Studio</TabsTrigger>
           </TabsList>
           <TabsContent value="sources" className="min-h-0 flex-1">
             {panes.sources}
           </TabsContent>
-          <TabsContent value="chat" className="min-h-0 flex-1">
-            {panes.chat}
+          <TabsContent value="workspace" className="min-h-0 flex-1">
+            {panes.workspace}
           </TabsContent>
           <TabsContent value="studio" className="min-h-0 flex-1">
             {panes.studio}
@@ -234,6 +288,16 @@ function NotebookShell({ notebookId }: { notebookId: string }) {
       <AddSourceModal notebookId={notebookId} />
       <NotebookSettingsModal notebookId={notebookId} />
       <GenerateModal notebookId={notebookId} />
+      {/*
+        Chat is mounted here for exactly the reason above, and it is the case
+        that makes the reason concrete: it needs the grounding selection, which
+        lives in this shell, and it must survive switching tabs on a phone.
+      */}
+      <ChatSheet
+        notebookId={notebookId}
+        selectedIds={selectedIds}
+        readySourceCount={readySourceCount}
+      />
     </div>
   );
 }
@@ -250,11 +314,13 @@ function NotebookHeader({
   notebookId,
   title,
   pending = false,
+  onChat,
   onSettings,
 }: {
   notebookId: string;
   title: string;
   pending?: boolean;
+  onChat?: () => void;
   onSettings?: () => void;
 }) {
   return (
@@ -276,12 +342,35 @@ function NotebookHeader({
       <div className="flex-1" />
 
       {/*
+        ── Chat, which used to be half the screen ─────────────────────────
+
+        It is a header control now rather than a pane, and it is a labelled
+        button rather than a bare icon: chat moving out of the centre is the
+        one change in this restructure a returning user has to be told about,
+        and an unlabelled speech bubble tells them nothing.
+      */}
+      {onChat && (
+        <Button variant="ghost" size="sm" onClick={onChat}>
+          <MessageCircleIcon aria-hidden />
+          Chat
+        </Button>
+      )}
+
+      {/*
         The overview is FR6's, and the link is here because this header is the
         only place that can carry it — it is a view *of this notebook*, so by
         the rule in `AppShell` it can never live in a global nav.
+
+        It is also one of the two places the Overview is now named. It used to
+        be reachable *only* through a tile labelled "Diagnostics" in the Studio
+        grid, which is why it went unfound; the workspace's resting state
+        carries the other link.
       */}
       <Button variant="ghost" size="sm" asChild>
-        <Link to={notebookPath.overview(notebookId)}>Overview</Link>
+        <Link to={notebookPath.overview(notebookId)}>
+          <BarChart3Icon aria-hidden />
+          Overview
+        </Link>
       </Button>
 
       {onSettings && (
