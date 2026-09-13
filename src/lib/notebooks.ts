@@ -60,6 +60,8 @@ export const notebookPath = {
   open: (id: string) => `/notebooks/${id}`,
   /** The notebook's centre — artifacts, readiness, diagnostics, plan (FR6). */
   overview: (id: string) => `/notebooks/${id}/overview`,
+  /** Browse a deck's cards -- list, edit, suspend, delete, add. */
+  cards: (id: string, deckId: string) => `/notebooks/${id}/decks/${deckId}/cards`,
   practice: (id: string, deckId: string) => `/notebooks/${id}/decks/${deckId}/practice`,
   quiz: (id: string, quizId: string) => `/notebooks/${id}/quizzes/${quizId}`,
   exam: (id: string, examId: string) => `/notebooks/${id}/exams/${examId}`,

@@ -6,6 +6,7 @@ import {
   ClipboardListIcon,
   FileQuestionIcon,
   LayersIcon,
+  ListIcon,
   PlayIcon,
   SparklesIcon,
   StethoscopeIcon,
@@ -423,13 +424,46 @@ function ArtifactRow({
     return <div className={`${className} bg-muted/30 text-muted-foreground`}>{body}</div>;
   }
 
-  return (
+  /*
+   * ── A deck is two verbs, and only a deck ───────────────────────────────
+   *
+   * Every artifact can be *run*, and the row is that link -- one destination,
+   * one tab stop, as the note above explains. A deck alone can also be
+   * *browsed*: its cards are a list you edit, suspend and add to, which is
+   * where `CardEditor` finally has a screen.
+   *
+   * **The Practice link is untouched.** Browse is a second link beneath it
+   * rather than a control inside it, because nesting an interactive element in
+   * an `<a>` is the invalid markup the row was deliberately built to avoid, and
+   * because a row whose primary action changed would retrain every user who
+   * already knows this rail. Two siblings, two tab stops, each naming where it
+   * goes.
+   *
+   * Nothing is offered for the other three kinds: there is no list to browse
+   * behind a quiz, an exam or a note set that the runner does not already show.
+   */
+  const link = (
     <Link
       to={runnerPath(notebookId, artifact)}
       className={`${className} hover:bg-accent group`}
     >
       {body}
     </Link>
+  );
+
+  if (artifact.kind !== 'deck') return link;
+
+  return (
+    <div className="flex flex-col gap-hairline">
+      {link}
+      <Link
+        to={notebookPath.cards(notebookId, artifact.id)}
+        className="text-muted-foreground hover:text-foreground hover:bg-accent flex items-center gap-tight rounded-md px-tight py-0.5 text-xs transition-colors"
+      >
+        <ListIcon className="size-3 shrink-0" aria-hidden />
+        Browse cards
+      </Link>
+    </div>
   );
 }
 

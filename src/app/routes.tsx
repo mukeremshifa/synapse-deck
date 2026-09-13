@@ -101,6 +101,11 @@ const OverviewPage = lazy(() =>
     default: module.OverviewPage,
   })),
 );
+const DeckBrowser = lazy(() =>
+  import('@/features/cards/DeckBrowser').then(module => ({
+    default: module.DeckBrowser,
+  })),
+);
 
 /** Page-shaped, so the layout does not jump when the real page arrives. */
 function Lazy({ children }: { children: ReactNode }) {
@@ -207,6 +212,20 @@ export function AppRoutes() {
           <Route
             path="notebooks/:notebookId/decks/:deckId/practice"
             element={<PracticePage />}
+          />
+          {/*
+            Browsing a deck, as distinct from practising it. It names the deck
+            for the same reason every runner does: a route that read
+            `:notebookId` and treated it as a deck id was a real bug, and one
+            notebook's session served every notebook's cards.
+          */}
+          <Route
+            path="notebooks/:notebookId/decks/:deckId/cards"
+            element={
+              <Lazy>
+                <DeckBrowser />
+              </Lazy>
+            }
           />
           <Route path="notebooks/:notebookId/quizzes/:quizId" element={<QuizPage />} />
           <Route path="notebooks/:notebookId/exams/:examId" element={<ExamPage />} />
