@@ -190,20 +190,39 @@
 }
 
 .dark {
-  /* Background 0.145 and card 0.19: the gap is what makes a card read as a card
-     without a border doing the work, which is how dark themes usually fail. */
-  --background: oklch(0.145 0 0);
+  /* Background 0.125 and card 0.205: the gap is what makes a card read as a card
+     without a border doing the work, which is how dark themes usually fail.
+
+     **Widened at the first browser review.** The old pair (0.145 / 0.19) was a
+     0.045 step — 1.07:1, which is not a step you can see. ROADMAP.md called the
+     result "flat pure black with no surface layering" and DESIGN-SYSTEM.md's own
+     open question 5 predicted it: the tokens were correct by measurement while
+     the *composition* had never been looked at. Opening the app confirmed it —
+     page, stat bar and cards all read as one sheet.
+
+     The fix is a wider ramp, not chroma: rule 1 (neutrals are chroma 0) still
+     holds, and depth still comes from the surface steps rather than shadow, per
+     the Elevation rule. Dropping the page to 0.125 and lifting the card to 0.205
+     takes the step to 1.13:1 and leaves each later surface a visible move again.
+
+     `border-strong`/`input` rise to 0.535 with them. At card 0.205 the old 0.5
+     fell to 2.92:1 against a card — under the 3.0 that SC 1.4.11 governs, and
+     the reason a naive "just lift the card" is wrong. `muted-foreground` rises
+     to 0.715 for the same reason on the muted surface. Every pair is in
+     `scripts/check-contrast.mjs`, including the two surface steps, which are
+     new: nothing gated surface separation before, which is how it went flat. */
+  --background: oklch(0.125 0 0);
   --foreground: oklch(0.98 0 0);
-  --card: oklch(0.19 0 0);
+  --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.98 0 0);
-  --popover: oklch(0.19 0 0);
+  --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.98 0 0);
 
-  --secondary: oklch(0.255 0 0);
+  --secondary: oklch(0.275 0 0);
   --secondary-foreground: oklch(0.98 0 0);
-  --muted: oklch(0.255 0 0);
-  --muted-foreground: oklch(0.7 0 0);
-  --accent: oklch(0.255 0 0);
+  --muted: oklch(0.275 0 0);
+  --muted-foreground: oklch(0.715 0 0);
+  --accent: oklch(0.275 0 0);
   --accent-foreground: oklch(0.98 0 0);
 
   /* Slightly less light than the light theme's, because on a dark ground the
@@ -218,9 +237,9 @@
   --warning: oklch(0.8 0.15 70);
   --warning-foreground: oklch(0.16 0 0);
 
-  --border: oklch(0.275 0 0);
-  --border-strong: oklch(0.5 0 0);
-  --input: oklch(0.5 0 0);
+  --border: oklch(0.3 0 0);
+  --border-strong: oklch(0.535 0 0);
+  --input: oklch(0.535 0 0);
   --ring: oklch(0.905 0.18 130);
 
   /* The same ramp, lifted for the dark ground. */

@@ -189,6 +189,66 @@ for (const [theme, tokens] of Object.entries(themes)) {
   }
 }
 
+/* ── Surfaces have to be distinguishable from each other ─────────────────
+   **This section is new, added at the first browser review of the app.**
+
+   Every pair above asks "can you read this *on* that". None of them asked "can
+   you see where this ends and that begins" — and that is a different question,
+   which nothing was checking. Dark theme had drifted to a 0.045 lightness step
+   between the page and a card (1.07:1), which ROADMAP.md recorded as "flat pure
+   black with no surface layering" and which opening the app confirmed: the page,
+   the stat bar and the notebook cards all read as one continuous sheet.
+
+   1.10:1 is a deliberately low bar. Surface separation is not a WCAG criterion
+   — no text depends on it — so this is a *drift alarm*, not an accessibility
+   gate: it is set just tight enough to catch a ramp collapsing back to flat, and
+   loose enough that a designed change does not have to argue with it. The
+   Elevation rule in DESIGN-SYSTEM.md is what it protects: depth in this app
+   comes from surface steps, because shadows barely read on a dark ground.
+
+   **Dark theme only, and that is not an oversight.** Light theme separates a
+   card from the page with a hairline, not a fill: `--card` is pure white on
+   white paper, which is 1.00 here and is *correct* — a light theme that tints
+   its cards grey to prove they are cards is the thing this palette deliberately
+   does not do. Running this check across both themes would report a permanent
+   FLAT row for a design decision, which is the "wish list" failure the PAIRS
+   note above warns about. So it runs where surface steps are the mechanism. */
+
+const SURFACES = [
+  ['card', 'background', 1.1, 'a card against the page'],
+  ['muted', 'card', 1.1, 'a muted fill against a card'],
+  ['popover', 'background', 1.1, 'a popover against the page'],
+];
+
+/** The theme whose depth comes from fills rather than hairlines. */
+const SURFACE_THEME = 'dark';
+
+const surfaceRows = [];
+
+for (const [theme, tokens] of Object.entries(themes)) {
+  if (theme !== SURFACE_THEME) continue;
+  for (const [aName, bName, min, what] of SURFACES) {
+    const a = tokens[aName];
+    const b = tokens[bName];
+    if (!a || !b) {
+      surfaceRows.push([theme, `${aName} / ${bName}`, '—', min, 'MISSING', what]);
+      failures += 1;
+      continue;
+    }
+    const r = ratio(a.rgb, b.rgb);
+    const pass = r >= min;
+    if (!pass) failures += 1;
+    surfaceRows.push([
+      theme,
+      `${aName} / ${bName}`,
+      r.toFixed(3),
+      min,
+      pass ? 'pass' : 'FLAT',
+      what,
+    ]);
+  }
+}
+
 /* ── Report ──────────────────────────────────────────────────────────── */
 
 const pad = (s, n) => String(s).padEnd(n);
@@ -209,6 +269,19 @@ console.log(pad('theme', 7) + pad('role', 7) + pad('L values', 34) + pad('steps'
 console.log('-'.repeat(112));
 for (const [theme, role, Ls, steps, verdict] of rampRows) {
   console.log(pad(theme, 7) + pad(role, 7) + pad(Ls, 34) + pad(steps, 26) + verdict);
+}
+
+console.log(
+  '\nSurface separation — can you see where one surface ends and the next begins\n',
+);
+console.log(
+  pad('theme', 7) + pad('surfaces', 30) + pad('ratio', 9) + pad('min', 6) + pad('', 8) + 'where',
+);
+console.log('-'.repeat(112));
+for (const [theme, pair, r, min, verdict, what] of surfaceRows) {
+  console.log(
+    pad(theme, 7) + pad(pair, 30) + pad(r, 9) + pad(min.toFixed(2), 6) + pad(verdict, 8) + what,
+  );
 }
 
 console.log(
